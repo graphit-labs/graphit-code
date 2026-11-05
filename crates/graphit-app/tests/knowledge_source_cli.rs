@@ -5,6 +5,9 @@ use graphit_app::{
     native_install_http::NativeInstallPolicy,
     source_server::{SourcePolicy, SourceServer},
 };
+#[allow(dead_code)]
+#[path = "support/knowledge_cli_daemon.rs"]
+mod cli_daemon;
 #[path = "support/knowledge_ask_server.rs"]
 mod fixture_support;
 use graphit_auth::{
@@ -189,9 +192,7 @@ async fn compiled_knowledge_source_reads_full_markdown_slices_and_missing_identi
         if tail {
             command.args(["--tail", "2", "--line-numbers"]);
         }
-        let output = tokio::task::spawn_blocking(move || command.output().unwrap())
-            .await
-            .unwrap();
+        let output = cli_daemon::output(command).await;
         assert!(
             output.status.success(),
             "{}",
@@ -213,5 +214,9 @@ async fn compiled_knowledge_source_reads_full_markdown_slices_and_missing_identi
         }
     }
     stop.cancel();
-    serving.await.unwrap().unwrap();
+    tokio::time::timeout(Duration::from_secs(5), serving)
+        .await
+        .expect("Source owner must finish after cancellation")
+        .unwrap()
+        .unwrap();
 }

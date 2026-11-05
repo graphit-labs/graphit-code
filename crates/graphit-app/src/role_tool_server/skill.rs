@@ -167,6 +167,13 @@ pub(super) fn read(
             });
         }
     }
+    let broker = crate::instruction_overrides::BrokerInstructions::load(
+        state.auth.issuer(),
+        state.policy.source.installation.root(),
+        original,
+    )
+    .map_err(|_| error("broker_instruction_layer_unavailable"))?;
+    candidates.extend(broker.candidates(set.candidates()));
     let mut values = BTreeMap::new();
     values.insert("tool_transport".to_owned(), "role".to_owned());
     values.insert("brand".to_owned(), paths.brand().key().to_owned());

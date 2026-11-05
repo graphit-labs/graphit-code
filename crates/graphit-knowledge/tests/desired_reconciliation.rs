@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 use graphit_knowledge as knowledge;
 #[path = "support/desired_reconciliation_fixture.rs"]
 mod fixture;

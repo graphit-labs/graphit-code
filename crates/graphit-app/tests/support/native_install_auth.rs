@@ -42,6 +42,16 @@ pub struct Broker {
     pub origin: String,
     key: Ed25519KeyPair,
     pub counts: Arc<[AtomicUsize; 3]>,
+    #[allow(
+        dead_code,
+        reason = "Configured only by the Source executable consumer of this shared fixture"
+    )]
+    instructions: Arc<std::sync::Mutex<(u16, serde_json::Value)>>,
+    #[allow(
+        dead_code,
+        reason = "Observed only by the Source executable consumer of this shared fixture"
+    )]
+    instruction_requests: Arc<AtomicUsize>,
     stop: tokio::sync::oneshot::Sender<()>,
     task: JoinHandle<()>,
 }
@@ -79,6 +89,8 @@ impl Broker {
             AtomicUsize::new(0),
         ]);
         let discovery_gate = Arc::new(tokio::sync::Mutex::new(discovery_gate));
+        let instructions = Arc::new(std::sync::Mutex::new((404, json!({}))));
+        let instruction_requests = Arc::new(AtomicUsize::new(0));
         let router = axum::Router::new();
         let router = [
             ("/.well-known/graphit-broker", metadata),
@@ -180,6 +192,27 @@ impl Broker {
                 },
             ),
         );
+        let instruction_reply = Arc::clone(&instructions);
+        let instruction_count = Arc::clone(&instruction_requests);
+        let router = router.route(
+            "/v1/agent-instructions",
+            axum::routing::get(move |headers: axum::http::HeaderMap| {
+                let reply = instruction_reply.lock().unwrap().clone();
+                instruction_count.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    assert!(
+                        headers
+                            .get(axum::http::header::AUTHORIZATION)
+                            .and_then(|value| value.to_str().ok())
+                            .is_some_and(|value| value.starts_with("Bearer ") && value.len() > 7)
+                    );
+                    (
+                        axum::http::StatusCode::from_u16(reply.0).unwrap(),
+                        axum::Json(reply.1),
+                    )
+                }
+            }),
+        );
         let (stop, stopped) = tokio::sync::oneshot::channel();
         let task = tokio::spawn(async move {
             axum::serve(listener, router)
@@ -193,6 +226,8 @@ impl Broker {
             origin,
             key,
             counts,
+            instructions,
+            instruction_requests,
             stop,
             task,
         }
@@ -216,6 +251,20 @@ impl Broker {
     }
     pub fn requests(&self) -> [usize; 3] {
         std::array::from_fn(|i| self.counts[i].load(Ordering::SeqCst))
+    }
+    #[allow(
+        dead_code,
+        reason = "Source executable controls this optional route; Native install targets reuse the fixture without it"
+    )]
+    pub fn instruction_reply(&self, status: u16, body: serde_json::Value) {
+        *self.instructions.lock().unwrap() = (status, body);
+    }
+    #[allow(
+        dead_code,
+        reason = "Source executable observes this optional route; Native install targets reuse the fixture without it"
+    )]
+    pub fn instruction_requests(&self) -> usize {
+        self.instruction_requests.load(Ordering::SeqCst)
     }
 }
 pub fn now() -> u64 {

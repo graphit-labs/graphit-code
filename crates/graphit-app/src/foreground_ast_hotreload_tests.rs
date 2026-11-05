@@ -288,7 +288,7 @@ async fn automatic_external_runtime_user_and_global_config_reload_two_projects()
         let mut output = Vec::new();
         crate::source_entry::call_source(
             &installation,
-            &reqwest::Client::new(),
+            &source_http_client(),
             &serde_json::from_value(json!({"path":"while-disabled.user"}))?,
             NativeDocumentFileLimits::new(
                 65536,

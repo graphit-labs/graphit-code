@@ -13,12 +13,21 @@ path = "src/main.rs"
 name = "kiro-knowledge-fixture"
 path = "tests/support/kiro_knowledge_fixture.rs"
 test = false
+harness = false
 bench = false
 
 [[bin]]
 name = "opencode-knowledge-fixture"
 path = "tests/support/opencode_knowledge_fixture.rs"
 test = false
+harness = false
+bench = false
+
+[[bin]]
+name = "app-runtime-fixture"
+path = "tests/support/app_runtime_fixture.rs"
+test = false
+harness = false
 bench = false
 
 [[test]]
@@ -123,6 +132,9 @@ axum = { version = "=0.8.9", default-features = false, features = ["ws"] }
 parquet-graph-fixture = { package = "parquet", version = "=60.0.0", default-features = false, features = ["zstd"] }
 aws-lc-rs = "=1.18.1"
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+rustix = { workspace = true, features = ["pty", "termios"] }
+
 [build-dependencies]
 graphit-core = { path = "../graphit-core" }
 
@@ -138,4 +150,19 @@ type_complexity = "allow"
 name = "app-copilot-fixture"
 path = "tests/support/copilot_cli_fixture.rs"
 test = false
+harness = false
+bench = false
+
+[[bin]]
+name = "app-agent-fixture"
+path = "tests/support/app_agent_fixture.rs"
+test = false
+harness = false
+bench = false
+
+[[bin]]
+name = "app-dream-fixture"
+path = "tests/support/dream_cli_fixture.rs"
+test = false
+harness = false
 bench = false

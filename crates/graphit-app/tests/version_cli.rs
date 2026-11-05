@@ -1,3 +1,6 @@
+#[path = "support/finite_cli.rs"]
+mod finite_cli;
+use finite_cli::FiniteOutput;
 use std::{
     collections::BTreeMap,
     ffi::OsString,
@@ -28,7 +31,7 @@ fn command(cwd: &Path, args: &[OsString]) -> Command {
 }
 
 fn assert_output(command: &mut Command, code: i32, stdout: &[u8], stderr: &[u8]) {
-    let output = command.output().expect("run Graphit binary");
+    let output = command.finite_output().expect("run Graphit binary");
     assert_eq!(output.status.code(), Some(code));
     assert_eq!(output.stdout, stdout);
     assert_eq!(output.stderr, stderr);
@@ -126,7 +129,7 @@ fn unsupported_arguments_fail_with_clap_diagnostic_and_no_output() {
     for args in cases {
         let root = TempDir::new().unwrap();
         let before = snapshot(root.path());
-        let output = command(root.path(), &args).output().unwrap();
+        let output = command(root.path(), &args).finite_output().unwrap();
         assert_eq!(output.status.code(), Some(2));
         assert!(output.stdout.is_empty());
         assert!(!output.stderr.is_empty());

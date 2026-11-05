@@ -3,51 +3,7 @@ use super::*;
 impl Fixture {
     async fn start_grok(&self, broker: &Broker, deadline_ms: Option<u64>) -> ForegroundSource {
         let program = self.temp.path().join("grok");
-        std::fs::write(&program, r#"#!/usr/bin/python3
-import json, os, sys, time, signal
-signal.signal(signal.SIGTERM, lambda *_: open(os.environ["GROK_RELEASE"] + ".term", "w").write("term"))
-args = sys.argv[1:]
-assert len(args) in (9, 11)
-assert args[0] == '--prompt-file'
-prompt_file = args[1]
-assert os.stat(prompt_file).st_mode & 0o777 == 0o600
-with open(prompt_file) as file:
-    prompt = json.load(file)
-assert sys.stdin.read() == ''
-query = prompt['question']
-session = '00000000-0000-4000-8000-000000000001'
-base = ['--output-format','streaming-json','--model','fixture-model','--verbatim','--deny','*']
-flags = args[2:]
-assert flags == base or flags == base + ['--resume',session]
-with open(os.environ['GROK_JOURNAL'], 'a') as journal:
-    journal.write(json.dumps({'args': flags, 'query': query, 'cwd': os.getcwd(), 'prompt_file': prompt_file, 'captured': os.environ.get('GROK_CAPTURED'), 'pid': os.getpid()}) + '\n')
-if query == 'wait for release':
-    print(json.dumps({'type':'text','data':'grok native progress'}), flush=True)
-    while not os.path.exists(os.environ['GROK_RELEASE']):
-        time.sleep(0.01)
-    assert os.path.exists(prompt_file)
-else:
-    print(json.dumps({'type':'text','data':'Paris answer'}), flush=True)
-if query == 'malformed':
-    print('{bad native frame', flush=True)
-    sys.exit(0)
-if query == 'missing end':
-    sys.exit(0)
-if query == 'native error':
-    print(json.dumps({'type':'error','message':'native failure'}), flush=True)
-    sys.exit(0)
-if query == 'mismatch':
-    session = '00000000-0000-4000-8000-000000000002'
-if query == 'invalid session':
-    session = 'Session title'
-terminal = {'type':'end','stopReason':'end_turn','sessionId':session,'requestId':''}
-if query == 'missing session':
-    del terminal['sessionId']
-print(json.dumps(terminal), flush=True)
-if query == 'nonzero':
-    sys.exit(7)
-"#).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        agent_fixture::install(&program, json!({"kind":"conversation","protocol":"grok"}));
         self.start_native(
             broker,
             Some(json!(true)),

@@ -381,7 +381,7 @@ async fn genuine_role_endpoint_lists_local_now_and_preserves_grant_scope_and_rev
     let client: RunningService<RoleClient, ()> = ()
         .serve_with_lifecycle(
             StreamableHttpClientTransport::with_client(
-                reqwest::Client::new(),
+                crate::source_server::test_http_client(),
                 StreamableHttpClientTransportConfig::with_uri(format!(
                     "http://{address}/roles/mcp"
                 ))

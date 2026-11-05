@@ -26,6 +26,7 @@ pub(super) struct Invocation<'a, 'user, 'project> {
     pub model: &'a str,
     pub query: &'a str,
     pub selected_slugs: &'a [String],
+    pub instruction: &'a str,
     pub cwd: &'a Path,
     pub project_id: String,
     pub project_version: &'a str,
@@ -41,6 +42,7 @@ pub(super) async fn execute(input: Invocation<'_, '_, '_>) -> CallToolResult {
         input.model,
         input.service.policy.completion.max_model_id_bytes,
         input.service.policy.question,
+        input.instruction,
     )
     .await
     {

@@ -219,7 +219,7 @@ async fn client<H: ClientHandler>(
     let client = handler
         .serve_with_lifecycle(
             StreamableHttpClientTransport::with_client(
-                reqwest::Client::new(),
+                crate::source_server::test_http_client(),
                 StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(headers),
             ),
             ClientLifecycleMode::Discover {
@@ -373,11 +373,7 @@ print('{{"type":"turn.completed","usage":{{"input_tokens":8,"cached_input_tokens
             let mut stream = tokio::task::spawn_blocking(move || gate.accept().unwrap().0)
                 .await
                 .unwrap();
-            assert!(
-                tokio::time::timeout(Duration::from_millis(40), &mut request)
-                    .await
-                    .is_err()
-            );
+            assert!(futures_util::poll!(&mut request).is_pending());
             stream.write_all(b"x").unwrap();
             let result = request.await.unwrap();
             assert_eq!(result.is_error, Some(false));
@@ -890,11 +886,7 @@ fn kiro_stateless_v3_stream_is_private_and_precedes_real_terminal() {
                         break;
                     }
                 }
-                assert!(
-                    tokio::time::timeout(Duration::from_millis(40), &mut request)
-                        .await
-                        .is_err()
-                );
+                assert!(futures_util::poll!(&mut request).is_pending());
                 assert!(
                     !std::fs::read_to_string(temp.path().join("kiro-journal"))
                         .unwrap()

@@ -3,34 +3,7 @@ use super::*;
 impl Fixture {
     async fn start_qwen(&self, broker: &Broker, deadline_ms: Option<u64>) -> ForegroundSource {
         let program = self.temp.path().join("qwen");
-        std::fs::write(&program, r#"#!/usr/bin/python3
-import json, os, sys, time, signal
-signal.signal(signal.SIGTERM, lambda *_: open(os.environ["QWEN_RELEASE"] + ".term", "w").write("term"))
-args = sys.argv[1:]
-prompt = json.load(sys.stdin)
-query = prompt['question']
-session = '00000000-0000-4000-8000-000000000001'
-base = ['--input-format','text','--output-format','stream-json','--include-partial-messages','--model','fixture-model']
-assert args == base or args == base + ['--resume',session]
-with open(os.environ['QWEN_JOURNAL'], 'a') as journal:
-    journal.write(json.dumps({'args': args, 'query': query, 'cwd': os.getcwd(), 'captured': os.environ.get('QWEN_CAPTURED'), 'pid': os.getpid()}) + '\n')
-if query == 'mismatch':
-    session = '00000000-0000-4000-8000-000000000002'
-if query != 'missing init':
-    print(json.dumps({'type':'system','subtype':'init','uuid':'init-native','session_id':session,'model':'observed-native'}), flush=True)
-if query == 'wait for release':
-    while not os.path.exists(os.environ['QWEN_RELEASE']):
-        time.sleep(0.01)
-if query == 'malformed':
-    print('{bad native frame', flush=True)
-    sys.exit(0)
-if query == 'missing result':
-    sys.exit(0)
-print(json.dumps({'type':'result','subtype':'error' if query == 'native error' else 'success','uuid':'terminal-native','duration_ms':1,'duration_api_ms':1,'is_error':query == 'native error','num_turns':1,'session_id':session,'result':'Paris answer','usage':{'input_tokens':7,'output_tokens':3},'permission_denials':[],'error':{'message':'native failure'} if query == 'native error' else None}), flush=True)
-if query == 'nonzero':
-    sys.exit(7)
-"#).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        agent_fixture::install(&program, json!({"kind":"conversation","protocol":"qwen"}));
         self.start_native(
             broker,
             Some(json!(true)),

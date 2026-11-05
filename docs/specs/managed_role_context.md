@@ -169,6 +169,8 @@ producer/consumer contracts. Kiro V3 is the sole current binding for the Runtime
 
 ## Validation and sources
 
+The default Runtime consumer tests use the Cargo-built `app-runtime-fixture` for controlled native peers. The guarded runner supplies its exact executable through `GRAPHIT_TEST_APP_RUNTIME_FIXTURE`. The peers exercise real child processes, ACP acknowledgements before prompts, generated profiles and hook commands, authenticated Role MCP calls, denials, Memory effects, EOF and owned cleanup. Their configuration and proof files belong to each test's private directory. They require no Python interpreter or vendor account. The Coordinator Rust journey executes the exact invocations serialized into the published plugin, including context, compaction, idle and deletion. The standard Node suite executes the production JavaScript template and verifies setup, callbacks, foreign context preservation, cancellation, subscription errors and cleanup. These controlled protocols qualify Graphit consumers and preserve separate installed-host qualification.
+
 The six functional tests cover deterministic default/alternate brands, generic
 content and coordinator-only protocol, names at 64/65 bytes, cancellation and
 expiry after successful composition, and the actual Hub descriptor using the

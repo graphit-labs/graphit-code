@@ -446,23 +446,30 @@ async fn perform_user(
             std::str::from_utf8(&corpus.bytes).map_err(|_| io::ErrorKind::InvalidData)?;
         let attempt_id = operation_id()?;
         let set = policy_prompt(PolicyPrompt::UserDreamConsolidation);
-        let prompt = render_instruction(
-            set.entry(),
-            set.candidates(),
-            &[
-                InstructionVariable {
-                    name: "dream_session_id",
-                    value: InstructionValue::Text(&attempt_id),
-                },
-                InstructionVariable {
-                    name: "memories_json",
-                    value: InstructionValue::Text(corpus_text),
-                },
-            ],
-            plan.policy.instructions,
-            original.snapshot(),
-        )
-        .map_err(io::Error::other)?;
+        let sources = crate::instruction_overrides::InstructionSources::capture(
+            plan.auth.issuer(),
+            &plan.policy.source,
+            None,
+            &original,
+        )?;
+        let prompt = sources
+            .render(
+                set.entry(),
+                set.candidates(),
+                &[
+                    InstructionVariable {
+                        name: "dream_session_id",
+                        value: InstructionValue::Text(&attempt_id),
+                    },
+                    InstructionVariable {
+                        name: "memories_json",
+                        value: InstructionValue::Text(corpus_text),
+                    },
+                ],
+                plan.policy.instructions,
+                &original,
+            )
+            .map_err(io::Error::other)?;
         let mut guard = NativeGuard {
             original: original.snapshot(),
             parent: &parent,

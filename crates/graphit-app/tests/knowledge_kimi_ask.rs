@@ -1,5 +1,7 @@
 #![cfg(target_os = "linux")]
 //! Kimi native REST/WS Ask through the real Graphit CLI, HTTP and STDIO ingress.
+#[path = "support/agent_fixture.rs"]
+mod agent_fixture;
 use graphit_app::{
     native_install_http::NativeInstallPolicy,
     source_server::{SourcePolicy, SourceServer},
@@ -26,7 +28,6 @@ use std::{
     ffi::OsString,
     io,
     num::NonZeroUsize,
-    os::unix::fs::PermissionsExt,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -394,19 +395,18 @@ impl SdkHarness {
 #[path = "../../graphit-ai/tests/support/kimi_peer.rs"]
 mod peer;
 #[test]
-#[ignore = "native subprocess peer; explicitly invoked by the focused suites"]
+#[ignore = "subprocess entry point launched by the default Kimi Ask tests"]
 fn native_kimi_peer() {
     peer::run();
 }
 fn native_peer(f: &fixture_support::Fixture) {
     let program = f.temp.path().join("kimi");
-    let executable = std::env::current_exe().unwrap();
-    let quoted = format!("'{}'", executable.to_str().unwrap().replace('\'', "'\\''"));
-    let script = format!(
-        "#!/bin/sh\n[ \"$*\" = 'web --no-open --host 127.0.0.1 --port 0 --log-level error' ] || exit 81\nprintf '%s\\n' \"$@\" > \"$KIMI_NATIVE_ARGS\"\nexec {quoted} --ignored --exact native_kimi_peer --nocapture --format terse\n"
+    agent_fixture::install(
+        &program,
+        json!({
+            "kind":"kimi","program":std::env::current_exe().unwrap(),"test":"native_kimi_peer"
+        }),
     );
-    std::fs::write(&program, script).unwrap();
-    std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o700)).unwrap();
 }
 fn captured(f: &fixture_support::Fixture, mode: &str) -> Vec<(OsString, OsString)> {
     let mut environment = vec![

@@ -1053,8 +1053,8 @@ async fn user_capture_guards_owner_original_config_cancel_deadline_path_and_fenc
         let ctx = request(&cancel);
         let f = Fixture::new(&ctx).await;
         let verifier = f.server.verifier(true, f.provider_revision(&ctx));
-        let expiry = now_seconds() + if ending == 3 { 5 } else { 600 };
-        let raw = f.server.token(SUBJECT, RESOURCE, expiry);
+        let seed_expiry = now_seconds() + 600;
+        let raw = f.server.token(SUBJECT, RESOURCE, seed_expiry);
         let proof = verifier
             .verify(&raw, BrokerRequestContext::new(ctx.snapshot()))
             .await
@@ -1094,6 +1094,35 @@ async fn user_capture_guards_owner_original_config_cancel_deadline_path_and_fenc
             .unwrap()
             .remove(0);
         let before = sdk::pin(&f).await.version();
+        // Publish and capture with a durable proof before starting the expiry boundary.
+        let expiry = now_seconds() + if ending == 3 { 5 } else { 600 };
+        let raw = f.server.token(SUBJECT, RESOURCE, expiry);
+        let proof = verifier
+            .verify(&raw, BrokerRequestContext::new(ctx.snapshot()))
+            .await
+            .unwrap();
+        let read = f
+            .issuer
+            .admit_incoming_user_memory_read(&proof, &verifier, &ctx, "service", f.scope())
+            .unwrap();
+        let write = f
+            .issuer
+            .admit_incoming_user_memory_write(
+                &proof,
+                &verifier,
+                &ctx,
+                "service",
+                f.scope(),
+                graphit_auth::UserMemoryWriteOperation::Memory,
+            )
+            .unwrap();
+        assert!(
+            c.next_documents(ctx.snapshot(), &read)
+                .await
+                .unwrap()
+                .is_none(),
+            "the refreshed proof must remain valid for the original capture before invalidation"
+        );
         match ending {
             0 => {
                 let result = f

@@ -239,8 +239,14 @@ async fn check_live_http(cwd: &Path) -> Result<(), Error> {
                         rmcp::model::CallToolRequestParams::new(name)
                             .with_arguments(arguments.as_object().ok_or_else(Error::internal_error)?.clone())
                     ).await.map_err(Error::into_internal_error)?;
-                    if reply.is_error == Some(true) { return Err(Error::internal_error()); }
-                    let value = reply.structured_content.as_ref().ok_or_else(Error::internal_error)?;
+                    if reply.is_error == Some(true) {
+                        journal(&format!("live_mcp_tool_error:{name}"));
+                        return Err(Error::internal_error());
+                    }
+                    let value = reply.structured_content.as_ref().ok_or_else(|| {
+                        journal(&format!("live_mcp_missing_json:{name}"));
+                        Error::internal_error()
+                    })?;
                     let observed = match name {
                         "graphit_ast_source" => value["selection"]["source"].as_str().is_some_and(|s| s.contains("browser_search_sum")),
                         "graphit_ast_schema" => value.to_string().contains("Function"),
@@ -248,7 +254,10 @@ async fn check_live_http(cwd: &Path) -> Result<(), Error> {
                         "graphit_ast_search" => value["results"].as_array().is_some_and(|hits| hits.iter().any(|h| h["name"] == "browser_search_sum")),
                         _ => false,
                     };
-                    if !observed { return Err(Error::internal_error()); }
+                    if !observed {
+                        journal(&format!("live_mcp_unexpected_result:{name}"));
+                        return Err(Error::internal_error());
+                    }
                 }
             }
             Ok(())
@@ -293,6 +302,29 @@ async fn fixture() -> Result<(), Error> {
     let model = std::env::var("KIRO_FIXTURE_MODEL").map_err(Error::into_internal_error)?;
     journal("engine_v3");
     let mode = std::env::var("KIRO_FIXTURE_MODE").unwrap_or_else(|_| "answer".into());
+    // These scenarios deliberately retain the child through TERM until the
+    // actual Process owner completes its grace/kill/join path.
+    #[cfg(unix)]
+    let _term = if matches!(mode.as_str(), "cancel_delay_exit" | "clear_delay_exit") {
+        Some(
+            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                .map_err(Error::into_internal_error)?,
+        )
+    } else {
+        None
+    };
+    #[cfg(unix)]
+    let _term_ack = if mode == "answer_exit_gate" {
+        let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .map_err(Error::into_internal_error)?;
+        Some(tokio::spawn(async move {
+            while signal.recv().await.is_some() {
+                journal("term_received");
+            }
+        }))
+    } else {
+        None
+    };
     let requested = Arc::new(model);
     let selected = Arc::new(Mutex::new(String::new()));
     let new_model = Arc::clone(&requested);
@@ -523,6 +555,7 @@ async fn fixture() -> Result<(), Error> {
                     });
                 }
                 let gated = prompt_mode == "stream_gate" || prompt_mode == "live_http";
+                let exit_gated = prompt_mode == "answer_exit_gate";
                 if prompt_mode == "live_http" {
                     journal("live_quiet_wait");
                 }
@@ -538,7 +571,7 @@ async fn fixture() -> Result<(), Error> {
                         })
                         .await
                         .map_err(Error::into_internal_error)?;
-                    } else {
+                    } else if !exit_gated {
                         tokio::time::sleep(Duration::from_millis(120)).await;
                     }
                     journal("terminal");
@@ -557,6 +590,14 @@ async fn fixture() -> Result<(), Error> {
         .connect_to(Stdio::new())
         .await;
     journal("driver_closed");
+    if mode == "answer_exit_gate" {
+        let path = std::env::var_os("KIRO_FIXTURE_JOURNAL").ok_or_else(Error::internal_error)?;
+        let gate = std::path::PathBuf::from(path).with_extension("exit");
+        journal("exit_gate");
+        while !gate.exists() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
     if mode == "delay_exit" || mode == "cancel_delay_exit" || mode == "clear_delay_exit" {
         tokio::time::sleep(Duration::from_secs(20)).await;
     }

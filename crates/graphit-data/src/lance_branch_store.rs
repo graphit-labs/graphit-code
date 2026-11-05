@@ -55,6 +55,8 @@ use object_store::{ObjectStore as PublicObjectStore, path::Path};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, error::Error, fmt, sync::Arc};
 
+mod ast_corpus;
+pub use ast_corpus::{AST_INDEX_BATCH, AstCorpusStats, cleanup_ast_corpus};
 mod file_replace;
 mod fts;
 mod fts_state;
@@ -219,6 +221,7 @@ impl LanceBranchStore {
                 dataset: Arc::new(dataset),
                 delegate,
                 inherited_target: None,
+                ast_reader: None,
             },
         })
     }
@@ -255,6 +258,7 @@ pub struct BranchSnapshot {
     dataset: Arc<Dataset>,
     delegate: Arc<dyn CommitHandler>,
     inherited_target: Option<String>,
+    ast_reader: Option<Arc<std::fs::File>>,
 }
 
 /// SDK identity observed around the same named-branch capture as its data pin.
@@ -320,6 +324,7 @@ impl BranchSnapshot {
             dataset: Arc::new(dataset),
             delegate,
             inherited_target,
+            ast_reader: None,
         })
     }
     /// Open an exact published version through the caller's private SDK session.
@@ -351,6 +356,7 @@ impl BranchSnapshot {
                 dataset: Arc::new(dataset),
                 delegate,
                 inherited_target: None,
+                ast_reader: None,
             },
             location,
         ))
@@ -544,6 +550,7 @@ impl BranchSnapshot {
             dataset: Arc::new(dataset),
             delegate: Arc::clone(&self.delegate),
             inherited_target: self.inherited_target.clone(),
+            ast_reader: self.ast_reader.clone(),
         })
     }
 
@@ -635,6 +642,7 @@ impl BranchSnapshot {
                 schema: Arc::new(Schema::from(dataset.schema())),
                 dataset: Arc::new(dataset),
                 delegate: Arc::clone(&self.delegate),
+                ast_reader: self.ast_reader.clone(),
                 inherited_target: if from_parent {
                     Some(branch.to_owned())
                 } else {
@@ -658,6 +666,7 @@ impl BranchSnapshot {
             uri: self.uri.clone(),
             schema: Arc::clone(&self.schema),
             dataset: Arc::clone(&self.dataset),
+            ast_reader: self.ast_reader.clone(),
         }
     }
     pub async fn materialize(mut self) -> Result<Self, BranchError> {

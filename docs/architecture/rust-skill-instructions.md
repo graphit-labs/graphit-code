@@ -99,7 +99,7 @@ or a replacement cancellation token. An ingress that requires a finite deadline
 keeps that separate requirement. Native platform execution remains separately
 qualified.
 
-An explicit `--skill-bundle MODULE=ID@VERSION` selects a locally installed Hub Skill at an exact version. The consumer reads the maintained `SKILL.md` plus canonical reference paths, retaining source observations and current registry membership through publication. Project and Global raw overrides retain their normal priority over that selected Hub source and the compiled defaults. Malformed selected body or companion input fails without adopting a lower-priority source. Equal foreign bytes do not establish ownership, and a refused retarget preserves the previous owned publication.
+An explicit `--skill-bundle MODULE=ID@VERSION` selects a locally installed Hub Skill at an exact version. The consumer reads the maintained `SKILL.md` plus canonical reference paths, retaining source observations and current registry membership through publication. Project and Global raw overrides retain their normal priority over that selected Hub source, the active Broker layer and the compiled defaults. Malformed selected body or companion input fails without adopting a lower-priority source. Equal foreign bytes do not establish ownership, and a refused retarget preserves the previous owned publication.
 
 A pre-existing skill directory without an entry for the selected publication key is
 also foreign on the first install/sync. The Core publication check returns

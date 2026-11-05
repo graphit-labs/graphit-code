@@ -1,6 +1,8 @@
 //! Real Auth/Core/Hub publication and compiled CLI journeys. ACP peers test transport,
 //! not installed Kiro model perception.
 #![cfg(unix)]
+#[path = "support/runtime_peer.rs"]
+mod runtime_peer;
 use graphit_app::{
     managed_roles::InstallResources,
     project_hook_install::{self, HookOutcome, HookRequest},
@@ -39,7 +41,7 @@ use serde_json::{Value, json};
 use std::{
     fs, io,
     num::{NonZeroU32, NonZeroUsize},
-    os::unix::fs::{PermissionsExt, symlink},
+    os::unix::fs::symlink,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -599,77 +601,16 @@ fn command(
     cmd
 }
 fn acp_fixture(bin: &Path, brand: &Brand) -> io::Result<()> {
-    let prefix = format!(
-        "EXE={}\nBRAND={}\nHOOKS_FILE={}\n",
-        serde_json::to_string(env!("CARGO_BIN_EXE_graphit"))?,
-        serde_json::to_string(brand.key())?,
-        serde_json::to_string(
-            &bin.parent()
-                .ok_or(io::ErrorKind::InvalidInput)?
-                .join("hook-commands.json")
-        )?
-    );
-    let body = r#"import json,os,sys,subprocess
-role=json.loads(os.environ["GRAPHIT_ROLE_REFERENCE"])["role"]
-cwd=None
-def send(message): print(json.dumps(message),flush=True)
-def response(child,ident):
-    for line in child.stdout:
-        message=json.loads(line)
-        if message.get("id")==ident:return message
-    raise RuntimeError("Role stdio closed")
-def request(child,method,params,ident):
-    message={"jsonrpc":"2.0","method":method,"params":params}
-    if ident is not None:message["id"]=ident
-    child.stdin.write(json.dumps(message)+"\n");child.stdin.flush()
-    if ident is not None:return response(child,ident)
-for line in sys.stdin:
-    message=json.loads(line);method=message.get("method");ident=message.get("id");params=message.get("params",{})
-    if method=="initialize":
-        send({"jsonrpc":"2.0","id":ident,"result":{"protocolVersion":1,"agentCapabilities":{}}})
-    elif method=="session/new":
-        cwd=params["cwd"]
-        assert sys.argv[1:]==["acp","--agent-engine=v3"]
-        assert params["_meta"]["kiro"]["modeId"]==BRAND+"-"+role
-        send({"jsonrpc":"2.0","id":ident,"result":{"sessionId":"hook-boundary"}})
-    elif method=="session/prompt":
-        assert os.environ.get("GRAPHIT_ROLE_BEARER") and os.environ.get("GRAPHIT_ROLE_REFERENCE") and os.environ.get("GRAPHIT_ROLE_SELECTION")
-        if role=="scribe":
-            with subprocess.Popen([EXE,"mcp","--stdio","--role"],cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True) as child:
-                assert "result" in request(child,"initialize",{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"hook-qualification","version":"1"}},1)
-                request(child,"notifications/initialized",{},None)
-                answer=request(child,"tools/call",{"name":BRAND+"_memory_insert","arguments":{"input":{"idempotency_key":"hook-native-mandatory-3180","title":"PROJECT mandatory hook qualification","body":"MANDATORY-3180 literal {{ untrusted }}","classification":"convention","mandatory":True,"important":False,"tags":[]}}},2)
-                assert "result" in answer and not answer["result"].get("isError",False)
-                child.stdin.close();assert child.wait(timeout=15)==0
-        else:
-            # The private ENV selects Role even without --role; verify its real scope and write denial.
-            with subprocess.Popen([EXE,"mcp","--stdio"],cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True) as child:
-                assert "result" in request(child,"initialize",{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"hook-qualification","version":"1"}},1)
-                request(child,"notifications/initialized",{},None)
-                answer=request(child,"tools/call",{"name":BRAND+"_module_skill","arguments":{"input":{"module":"task"}}},2)
-                assert "result" in answer and not answer["result"].get("isError",False)
-                assert BRAND+"_task" in json.dumps(answer["result"])
-                denied=request(child,"tools/call",{"name":BRAND+"_memory_list","arguments":{"input":{}}},3)
-                assert "result" in denied and denied["result"].get("isError",False)
-                denied=request(child,"tools/call",{"name":BRAND+"_memory_insert","arguments":{"input":{"idempotency_key":"hook-native-tracker-denied","title":"Tracker must not write Memory","body":"must remain denied","classification":"convention","mandatory":False,"important":False,"tags":[]}}},4)
-                assert "result" in denied and denied["result"].get("isError",False)
-                child.stdin.close();assert child.wait(timeout=15)==0
-                stderr=child.stderr.read()
-                assert "MANDATORY-3180" not in stderr and os.environ["GRAPHIT_ROLE_BEARER"] not in stderr
-            with open(HOOKS_FILE) as file:hooks=json.load(file)
-            for hook in hooks:
-                result=subprocess.run(["/bin/sh","-c",hook],cwd=cwd,input="",capture_output=True,text=True)
-                assert result.returncode!=0 and not result.stdout
-                assert "Root session hook is unavailable in a managed-role transport context" in result.stderr
-                assert "MANDATORY-3180" not in result.stderr and os.environ["GRAPHIT_ROLE_BEARER"] not in result.stderr
-        send({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"hook-boundary","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Role hook boundary verified"}}}})
-        send({"jsonrpc":"2.0","id":ident,"result":{"stopReason":"end_turn"}})
-"#;
-    let script = format!("#!/usr/bin/env python3\n{prefix}{body}");
-    let file = bin.join("kiro-cli");
-    fs::write(&file, script)?;
-    fs::set_permissions(file, fs::Permissions::from_mode(0o700))
+    runtime_peer::install(
+        bin,
+        Some(serde_json::json!({
+            "fixture":"hooks", "brand":brand.key(), "graphit":env!("CARGO_BIN_EXE_graphit"),
+            "hooks_file":bin.parent().ok_or(io::ErrorKind::InvalidInput)?.join("hook-commands.json")
+        })),
+        &["kiro-cli"],
+    )
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn project_hook_compiled_cli_real_writer_mandatory_and_role_factory_v3()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -716,18 +657,6 @@ async fn project_hook_compiled_cli_real_writer_mandatory_and_role_factory_v3()
         // Its managed child must receive both from the captured native launch.
         let source_bin = temp.path().join("source-bin");
         fs::create_dir(&source_bin)?;
-        let python = Command::new(which::which("python3")?)
-            .args(["-c", "import sys; print(sys.executable)"])
-            .output()?;
-        assert!(
-            python.status.success(),
-            "Python interpreter discovery failed"
-        );
-        let executable = String::from_utf8(python.stdout)?;
-        let executable = Path::new(executable.trim_end_matches(['\r', '\n']));
-        assert!(executable.is_absolute() && executable.is_file());
-        // A Python version-manager shim can require a shell absent from this private PATH.
-        std::os::unix::fs::symlink(executable, source_bin.join("python3"))?;
         std::os::unix::fs::symlink(which::which("git")?, source_bin.join("git"))?;
         std::os::unix::fs::symlink(
             temp.path().join("bin/kiro-cli"),

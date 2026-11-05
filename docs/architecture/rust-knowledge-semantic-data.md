@@ -157,6 +157,16 @@ validada no alvo: a mudança concorrente para um espaço incompatível é erro,
 mesmo quando uma linha selecionada ainda está sem vetor. Uma branch retirada
 não é recriada por um lote que já estava em execução.
 
+Um `vector = NULL` permanece pendente mesmo quando `input_fingerprint`,
+`vector_id`, `projection_recipe` e `role` ainda estão preenchidos. A evolução
+nullable do SDK pode conservar esses metadados ao retirar e readicionar a
+coluna vetorial. Metadados iguais não certificam a presença de um vetor.
+`Attach` pode preencher essa ausência; protege um vetor presente contra outro
+valor para o mesmo input e identidade. Essa proteção não muda o modo de
+publicação nem substitui as verificações de texto, modelo, autorização e CAS.
+Depois do preenchimento, uma nova captura reutiliza o vetor compatível sem
+inferência nem nova versão.
+
 O cursor documental avança junto com a inferência; seu EOF é exigido ao concluir
 a publicação, não antes do primeiro lote. EOF ainda valida o término do stream
 e, no modo ReplaceComplete, a seleção completa solicitada. Lotes já confirmados

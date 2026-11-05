@@ -40,6 +40,23 @@ use std::{fs, path::Path, time::Duration};
 
 use crate::source_server::test_fixture as source_fixture;
 
+fn json_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap()
+}
+
+fn source_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(5))
+        .read_timeout(Duration::from_secs(30))
+        .build()
+        .unwrap()
+}
+
 #[cfg(all(test, target_os = "linux"))]
 pub(crate) fn gate_next_native_job(
     graph: &GraphServer,
@@ -423,7 +440,7 @@ async fn installed_two_versions_real_packages_schema_sample_properties_and_curso
     install(&f, &s, "release-1", "primeira");
     install(&f, &s, "release-2", "segunda");
     let (url, served) = socket(&s).await;
-    let client = reqwest::Client::new();
+    let client = json_client();
     for (version, name) in [("release-1", "primeira"), ("release-2", "segunda")] {
         let selection = json!({"id":"actual-graph","version":version});
         let schema = client
@@ -525,7 +542,7 @@ async fn native_socket_auth_missing_versions_corrupt_schema_and_real_shared_rout
     let (f, s) = fixture(true);
     let root = install(&f, &s, "release-1", "actual");
     let (url, served) = socket(&s).await;
-    let client = reqwest::Client::new();
+    let client = json_client();
     let input = json!({"id":"actual-graph","version":"release-1"});
     for raw in ["bad", ""] {
         let response = client
@@ -656,7 +673,7 @@ async fn local_key_admission_is_real_and_rechecked_before_delivery() {
     publish_local(&f.auth, &f.paths, &request);
     let (url, served) = socket(&s).await;
     let input = json!({"id":"actual-graph","version":"release-1"});
-    let response = reqwest::Client::new()
+    let response = json_client()
         .post(format!("{url}/api/graphs/sample"))
         .headers(headers("test-local-key", true))
         .json(&input)
@@ -669,7 +686,7 @@ async fn local_key_admission_is_real_and_rechecked_before_delivery() {
         "local"
     );
     assert_eq!(
-        reqwest::Client::new()
+        json_client()
             .post(format!("{url}/api/graphs/sample"))
             .headers(headers("test-local-key", false))
             .json(&input)
@@ -716,18 +733,13 @@ async fn dropped_handler_cancels_only_its_job_and_shutdown_waiter_keeps_join_own
         .read(headers(&f.raw, false), input, Operation::Sample)
         .await;
     assert_eq!(sibling.status(), StatusCode::OK);
-    let closing = s.clone();
-    let shutdown = tokio::spawn(async move { closing.shutdown().await });
-    tokio::task::yield_now().await;
-    assert!(!shutdown.is_finished());
-    shutdown.abort();
-    assert!(shutdown.await.unwrap_err().is_cancelled());
-    let closing = s.clone();
-    let shutdown = tokio::spawn(async move { closing.shutdown().await });
-    tokio::task::yield_now().await;
-    assert!(!shutdown.is_finished());
+    let mut shutdown = Box::pin(s.shutdown());
+    assert!(futures_util::poll!(shutdown.as_mut()).is_pending());
+    drop(shutdown);
+    let mut shutdown = Box::pin(s.shutdown());
+    assert!(futures_util::poll!(shutdown.as_mut()).is_pending());
     release.send(()).unwrap();
-    shutdown.await.unwrap().unwrap();
+    shutdown.await.unwrap();
     assert!(s.0.jobs.lock().await.is_empty());
 }
 
@@ -771,7 +783,7 @@ async fn closed_wire_types_and_actual_input_output_byte_boundaries() {
     let (f, s) = fixture(true);
     install(&f, &s, "release-1", "actual");
     let (url, served) = socket(&s).await;
-    let client = reqwest::Client::new();
+    let client = json_client();
     let malformed = json!({"id":"actual-graph","version":"release-1","anchor_label":"Function","anchor_key":{"type":"int64","value":9007199254740993_u64},"relationship":"CONTAINS","other_label":"File","direction":"incoming","limit":1});
     assert_eq!(
         client
@@ -990,7 +1002,7 @@ async fn query_http_native_members_versions_parameters_and_typed_entities() {
     install_with_members(&f, &s, "query-1", "primeira", true);
     install_with_members(&f, &s, "query-2", "segunda", true);
     let (url, served) = socket(&s).await;
-    let client = reqwest::Client::new();
+    let client = json_client();
     for (version, name) in [("query-1", "primeira"), ("query-2", "segunda")] {
         let response=client.post(format!("{url}/api/graphs/query")).headers(headers(&f.raw,false))
             .json(&json!({"id":"actual-graph","version":version,
@@ -1047,7 +1059,7 @@ async fn query_http_native_members_versions_parameters_and_typed_entities() {
 async fn query_http_denies_effects_credentials_and_invalid_input_causally() {
     let (f, s) = fixture(true);
     let installed = install_with_members(&f, &s, "query-deny", "safe", true);
-    let client = reqwest::Client::new();
+    let client = json_client();
     let (url, served) = socket(&s).await;
     for query in [
         "CREATE (:File {path:'bad'})",
@@ -1143,17 +1155,25 @@ async fn query_http_native_deadline_then_sibling_and_shutdown_join() {
     let (f, mut s) = fixture(true);
     Arc::get_mut(&mut s.0).unwrap().policy.timeout = Duration::from_millis(500);
     install_with_members(&f, &s, "query-timeout", "safe", true);
+    let (started, observed) = std::sync::mpsc::channel();
+    let (release, waiting) = std::sync::mpsc::channel();
+    *s.0.gate.lock().unwrap() = Some((started, waiting));
     let (url, served) = socket(&s).await;
-    let client = reqwest::Client::new();
-    let response = client
+    let client = json_client();
+    let request = client
         .post(format!("{url}/api/graphs/query"))
         .headers(headers(&f.raw, false))
         .json(&json!({"id":"actual-graph","version":"query-timeout",
-        "query":"UNWIND RANGE(1,10000) AS a UNWIND RANGE(1,10000) AS b RETURN sum(a*b)"}))
-        .send()
-        .await
-        .unwrap();
+        "query":"RETURN 1"}));
+    let pending = tokio::spawn(async move { request.send().await });
+    let cancellation =
+        tokio::task::spawn_blocking(move || observed.recv_timeout(Duration::from_secs(5)).unwrap())
+            .await
+            .unwrap();
+    let response = pending.await.unwrap().unwrap();
     assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
+    assert!(cancellation.is_cancelled());
+    release.send(()).unwrap();
     let response = client
         .post(format!("{url}/api/graphs/query"))
         .headers(headers(&f.raw, false))
@@ -1197,18 +1217,13 @@ async fn query_dropped_handler_cancels_only_its_job_and_preserves_shutdown_join(
         .read(headers(&f.raw, false), input, Operation::Query)
         .await;
     assert_eq!(sibling.status(), StatusCode::OK);
-    let closing = s.clone();
-    let shutdown = tokio::spawn(async move { closing.shutdown().await });
-    tokio::task::yield_now().await;
-    assert!(!shutdown.is_finished());
-    shutdown.abort();
-    assert!(shutdown.await.unwrap_err().is_cancelled());
-    let closing = s.clone();
-    let shutdown = tokio::spawn(async move { closing.shutdown().await });
-    tokio::task::yield_now().await;
-    assert!(!shutdown.is_finished());
+    let mut shutdown = Box::pin(s.shutdown());
+    assert!(futures_util::poll!(shutdown.as_mut()).is_pending());
+    drop(shutdown);
+    let mut shutdown = Box::pin(s.shutdown());
+    assert!(futures_util::poll!(shutdown.as_mut()).is_pending());
     release.send(()).unwrap();
-    shutdown.await.unwrap().unwrap();
+    shutdown.await.unwrap();
     assert!(s.0.jobs.lock().await.is_empty());
 }
 
@@ -1381,7 +1396,7 @@ async fn project_fixture_from(
 async fn project_http_uses_live_graph_exact_selection_and_rejects_captured_directory_replacement() {
     let (f, s, destination) = project_fixture(true).await;
     let (url, served) = socket(&s).await;
-    let client = reqwest::Client::new();
+    let client = json_client();
     let selected = json!({"selection":{}});
     let mut generation = None;
     for operation in ["schema", "sample"] {
@@ -1479,7 +1494,7 @@ async fn project_http_permission_denial_precedes_absent_publication_and_bad_cred
     let (f, s, destination) = project_fixture(false).await;
     fs::remove_dir_all(destination).unwrap();
     let (url, served) = socket(&s).await;
-    let client = reqwest::Client::new();
+    let client = json_client();
     let input = json!({"selection":{}});
     assert_eq!(
         client
@@ -1751,7 +1766,7 @@ async fn native_import_catalog_http_mcp_and_cli_use_real_installation_and_read_a
     let mut output = Vec::new();
     crate::graph_entry::run(
         &f.paths,
-        &reqwest::Client::new(),
+        &source_client(),
         crate::graph_entry::Command::Imports
             .prepare(content())
             .unwrap(),

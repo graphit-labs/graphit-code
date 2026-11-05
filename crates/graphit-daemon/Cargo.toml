@@ -36,7 +36,7 @@ url.workspace = true
 http.workspace = true
 tempfile.workspace = true
 graphit-core = { path = "../graphit-core", features = ["async-cancel"] }
-notify-debouncer-full = "=0.7.0"
+notify-debouncer-full = "=0.8.0-rc.2"
 tokio = { workspace = true, features = ["net", "io-std", "signal"] }
 tracing = { workspace = true, features = ["attributes"] }
 tokio-util = { workspace = true, features = ["codec"] }

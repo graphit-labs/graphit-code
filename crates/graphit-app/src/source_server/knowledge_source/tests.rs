@@ -97,7 +97,7 @@ async fn connect(f: &Fixture) -> (Client, tokio::task::JoinHandle<io::Result<()>
     let client = ()
         .serve_with_lifecycle(
             StreamableHttpClientTransport::with_client(
-                reqwest::Client::new(),
+                crate::source_server::test_http_client(),
                 StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(headers),
             ),
             ClientLifecycleMode::Discover {
@@ -332,7 +332,11 @@ async fn actual_native_source_queued_cancel_and_deadline_join_existing_owner() {
     use rmcp::model::{CallToolRequest, ClientRequest};
     for deadline in [false, true] {
         let mut f = fixture(true);
-        Arc::get_mut(&mut f.server.0).unwrap().policy.timeout = Duration::from_millis(300);
+        Arc::get_mut(&mut f.server.0).unwrap().policy.timeout = if deadline {
+            Duration::from_millis(300)
+        } else {
+            Duration::from_secs(30)
+        };
         let (client, serving) = connect(&f).await;
         let jobs = f.server.0.jobs.lock().await;
         let request = client

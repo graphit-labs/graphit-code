@@ -818,10 +818,11 @@ async fn expired_access_without_refresh_cannot_read_memory() {
     let (_temp, tasks, raw) = memory_workspace_fixture(None, Duration::from_secs(30));
     let selection = memory_fixture::selection(&tasks, 0);
     let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
-    f.issuer.access_seconds.store(1, Ordering::Release);
+    // JWT timestamps have whole-second precision; leave a full second for login.
+    f.issuer.access_seconds.store(2, Ordering::Release);
     f.issuer.issue_refresh.store(false, Ordering::Release);
     let cookie = f.login().await;
-    tokio::time::sleep(Duration::from_millis(1200)).await;
+    wait_until_access_expiration(&f).await;
     let before = f.issuer.project_calls.load(Ordering::SeqCst);
     assert_eq!(
         read(&f, &cookie, "list", body(&selection, json!({})))
@@ -830,6 +831,7 @@ async fn expired_access_without_refresh_cannot_read_memory() {
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(f.issuer.project_calls.load(Ordering::SeqCst), before);
+    f.finish_tasks().await;
 }
 
 #[tokio::test]

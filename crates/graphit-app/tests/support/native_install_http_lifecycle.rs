@@ -29,6 +29,21 @@ fn run(work: impl Future<Output = ()> + Send + 'static) {
         .join()
         .unwrap();
 }
+async fn completed(owner: &NativeInstallHttp) -> io::Result<Completion> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        owner
+            .0
+            .jobs
+            .lock()
+            .await
+            .join_next()
+            .await
+            .unwrap()
+            .unwrap()
+    })
+    .await
+    .expect("retained SDK job must finish after queue release")
+}
 async fn journey(mode: u8) {
     let cancel = Cancellation::default();
     let ctx = context(&cancel);
@@ -79,7 +94,11 @@ async fn journey(mode: u8) {
     });
     ready.recv_timeout(Duration::from_secs(5)).unwrap();
     let key = f.key(&ctx);
-    let client = reqwest::Client::builder().no_proxy().build().unwrap();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
     let response = client
         .post(url)
         .bearer_auth(&*key)
@@ -94,54 +113,60 @@ async fn journey(mode: u8) {
     assert!(f.auth.runtime().check(ctx.snapshot()).is_ok());
     let result = match mode {
         0 => {
-            tokio::time::sleep(Duration::from_millis(80)).await;
+            // The Original was captured before response admission. Waiting one
+            // policy interval from this observed response bounds its real deadline.
+            tokio::time::sleep_until(tokio::time::Instant::now() + owner.0.policy.timeout).await;
             drop(held);
-            occupier.await.unwrap().unwrap();
+            tokio::time::timeout(Duration::from_secs(5), occupier)
+                .await
+                .expect("released SDK queue must finish")
+                .unwrap()
+                .unwrap();
             assert!(response.bytes().await.is_err());
-            owner
-                .0
-                .jobs
-                .lock()
-                .await
-                .join_next()
-                .await
-                .unwrap()
-                .unwrap()
+            completed(&owner).await
         }
         1 => {
             drop(response);
-            // Observe actual TCP response closure before releasing the SDK queue.
-            tokio::time::sleep(Duration::from_millis(80)).await;
+            // Observe the owner's actual close/cancellation branch, not elapsed time.
+            tokio::time::timeout(
+                Duration::from_secs(2),
+                owner.0.response_closed_observed.cancelled(),
+            )
+            .await
+            .expect("owner must observe the closed HTTP response before SDK admission");
             drop(held);
-            occupier.await.unwrap().unwrap();
-            owner
-                .0
-                .jobs
-                .lock()
+            tokio::time::timeout(Duration::from_secs(5), occupier)
                 .await
-                .join_next()
-                .await
+                .expect("released SDK queue must finish")
                 .unwrap()
-                .unwrap()
+                .unwrap();
+            completed(&owner).await
         }
         2 => {
             let first = owner.clone();
             let waiter = tokio::spawn(async move { first.shutdown().await });
-            tokio::time::sleep(Duration::from_millis(30)).await;
+            tokio::time::timeout(Duration::from_secs(2), owner.0.stop.cancelled())
+                .await
+                .expect("first shutdown waiter must be polled");
             assert!(!waiter.is_finished());
             waiter.abort();
             assert!(waiter.await.unwrap_err().is_cancelled());
             assert_eq!(owner.0.jobs.lock().await.len(), 1);
             assert!(f.auth.runtime().check(ctx.snapshot()).is_ok());
-            let next = owner.clone();
-            let waiter = tokio::spawn(async move { next.shutdown().await });
-            tokio::time::sleep(Duration::from_millis(30)).await;
-            assert!(!waiter.is_finished());
+            let mut waiter = Box::pin(owner.shutdown());
+            assert!(futures_util::poll!(&mut waiter).is_pending());
             assert!(f.auth.runtime().check(ctx.snapshot()).is_ok());
             drop(held);
-            occupier.await.unwrap().unwrap();
+            tokio::time::timeout(Duration::from_secs(5), occupier)
+                .await
+                .expect("released SDK queue must finish")
+                .unwrap()
+                .unwrap();
             assert!(response.bytes().await.is_err());
-            let error = waiter.await.unwrap().unwrap_err();
+            let error = tokio::time::timeout(Duration::from_secs(5), waiter)
+                .await
+                .expect("retained owner must join its SDK job")
+                .unwrap_err();
             assert_eq!(owner.0.jobs.lock().await.len(), 0);
             Err(error)
         }
@@ -172,9 +197,15 @@ async fn journey(mode: u8) {
     assert_eq!(broker.requests(), [0, 0, 0]);
     assert_eq!(f.registry.load().unwrap().entries().count(), 0);
     assert!(f.auth.runtime().check(ctx.snapshot()).is_ok());
-    owner.shutdown().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), owner.shutdown())
+        .await
+        .expect("owner shutdown must finish")
+        .unwrap();
     let _ = stop.send(());
-    serving.await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), serving)
+        .await
+        .expect("HTTP listener must stop after owned jobs finish")
+        .unwrap();
     f.remove(&ctx);
     broker.shutdown().await;
 }
@@ -217,17 +248,14 @@ fn actual_pre_admission_mutex_wait_observes_deadline_and_stop() {
             );
             let body = Bytes::from(serde_json::to_vec(&json!({"input":f.temp.path().join("not-opened.zip"),
                 "producer":"01ARZ3NDEKTSV4RRFFQ69G5FAV","id":"pre-admission/native","version":"v1"})).unwrap());
-            let request_owner = owner.clone();
-            let request =
-                tokio::spawn(async move { install(State(request_owner), headers, body).await });
+            let mut request = Box::pin(install(State(owner.clone()), headers, body));
+            assert!(futures_util::poll!(&mut request).is_pending());
             if stopped {
-                tokio::time::sleep(Duration::from_millis(10)).await;
                 owner.0.stop.cancel();
             }
             let response = tokio::time::timeout(Duration::from_secs(2), request)
                 .await
-                .unwrap()
-                .unwrap();
+                .expect("admission mutex wait must observe its captured deadline or stop");
             assert_eq!(
                 response.status(),
                 if stopped {
@@ -238,7 +266,10 @@ fn actual_pre_admission_mutex_wait_observes_deadline_and_stop() {
             );
             assert_eq!(held.len(), 0);
             drop(held);
-            owner.shutdown().await.unwrap();
+            tokio::time::timeout(Duration::from_secs(5), owner.shutdown())
+                .await
+                .expect("owner shutdown must finish")
+                .unwrap();
         }
         assert_eq!(f.registry.load().unwrap().entries().count(), 0);
         f.remove(&ctx);

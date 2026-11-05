@@ -2,14 +2,15 @@
 use super::*;
 use futures_util::TryStreamExt;
 use graphit_ast::corpus;
+use graphit_data::lance_branch_store::{AST_INDEX_BATCH, cleanup_ast_corpus};
 
 pub(crate) struct ProgressivePublication<'a> {
     cohort: CapturedCohort,
     project: ProjectCapture<'a>,
     original: Arc<SnapshotContext>,
-    search: BranchSnapshot,
     path: PathBuf,
     directory: CapturedDocumentDirectory,
+    files_since_maintenance: usize,
 }
 
 impl<'a> ProgressivePublication<'a> {
@@ -62,6 +63,17 @@ impl<'a> ProgressivePublication<'a> {
             recheck()?;
             parent.revalidate(&original)?;
             prepared.commit().await.map_err(err)?;
+            let initial = BranchSnapshot::capture_observed(
+                stage.path().to_str().ok_or(io::ErrorKind::InvalidData)?,
+                None,
+                None,
+            )
+            .await
+            .map_err(err)?;
+            if let Some(indices) = initial.prepare_ast_indices().await? {
+                recheck()?;
+                indices.commit().await.map_err(err)?;
+            }
             recheck()?;
             parent.revalidate(&original)?;
             match graphit_fs::rename_exclusive(stage.path(), &path) {
@@ -79,14 +91,15 @@ impl<'a> ProgressivePublication<'a> {
             recheck()?;
             search = search.materialize().await.map_err(err)?;
         }
+        drop(search);
         drop(fence);
         Ok(Self {
             cohort,
             project,
             original,
-            search,
             path,
             directory,
+            files_since_maintenance: 0,
         })
     }
 
@@ -100,9 +113,8 @@ impl<'a> ProgressivePublication<'a> {
             .ok_or(io::ErrorKind::NotFound.into())
     }
 
-    async fn refresh(&mut self) -> io::Result<()> {
-        self.search = snapshot(&self.path, &self.directory, self.project, &self.original).await?;
-        Ok(())
+    async fn capture_search(&self) -> io::Result<BranchSnapshot> {
+        snapshot(&self.path, &self.directory, self.project, &self.original).await
     }
 
     pub async fn retain_paths(
@@ -111,13 +123,13 @@ impl<'a> ProgressivePublication<'a> {
         recheck: &impl Fn() -> io::Result<()>,
     ) -> io::Result<()> {
         let _fence = write_fence(&self.cohort.slot.fence, &self.original).await?;
-        self.refresh().await?;
+        let search = self.capture_search().await?;
         let deleted = if retained.is_empty() {
             lit(true)
         } else {
             col("path").in_list(retained.iter().map(|path| lit(*path)).collect(), true)
         };
-        let mut scan = self.search.scan();
+        let mut scan = search.scan();
         scan.project(&["path"]).map_err(err)?;
         scan.filter_expr(deleted.clone());
         scan.limit(Some(1), None).map_err(err)?;
@@ -129,14 +141,10 @@ impl<'a> ProgressivePublication<'a> {
             .is_some_and(|batch| batch.num_rows() != 0);
         drop(stream);
         if present {
-            let prepared = self
-                .search
-                .prepare_delete_expr(deleted)
-                .await
-                .map_err(err)?;
+            let prepared = search.prepare_delete_expr(deleted).await.map_err(err)?;
             recheck()?;
             self.directory.revalidate(&self.original)?;
-            self.search = prepared.commit().await.map_err(err)?;
+            drop(prepared.commit().await.map_err(err)?);
             recheck()?;
             self.directory.revalidate(&self.original)?;
         }
@@ -150,10 +158,10 @@ impl<'a> ProgressivePublication<'a> {
     ) -> io::Result<u64> {
         let _fence = write_fence(&self.cohort.slot.fence, &self.original).await?;
         recheck()?;
-        self.refresh().await?;
-        let previous = file_rows(&self.search, &file.path, &self.original).await?;
+        let search = self.capture_search().await?;
+        let previous = file_rows(&search, &file.path, &self.original).await?;
         let rows = corpus::encode_file(
-            Arc::new(self.search.schema().clone()),
+            Arc::new(search.schema().clone()),
             concat(graphit_ast::entity_search::schema(), file.search.clone())?,
             concat(
                 graphit_ast::native_nn::native_nn_projection_schema(),
@@ -162,11 +170,10 @@ impl<'a> ProgressivePublication<'a> {
             Some(&previous),
             &self.original,
         )?;
-        let prepared = prepare_file(&self.search, &file.path, rows).await?;
+        let prepared = prepare_file(&search, &file.path, rows).await?;
         recheck()?;
         self.directory.revalidate(&self.original)?;
-        self.search = prepared.commit().await.map_err(err)?;
-        self.maintain_indices(recheck).await?;
+        drop(prepared.commit().await.map_err(err)?);
         // Text becomes queryable before the independent graph publication.
         let index = self.capture_index().await?;
         let revision = index.graph.replace_file(input(&file), &self.original)?;
@@ -174,6 +181,9 @@ impl<'a> ProgressivePublication<'a> {
         recheck()?;
         self.directory.revalidate(&self.original)?;
         self.cohort.directory.revalidate(&self.original)?;
+        drop(search);
+        drop(_fence);
+        self.after_file(recheck).await?;
         Ok(revision)
     }
 
@@ -191,15 +201,13 @@ impl<'a> ProgressivePublication<'a> {
             .graph
             .file_observation(&file.path, &self.original)?
             .is_some_and(|row| {
-                row.file_revision == expected_revision
-                    && row.source_sha256 == file.source_sha256
-                    && row.raw_version == file.raw_version
+                row.file_revision == expected_revision && row.source_sha256 == file.source_sha256
             })
         {
             return Ok(None);
         }
-        self.refresh().await?;
-        let previous = file_rows(&self.search, &file.path, &self.original).await?;
+        let search = self.capture_search().await?;
+        let previous = file_rows(&search, &file.path, &self.original).await?;
         let old_lexical = lexical(&previous)?;
         let lexical = union(
             old_lexical,
@@ -213,13 +221,13 @@ impl<'a> ProgressivePublication<'a> {
             )?,
         )?;
         let rows = corpus::encode_file(
-            Arc::new(self.search.schema().clone()),
+            Arc::new(search.schema().clone()),
             lexical,
             prepared,
             Some(&previous),
             &self.original,
         )?;
-        let prepared = prepare_file(&self.search, &file.path, rows).await?;
+        let prepared = prepare_file(&search, &file.path, rows).await?;
         let revision =
             match index
                 .graph
@@ -232,10 +240,12 @@ impl<'a> ProgressivePublication<'a> {
         drop(index);
         recheck()?;
         self.directory.revalidate(&self.original)?;
-        self.search = prepared.commit().await.map_err(err)?;
+        drop(prepared.commit().await.map_err(err)?);
         recheck()?;
         self.directory.revalidate(&self.original)?;
-        self.maintain_indices(recheck).await?;
+        drop(search);
+        drop(_fence);
+        self.after_file(recheck).await?;
         Ok(Some(revision))
     }
 
@@ -246,51 +256,81 @@ impl<'a> ProgressivePublication<'a> {
     ) -> io::Result<u64> {
         let _fence = write_fence(&self.cohort.slot.fence, &self.original).await?;
         recheck()?;
-        self.refresh().await?;
-        let prepared = self
-            .search
+        let search = self.capture_search().await?;
+        let prepared = search
             .prepare_delete_expr(col("path").eq(lit(path)))
             .await
             .map_err(err)?;
         recheck()?;
         self.directory.revalidate(&self.original)?;
-        self.search = prepared.commit().await.map_err(err)?;
+        drop(prepared.commit().await.map_err(err)?);
         let index = self.capture_index().await?;
         let revision = index.graph.remove_file(path, &self.original)?;
         drop(index);
         recheck()?;
         self.directory.revalidate(&self.original)?;
+        drop(search);
+        drop(_fence);
+        self.after_file(recheck).await?;
         Ok(revision)
     }
 
-    async fn maintain_indices(&mut self, recheck: &impl Fn() -> io::Result<()>) -> io::Result<()> {
-        for column in ["path", "uid", "data_key"] {
-            if let Some(prepared) = self
-                .search
-                .prepare_scalar_append(column, &format!("{column}_entity"))
-                .await
-                .map_err(err)?
-            {
-                recheck()?;
-                self.directory.revalidate(&self.original)?;
-                self.search = prepared.commit().await.map_err(err)?;
-            }
+    async fn after_file(&mut self, recheck: &impl Fn() -> io::Result<()>) -> io::Result<()> {
+        self.files_since_maintenance += 1;
+        if self.files_since_maintenance >= AST_INDEX_BATCH {
+            self.maintain_indices(recheck).await?;
         }
-        for column in graphit_ast::entity_search::TEXT_COLUMNS {
-            if let Some(prepared) = self
-                .search
-                .prepare_code_fts_append(column, &format!("{column}_code_fts"))
-                .await
-                .map_err(err)?
-            {
-                recheck()?;
-                self.directory.revalidate(&self.original)?;
-                self.search = prepared.commit().await.map_err(err)?;
-            }
-        }
-        recheck()?;
-        self.directory.revalidate(&self.original)
+        Ok(())
     }
+
+    pub(crate) async fn maintain_indices(
+        &mut self,
+        recheck: &impl Fn() -> io::Result<()>,
+    ) -> io::Result<()> {
+        let _fence = write_fence(&self.cohort.slot.fence, &self.original).await?;
+        let search = self.capture_search().await?;
+        let check = || {
+            recheck()?;
+            self.directory.revalidate(&self.original)
+        };
+        if let Err(error) = search.maintain_ast_indices(&self.original, &check).await {
+            check()?;
+            tracing::warn!(%error, "AST index maintenance deferred");
+        }
+        self.files_since_maintenance = 0;
+        Ok(())
+    }
+
+    pub(crate) async fn clean_history(
+        self,
+        recheck: &impl Fn() -> io::Result<()>,
+    ) -> io::Result<()> {
+        let search = self.capture_search().await?;
+        clean_corpus_history(&self.path, &self.directory, search, &self.original, recheck).await
+    }
+}
+
+pub(crate) async fn clean_corpus_history(
+    path: &Path,
+    directory: &CapturedDocumentDirectory,
+    search: BranchSnapshot,
+    original: &SnapshotContext,
+    recheck: &impl Fn() -> io::Result<()>,
+) -> io::Result<()> {
+    let due = search.ast_history_due().await;
+    drop(search);
+    recheck()?;
+    directory.revalidate(original)?;
+    let result = match due {
+        Ok(true) => cleanup_ast_corpus(path, original).await.map(|_| ()),
+        Ok(false) => Ok(()),
+        Err(error) => Err(error),
+    };
+    if let Err(error) = result {
+        recheck()?;
+        tracing::warn!(%error, "AST obsolete version cleanup deferred");
+    }
+    recheck()
 }
 
 fn input(file: &FilePublication) -> graphit_ast::live_graph::LiveFileInput<'_> {
@@ -319,15 +359,14 @@ pub(crate) async fn snapshot(
     original.check()?;
     directory.revalidate(original)?;
     let branch = project.version.lance_branch();
-    let observed = BranchSnapshot::capture_observed(
-        path.to_str().ok_or(io::ErrorKind::InvalidData)?,
+    let observed = BranchSnapshot::capture_ast_corpus(
+        path,
         (!branch.is_empty()).then_some(branch.as_str()),
-        None,
+        original,
     )
-    .await;
+    .await?;
     directory.revalidate(original)?;
     original.check()?;
-    let observed = observed.map_err(err)?;
     corpus::validate_schema(observed.schema())?;
     Ok(observed)
 }

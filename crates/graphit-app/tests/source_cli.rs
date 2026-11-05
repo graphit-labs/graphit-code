@@ -132,7 +132,7 @@ async fn stdio_current_project_and_version_preserve_explicit_and_sibling_selecti
     let current_feature = fixture.projects[2].2.version();
     let sibling_root = fixture.projects[0].0.root();
     let sibling_main = fixture.projects[0].2.version();
-    let client = reqwest::Client::new();
+    let client = http_client();
     for global in [Some(current_feature), Some("unavailable-version"), None] {
         let (local, remote) = tokio::io::duplex(65536);
         let (read, write) = tokio::io::split(remote);
@@ -273,7 +273,7 @@ async fn source_proxy_rejects_non_utf8_root_before_connecting() -> TestResult {
         let result = graphit_app::mcp_source::SourceProxy::new(
             fixture.paths.clone(),
             "127.0.0.1:1".parse()?,
-            reqwest::Client::new(),
+            http_client(),
             (
                 support::key_limits(),
                 support::content(),
@@ -297,10 +297,18 @@ use serde_json::json;
 use std::{fs, io, time::Duration};
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("loopback fixture HTTP client")
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typed_entry_uses_current_discovery_exact_source_and_preserves_read_errors() -> TestResult {
     let fixture = support::Fixture::new();
-    let client = reqwest::Client::new();
+    let client = http_client();
     let cancel = Cancellation::default();
     let original = support::request(&cancel);
     let mut output = Vec::new();
@@ -385,11 +393,9 @@ async fn typed_entry_uses_current_discovery_exact_source_and_preserves_read_erro
     assert!(output.is_empty());
     fs::write(&discovery, &original_record)?;
     let expired_cancel = Cancellation::default();
-    let expired = support::request_until(
-        &expired_cancel,
-        std::time::Instant::now() + Duration::from_millis(50),
-    );
-    tokio::time::sleep(Duration::from_millis(60)).await;
+    let deadline = std::time::Instant::now() + Duration::from_millis(50);
+    let expired = support::request_until(&expired_cancel, deadline);
+    tokio::time::sleep_until(deadline.into()).await;
     let error = source_entry::call_source(
         &fixture.paths,
         &client,
@@ -446,7 +452,7 @@ async fn stdio_entry_joins_eof_and_service_cancellation_without_retiring_the_ser
     let fixture = support::Fixture::new();
     fixture.file(0, "raw", "real service payload");
     let (endpoint, _) = fixture.advertised().await;
-    let client = reqwest::Client::new();
+    let client = http_client();
     for cancelled in [false, true] {
         let (local, remote) = tokio::io::duplex(65536);
         let (read, write) = tokio::io::split(remote);
@@ -540,7 +546,7 @@ async fn stdio_omitted_version_uses_retained_current_and_preserves_sibling_ambig
         .await?;
     let root = fixture.projects[0].0.root().to_path_buf();
     let sibling = fixture.projects[2].0.root();
-    let client = reqwest::Client::new();
+    let client = http_client();
     for (current, expected_current) in [(0, "current main"), (1, "current feature")] {
         let (endpoint, _) = fixture.advertised_current(current).await;
         let (local, remote) = tokio::io::duplex(65536);

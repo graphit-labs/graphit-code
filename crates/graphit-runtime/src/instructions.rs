@@ -13,6 +13,7 @@ pub enum InstructionOrigin {
     Project,
     Global,
     Hub,
+    Broker,
     CompiledDefault,
 }
 
@@ -171,7 +172,7 @@ fn charge(
         .ok_or(InstructionError::LimitExceeded(kind))?;
     Ok(())
 }
-fn name_valid(name: &str) -> bool {
+pub fn valid_instruction_name(name: &str) -> bool {
     name.ends_with(".md")
         && !name.starts_with("defaults/")
         && !name.contains(['\\', ':'])
@@ -218,7 +219,7 @@ pub fn render_instruction(
         limits.max_template_bytes,
         InstructionLimit::TemplateBytes,
     )?;
-    if !name_valid(entry) {
+    if !valid_instruction_name(entry) {
         return Err(InstructionError::InvalidName);
     }
     let mut count = 0;
@@ -243,7 +244,7 @@ pub fn render_instruction(
             limits.max_template_bytes,
             InstructionLimit::TemplateBytes,
         )?;
-        if !name_valid(candidate.name) {
+        if !valid_instruction_name(candidate.name) {
             return Err(InstructionError::InvalidName);
         }
         if captured

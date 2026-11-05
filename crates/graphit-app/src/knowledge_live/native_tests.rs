@@ -16,18 +16,15 @@ struct NativeHarness {
 impl NativeHarness {
     fn new(mode: &str) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let executable = std::env::current_exe().unwrap();
-        let binary = executable
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("kiro-knowledge-fixture");
-        assert!(
-            binary.is_file(),
-            "build the existing kiro-knowledge-fixture target in the coordinated App window"
+        let binary = std::path::PathBuf::from(
+            std::env::var_os("GRAPHIT_TEST_KIRO_KNOWLEDGE_FIXTURE")
+                .expect("run the App test through cargo xtask cargo test to emit its Kiro fixture"),
         );
-        std::os::unix::fs::symlink(binary, directory.path().join("kiro-cli")).unwrap();
+        assert!(
+            binary.is_absolute() && binary.is_file(),
+            "GRAPHIT_TEST_KIRO_KNOWLEDGE_FIXTURE must name the Cargo-emitted fixture executable"
+        );
+        std::fs::copy(binary, directory.path().join("kiro-cli")).unwrap();
         let journal = directory.path().join("observed.txt");
         let agent = directory.path().join("AGENT.md");
         std::fs::write(&agent, AGENT).unwrap();

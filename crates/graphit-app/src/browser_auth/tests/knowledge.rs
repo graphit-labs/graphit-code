@@ -4,6 +4,7 @@ use crate::task_server::{
     browser::{knowledge_fixture, memory_fixture, records_fixture},
     tests::{knowledge_workspace_fixture, reopen_browser},
 };
+use crate::test_dream_peer as dream_peer;
 use graphit_data::knowledge_document_projection::{
     AuthoredPageFields, AuthoredParameters, CompilationDigest32, PhysicalSourceDigest32,
     RecipeFields,
@@ -656,10 +657,11 @@ async fn expired_access_without_refresh_cannot_read_knowledge() {
     let (_temp, tasks, raw) = knowledge_workspace_fixture(None, Duration::from_secs(30));
     let selection = memory_fixture::selection(&tasks, 0);
     let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
-    f.issuer.access_seconds.store(1, Ordering::Release);
+    // JWT timestamps have whole-second precision; leave a full second for login.
+    f.issuer.access_seconds.store(2, Ordering::Release);
     f.issuer.issue_refresh.store(false, Ordering::Release);
     let cookie = f.login().await;
-    tokio::time::sleep(Duration::from_millis(1200)).await;
+    wait_until_access_expiration(&f).await;
     let before = f.issuer.project_calls.load(Ordering::SeqCst);
     assert_eq!(
         read(&f, &cookie, "heads", body(&selection, json!({})))
@@ -668,6 +670,7 @@ async fn expired_access_without_refresh_cannot_read_knowledge() {
         StatusCode::UNAUTHORIZED
     );
     assert_eq!(f.issuer.project_calls.load(Ordering::SeqCst), before);
+    f.finish_tasks().await;
 }
 
 #[tokio::test]
@@ -751,17 +754,21 @@ async fn swapping_the_selected_project_path_during_admission_never_delivers_data
 async fn attach_ask_fixture(
     temp: &std::path::Path,
     tasks: &crate::task_server::TaskServer,
-    script: &str,
+    case: Value,
 ) -> Arc<crate::knowledge_ask_service::AskAvailability> {
-    use std::os::unix::fs::PermissionsExt;
     let program = temp.join("codex");
-    std::fs::write(&program, format!("#!/usr/bin/python3\n{script}")).unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    dream_peer::install(&program).unwrap();
+    let config = temp.join("browser-ask.json");
+    std::fs::write(&config, serde_json::to_vec(&case).unwrap()).unwrap();
     let available = Arc::new(
         crate::knowledge_ask_service::AskAvailability::capture(
             graphit_ai::cli_provider::CliCompletionProvider::Codex,
             std::ffi::OsStr::new("codex"),
-            vec![("PATH".into(), temp.as_os_str().to_owned())],
+            vec![
+                ("PATH".into(), temp.as_os_str().to_owned()),
+                ("DREAM_FIXTURE_MODE".into(), "browser_ask".into()),
+                ("DREAM_BROWSER_ASK_CONFIG".into(), config.into_os_string()),
+            ],
             temp,
             graphit_core::native_document_file::NativeDocumentFileLimits::new(
                 65536, 4096, 128, 65536,
@@ -798,18 +805,14 @@ async fn browser_ask_streams_native_events_and_selected_pages_without_userinfo()
     let (temp, tasks, raw) = knowledge_workspace_fixture(None, Duration::from_secs(30));
     let published =
         knowledge_fixture::seed(&tasks, &raw, 0, &[page("Paris", "Literal selected body")]).await;
-    let script = format!(
-        r#"import json,sys,pathlib
-pathlib.Path({prompt:?}).write_text(sys.stdin.read())
-pathlib.Path({args:?}).write_text(json.dumps(sys.argv[1:]))
-print('{{"type":"turn.started"}}',flush=True)
-print('{{"type":"item.completed","item":{{"id":"answer","type":"agent_message","text":"observed browser answer"}}}}',flush=True)
-print('{{"type":"turn.completed","usage":{{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}}}',flush=True)
-"#,
-        prompt = temp.path().join("ask-prompt.json").to_str().unwrap(),
-        args = temp.path().join("ask-args.json").to_str().unwrap()
-    );
-    let available = attach_ask_fixture(temp.path(), &tasks, &script).await;
+    let available = attach_ask_fixture(
+        temp.path(),
+        &tasks,
+        json!({"mode":"answer", "answer":"observed browser answer",
+            "capture_prompt":temp.path().join("ask-prompt.json"),
+            "capture_args":temp.path().join("ask-args.json")}),
+    )
+    .await;
     let selection = memory_fixture::selection(&tasks, 0);
     let f = Fixture::with_tasks(policy(), Some((tasks.clone(), raw))).await;
     let cookie = f.login().await;
@@ -880,11 +883,12 @@ async fn browser_ask_rejects_missing_project_grant_and_invalid_input_before_prov
     let (temp, tasks, raw) = knowledge_workspace_fixture(None, Duration::from_secs(30));
     knowledge_fixture::seed(&tasks, &raw, 0, &[page("Paris", "body")]).await;
     let marker = temp.path().join("ask-launched");
-    let script = format!(
-        "import pathlib\npathlib.Path({:?}).write_text('launched')\n",
-        marker.to_str().unwrap()
-    );
-    let available = attach_ask_fixture(temp.path(), &tasks, &script).await;
+    let available = attach_ask_fixture(
+        temp.path(),
+        &tasks,
+        json!({"mode":"marker", "marker":marker}),
+    )
+    .await;
     let selection = memory_fixture::selection(&tasks, 0);
     let f = Fixture::with_tasks(policy(), Some((tasks.clone(), raw))).await;
     let cookie = f.login().await;
@@ -931,16 +935,8 @@ async fn browser_ask_disconnect_cancels_same_request_and_task_shutdown_joins_chi
     let (temp, tasks, raw) = knowledge_workspace_fixture(None, Duration::from_secs(30));
     knowledge_fixture::seed(&tasks, &raw, 0, &[page("Paris", "body")]).await;
     let pid = temp.path().join("ask-pid");
-    let script = format!(
-        r#"import os,pathlib,sys,time
-sys.stdin.read()
-pathlib.Path({:?}).write_text(str(os.getpid()))
-print('{{"type":"turn.started"}}',flush=True)
-time.sleep(60)
-"#,
-        pid.to_str().unwrap()
-    );
-    let available = attach_ask_fixture(temp.path(), &tasks, &script).await;
+    let available =
+        attach_ask_fixture(temp.path(), &tasks, json!({"mode":"hold", "pid":pid})).await;
     let selection = memory_fixture::selection(&tasks, 0);
     let f = Fixture::with_tasks(policy(), Some((tasks.clone(), raw))).await;
     let cookie = f.login().await;
@@ -1304,16 +1300,12 @@ async fn browser_ask_retrieves_only_same_pin_pages_and_skips_provider_without_hi
     )
     .await;
     let prompt_file = temp.path().join("auto-prompt.json");
-    let script = format!(
-        r#"import json,sys,pathlib
-pathlib.Path({:?}).write_text(sys.stdin.read())
-print('{{"type":"turn.started"}}',flush=True)
-print('{{"type":"item.completed","item":{{"id":"answer","type":"agent_message","text":"retrieved answer"}}}}',flush=True)
-print('{{"type":"turn.completed","usage":{{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}}}',flush=True)
-"#,
-        prompt_file.to_str().unwrap()
-    );
-    let available = attach_ask_fixture(temp.path(), &tasks, &script).await;
+    let available = attach_ask_fixture(
+        temp.path(),
+        &tasks,
+        json!({"mode":"answer", "answer":"retrieved answer", "capture_prompt":prompt_file}),
+    )
+    .await;
     let selection = memory_fixture::selection(&tasks, 0);
     let f = Fixture::with_tasks(policy(), Some((tasks.clone(), raw))).await;
     let cookie = f.login().await;
@@ -1388,16 +1380,12 @@ async fn browser_ask_retrieval_uses_existing_cpu_web_lease_and_real_selected_doc
             .await;
     let temp = tempfile::tempdir().unwrap();
     let prompt_file = temp.path().join("auto-cpu-prompt.json");
-    let script = format!(
-        r#"import sys,pathlib
-pathlib.Path({:?}).write_text(sys.stdin.read())
-print('{{"type":"turn.started"}}',flush=True)
-print('{{"type":"item.completed","item":{{"id":"answer","type":"agent_message","text":"CPU retrieved answer"}}}}',flush=True)
-print('{{"type":"turn.completed","usage":{{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}}}',flush=True)
-"#,
-        prompt_file.to_str().unwrap()
-    );
-    let available = attach_ask_fixture(temp.path(), &tasks, &script).await;
+    let available = attach_ask_fixture(
+        temp.path(),
+        &tasks,
+        json!({"mode":"answer", "answer":"CPU retrieved answer", "capture_prompt":prompt_file}),
+    )
+    .await;
     let selection = memory_fixture::selection(&tasks, 0);
     let f = Fixture::with_tasks(policy(), Some((tasks.clone(), raw))).await;
     let cookie = f.login().await;

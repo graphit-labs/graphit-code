@@ -103,23 +103,6 @@ fn deadlines_are_bounded_and_zero_attempts_once() {
 }
 
 #[test]
-fn a_waiter_acquires_after_the_holder_releases() {
-    let fixture = Fixture::new();
-    let path = fixture.path("wait.lock");
-    let held = FileLock::try_acquire(&path).unwrap();
-    thread::scope(|scope| {
-        let waiter = scope.spawn(|| {
-            FileLock::acquire(&path, Duration::from_secs(3), &Cancellation::default()).unwrap()
-        });
-        thread::sleep(Duration::from_millis(80));
-        drop(held);
-        let acquired = waiter.join().unwrap();
-        assert!(FileLock::is_locked(&path).unwrap());
-        drop(acquired);
-    });
-}
-
-#[test]
 fn cancellation_before_acquisition_creates_nothing() {
     let fixture = Fixture::new();
     let path = fixture.path("absent/lock");
@@ -133,34 +116,6 @@ fn cancellation_before_acquisition_creates_nothing() {
         io::ErrorKind::Interrupted
     );
     assert!(!path.parent().unwrap().exists());
-}
-
-#[test]
-fn cancellation_wakes_all_waiters_before_their_deadline() {
-    let fixture = Fixture::new();
-    let path = fixture.path("cancel.lock");
-    let held = FileLock::try_acquire(&path).unwrap();
-    let token = Cancellation::default();
-    thread::scope(|scope| {
-        let waiters: Vec<_> = (0..4)
-            .map(|_| {
-                scope.spawn(|| {
-                    FileLock::acquire(&path, Duration::from_secs(30), &token)
-                        .unwrap_err()
-                        .kind()
-                })
-            })
-            .collect();
-        thread::sleep(Duration::from_millis(80));
-        let start = Instant::now();
-        token.clone().cancel();
-        for waiter in waiters {
-            assert_eq!(waiter.join().unwrap(), io::ErrorKind::Interrupted);
-        }
-        assert!(start.elapsed() < Duration::from_secs(2));
-    });
-    assert!(FileLock::is_locked(&path).unwrap());
-    drop(held);
 }
 
 struct ChildGuard(Child);

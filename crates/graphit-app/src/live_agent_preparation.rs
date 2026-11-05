@@ -387,7 +387,8 @@ impl CapturedHubText {
         has_ast: bool,
         policy: &HubResourcePolicy,
         instructions: graphit_runtime::instructions::InstructionLimits,
-        original: &graphit_core::file_io::SnapshotContext,
+        original: &graphit_hub::policy::RequestContext<'_>,
+        sources: &crate::instruction_overrides::InstructionSources<'_>,
     ) -> io::Result<graphit_hub::native::RenderedContent> {
         use graphit_hub::native::{
             AgentDescriptor, NativeToolGrant, RenderContext, ToolAccess, ToolGrants,
@@ -395,14 +396,13 @@ impl CapturedHubText {
         };
         use graphit_runtime::instructions::{
             CapturedInstruction, InstructionOrigin, InstructionValue, InstructionVariable,
-            render_instruction,
         };
         original.check()?;
         let binding = mcp.binding();
         let mut context = RenderContext::new(
             policy.content(),
             original.cancellation(),
-            original.required_deadline()?,
+            original.snapshot().required_deadline()?,
         )
         .map_err(content_error)?;
         let descriptor =
@@ -423,35 +423,36 @@ impl CapturedHubText {
         } else {
             &[]
         };
-        let composed = render_instruction(
-            "live-agent.md",
-            &[CapturedInstruction {
-                name: "live-agent.md",
-                origin: InstructionOrigin::CompiledDefault,
-                markdown: include_str!("../../../templates/agent-instructions/live/agent.md"),
-            }],
-            &[
-                InstructionVariable {
-                    name: "agent_body",
-                    value: InstructionValue::Text(descriptor.body()),
-                },
-                InstructionVariable {
-                    name: "rules",
-                    value: InstructionValue::TextList(rules),
-                },
-                InstructionVariable {
-                    name: "live_knowledge_tools",
-                    value: InstructionValue::TextList(&knowledge_tools),
-                },
-                InstructionVariable {
-                    name: "live_ast_tools",
-                    value: InstructionValue::TextList(ast_tools),
-                },
-            ],
-            instructions,
-            original,
-        )
-        .map_err(instruction_error)?;
+        let composed = sources
+            .render(
+                "live/agent.md",
+                &[CapturedInstruction {
+                    name: "live/agent.md",
+                    origin: InstructionOrigin::CompiledDefault,
+                    markdown: include_str!("../../../templates/agent-instructions/live/agent.md"),
+                }],
+                &[
+                    InstructionVariable {
+                        name: "agent_body",
+                        value: InstructionValue::Text(descriptor.body()),
+                    },
+                    InstructionVariable {
+                        name: "rules",
+                        value: InstructionValue::TextList(rules),
+                    },
+                    InstructionVariable {
+                        name: "live_knowledge_tools",
+                        value: InstructionValue::TextList(&knowledge_tools),
+                    },
+                    InstructionVariable {
+                        name: "live_ast_tools",
+                        value: InstructionValue::TextList(ast_tools),
+                    },
+                ],
+                instructions,
+                original,
+            )
+            .map_err(instruction_error)?;
         // Host execution policy is readonly regardless of authored descriptor metadata.
         let effective = AgentDescriptor::new(
             descriptor.name(),

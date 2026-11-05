@@ -138,3 +138,50 @@ impl CliDaemon {
         }
     }
 }
+
+#[allow(dead_code)] // Other targets reuse only the in-process daemon fixture.
+pub async fn child_output(
+    mut child: tokio::process::Child,
+    timeout: std::time::Duration,
+) -> std::process::Output {
+    use tokio::io::AsyncReadExt;
+    async fn read(pipe: Option<impl tokio::io::AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = pipe {
+            pipe.read_to_end(&mut bytes).await?;
+        }
+        Ok(bytes)
+    }
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    match tokio::time::timeout(timeout, async {
+        tokio::try_join!(child.wait(), read(stdout), read(stderr))
+    })
+    .await
+    {
+        Ok(Ok((status, stdout, stderr))) => std::process::Output {
+            status,
+            stdout,
+            stderr,
+        },
+        result => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            panic!("compiled command did not complete: {result:?}");
+        }
+    }
+}
+#[allow(dead_code)] // STDIO targets retain and collect their live child separately.
+pub async fn output(command: std::process::Command) -> std::process::Output {
+    child_output(
+        tokio::process::Command::from(command)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap(),
+        std::time::Duration::from_secs(30),
+    )
+    .await
+}

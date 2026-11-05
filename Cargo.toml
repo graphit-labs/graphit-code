@@ -73,6 +73,11 @@ lto = "thin"
 codegen-units = 1
 strip = "symbols"
 
+# Keep LLVM generation parallel in the application crate; ThinLTO still
+# optimizes across units. Native/dependency artifacts retain their profile.
+[profile.release.package.graphit-app]
+codegen-units = 16
+
 # Match CI without retaining large dependency debug archives. Assertions and
 # release settings are unchanged.
 [profile.dev]

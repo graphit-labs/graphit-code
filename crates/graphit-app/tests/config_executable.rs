@@ -1,4 +1,7 @@
 //! Configuration through the actual Main, with private stores and no daemon.
+#[path = "support/finite_cli.rs"]
+mod finite_cli;
+use finite_cli::FiniteOutput;
 use graphit_core::{
     brand::Brand,
     config::ConfigStore,
@@ -59,7 +62,7 @@ impl Fixture {
     }
 
     fn call(&self, args: &[&str]) -> Output {
-        self.command(&self.project, args).output().unwrap()
+        self.command(&self.project, args).finite_output().unwrap()
     }
 
     fn json(&self, args: &[&str]) -> Value {
@@ -120,7 +123,7 @@ fn main_config_csv_values_and_inline_secrets_follow_the_same_parser() {
     let environment = successful(
         f.command(&f.project, &["config", "get", "knowledge.extensions"])
             .env(&name, "md, txt")
-            .output()
+            .finite_output()
             .unwrap(),
     );
     assert_eq!(environment["source"], "environment");
@@ -137,7 +140,7 @@ fn main_config_csv_values_and_inline_secrets_follow_the_same_parser() {
             ],
         )
         .env(&name, "md, txt")
-        .output()
+        .finite_output()
         .unwrap(),
     );
     assert_eq!(command["source"], "command");
@@ -180,7 +183,7 @@ fn main_config_typed_crud_and_scoped_resolution() {
     let environment = successful(
         f.command(&f.project, &["config", "get", "custom.shared"])
             .env(&name, "environment")
-            .output()
+            .finite_output()
             .unwrap(),
     );
     assert_eq!(environment["source"], "environment");
@@ -197,7 +200,7 @@ fn main_config_typed_crud_and_scoped_resolution() {
             ],
         )
         .env(&name, "environment")
-        .output()
+        .finite_output()
         .unwrap(),
     );
     assert_eq!(inline["source"], "command");
@@ -215,7 +218,7 @@ fn main_config_typed_crud_and_scoped_resolution() {
             ],
         )
         .env(&name, "environment")
-        .output()
+        .finite_output()
         .unwrap(),
     );
     assert_eq!(global["source"], "global");
@@ -256,7 +259,7 @@ fn main_config_typed_crud_and_scoped_resolution() {
     fs::create_dir(&subdirectory).unwrap();
     let nested = successful(
         f.command(&subdirectory, &["config", "get", "custom.shared"])
-            .output()
+            .finite_output()
             .unwrap(),
     );
     assert_eq!(nested, project);
@@ -311,7 +314,7 @@ fn main_config_root_githooks_preserves_project_and_resolves_global_env_command()
     let environment = successful(
         f.command(&f.project, &["config", "get", "githooks"])
             .env("GRAPHIT_GITHOOKS", &override_text)
-            .output()
+            .finite_output()
             .unwrap(),
     );
     assert_eq!(environment["source"], "environment");
@@ -320,7 +323,7 @@ fn main_config_root_githooks_preserves_project_and_resolves_global_env_command()
     let command = successful(
         f.command(&f.project, &["-c", &inline, "config", "get", "githooks"])
             .env("GRAPHIT_GITHOOKS", &override_text)
-            .output()
+            .finite_output()
             .unwrap(),
     );
     assert_eq!(command["source"], "command");
@@ -361,13 +364,13 @@ fn main_config_reads_have_no_effects_and_global_works_without_a_project() {
     let project_before = fs::read(f.project_file()).unwrap();
     let empty = successful(
         f.command(&f.outside, &["config", "--global", "list"])
-            .output()
+            .finite_output()
             .unwrap(),
     );
     assert_eq!(empty, json!([]));
     denied(
         f.command(&f.outside, &["config", "--global", "get", "custom.missing"])
-            .output()
+            .finite_output()
             .unwrap(),
     );
     assert!(!f.global.exists());
@@ -375,7 +378,7 @@ fn main_config_reads_have_no_effects_and_global_works_without_a_project() {
     assert!(!f.project_file().with_file_name("config.json").exists());
     denied(
         f.command(&f.outside, &["config", "set", "custom.missing", "true"])
-            .output()
+            .finite_output()
             .unwrap(),
     );
     assert!(!f.global.exists());
@@ -384,12 +387,12 @@ fn main_config_reads_have_no_effects_and_global_works_without_a_project() {
             &f.outside,
             &["config", "--global", "set", "custom.setting", "1"],
         )
-        .output()
+        .finite_output()
         .unwrap(),
     );
     let captured = successful(
         f.command(&f.outside, &["config", "get", "custom.setting"])
-            .output()
+            .finite_output()
             .unwrap(),
     );
     assert_eq!(captured["source"], "global");
@@ -450,16 +453,13 @@ fn main_config_preserves_policy_types_readonly_and_concurrent_updates() {
     denied(f.call(&["config", "set", "custom.readonly", "1"]));
     assert_eq!(fs::read(f.project_file()).unwrap(), before);
     fs::set_permissions(f.project_file(), permissions).unwrap();
-    let first = f
-        .command(&f.project, &["config", "set", "custom.concurrent_a", "1"])
-        .spawn()
-        .unwrap();
-    let second = f
-        .command(&f.project, &["config", "set", "custom.concurrent_b", "2"])
-        .spawn()
-        .unwrap();
-    successful(first.wait_with_output().unwrap());
-    successful(second.wait_with_output().unwrap());
+    let [first, second] = concurrent([
+        f.command(&f.project, &["config", "set", "custom.concurrent_a", "1"]),
+        f.command(&f.project, &["config", "set", "custom.concurrent_b", "2"]),
+    ])
+    .unwrap();
+    successful(first);
+    successful(second);
     assert_eq!(
         f.json(&["config", "get", "custom.concurrent_a"])["value"]["value"],
         1
@@ -563,4 +563,18 @@ fn main_config_parser_list_replaces_lower_list_and_removed_native_option_is_reje
         assert_eq!(fs::read(f.project_file()).unwrap(), project);
         assert_eq!(fs::read(f.global.join("config.json")).unwrap(), global);
     }
+}
+
+fn concurrent(commands: [Command; 2]) -> std::io::Result<[Output; 2]> {
+    let first = finite_cli::request(&commands[0])?;
+    let second = finite_cli::request(&commands[1])?;
+    finite_cli::runtime()?.block_on(async {
+        let host = finite_cli::host(2).await?;
+        let (first, second) = tokio::join!(
+            finite_cli::capture(&host, first),
+            finite_cli::capture(&host, second)
+        );
+        finite_cli::joined(host).await?;
+        Ok([first?, second?])
+    })
 }

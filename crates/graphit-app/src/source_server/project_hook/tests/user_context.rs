@@ -1148,6 +1148,7 @@ async fn private_user_projection_is_denied_to_delegate_before_project_reads() {
         None,
         None,
         Some(UserContext::Unavailable),
+        None,
     )
     .await;
     assert!(matches!(

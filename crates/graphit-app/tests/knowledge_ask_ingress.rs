@@ -8,6 +8,8 @@ use graphit_app::{
 mod cli_daemon;
 #[path = "support/knowledge_ask_server.rs"]
 mod fixture_support;
+#[path = "support/agent_fixture.rs"]
+mod native_agent_fixture;
 use graphit_auth::{
     Permission, ProjectCapture, ProjectRecordAuthority, ProjectWriteOperation, ScopeCapture,
     ScopeInput,
@@ -24,7 +26,6 @@ use graphit_hub::{NativeBinding, native::ContentLimits, policy::RequestContext};
 use std::{
     io,
     num::NonZeroUsize,
-    os::unix::fs::PermissionsExt,
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
@@ -135,6 +136,21 @@ async fn publish(f: &fixture_support::Fixture, ctx: &RequestContext<'_>) {
     .await
     .unwrap();
 }
+fn codex_case(query: &str, model: &str, answer: &str) -> serde_json::Value {
+    serde_json::json!({
+        "kind":"wire", "protocol":"codex", "checks":{
+            "args":["exec","--json","--model",model,"-"],
+            "captured":"startup only;$(literal)","cwd_basename":"project",
+            "question":query,"slug":"Paris"
+        },
+        "frames":[
+            r#"{"type":"turn.started"}"#,
+            r#"{"type":"item.completed","item":{"id":"i","type":"reasoning","text":"progress never goes to CLI stdout"}}"#,
+            serde_json::json!({"type":"item.completed","item":{"id":"i","type":"agent_message","text":answer}}).to_string(),
+            r#"{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}"#
+        ],"gate":null,"marker":null,"exit":0
+    })
+}
 fn cli_command(f: &fixture_support::Fixture) -> impl Fn() -> Command + use<> {
     let checkout = f.projects[0].0.root().to_owned();
     let home = f.temp.path().to_owned();
@@ -183,23 +199,14 @@ fn compiled_cli_preserves_query_model_and_startup_capture_and_writes_only_final_
         let ctx = original(&cancel);
         publish(&f, &ctx).await;
         let program = f.temp.path().join("codex");
-        std::fs::write(&program,r#"#!/usr/bin/python3
-import json,sys,os
-assert sys.argv[1:4] == ['exec','--json','--model']
-assert sys.argv[4] in ['literal model;$(native)', 'retrieval model;$(native)']
-assert sys.argv[5:] == ['-']
-assert os.environ['CAPTURED'] == 'startup only;$(literal)'
-assert os.path.basename(os.getcwd()) == 'project'
-prompt=json.load(sys.stdin)
-explicit = sys.argv[4] == 'literal model;$(native)'
-assert prompt['question'] == ('  literal β\n  ' if explicit else 'Paris')
-assert prompt['pages'][0]['slug'] == 'Paris'
-print('{"type":"turn.started"}',flush=True)
-print('{"type":"item.completed","item":{"id":"i","type":"reasoning","text":"progress never goes to CLI stdout"}}',flush=True)
-print(json.dumps({"type":"item.completed","item":{"id":"i","type":"agent_message","text":"actual β [[Paris]]" if explicit else "retrieved β [[Paris]]"}}),flush=True)
-print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}',flush=True)
-"#).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        native_agent_fixture::install(
+            &program,
+            codex_case(
+                "  literal β\n  ",
+                "literal model;$(native)",
+                "actual β [[Paris]]",
+            ),
+        );
         // The compiled PROJECT command maintains its checkout through the real
         // Foreground route before it calls Ask.
         let command = cli_command(&f);
@@ -225,9 +232,7 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
                 "--model",
                 "literal model;$(native)",
             ]);
-        let result = tokio::task::spawn_blocking(move || cmd.output().unwrap())
-            .await
-            .unwrap();
+        let result = cli_daemon::output(cmd).await;
         assert!(
             result.status.success(),
             "compiled Ask failed: {}",
@@ -235,6 +240,16 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
         );
         assert_eq!(result.stdout, "actual β [[Paris]]\n".as_bytes());
         assert!(result.stderr.is_empty());
+        std::fs::write(
+            program.with_extension("fixture.json"),
+            serde_json::to_vec(&codex_case(
+                "Paris",
+                "retrieval model;$(native)",
+                "retrieved β [[Paris]]",
+            ))
+            .unwrap(),
+        )
+        .unwrap();
         for mode in ["fts", "hybrid"] {
             let mut automatic = command();
             automatic
@@ -252,9 +267,7 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
                     "--model",
                     "retrieval model;$(native)",
                 ]);
-            let automatic = tokio::task::spawn_blocking(move || automatic.output().unwrap())
-                .await
-                .unwrap();
+            let automatic = cli_daemon::output(automatic).await;
             assert!(
                 automatic.status.success(),
                 "{}",
@@ -281,9 +294,7 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
                     "literal model;$(native)",
                 ])
                 .args(flags);
-            let invalid = tokio::task::spawn_blocking(move || invalid.output().unwrap())
-                .await
-                .unwrap();
+            let invalid = cli_daemon::output(invalid).await;
             assert!(!invalid.status.success());
             assert!(invalid.stdout.is_empty());
         }
@@ -298,9 +309,7 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
             "--model",
             "m",
         ]);
-        let invalid = tokio::task::spawn_blocking(move || invalid.output().unwrap())
-            .await
-            .unwrap();
+        let invalid = cli_daemon::output(invalid).await;
         assert!(!invalid.status.success());
         assert!(invalid.stdout.is_empty());
         assert!(
@@ -343,9 +352,7 @@ fn missing_optional_codex_keeps_source_and_compiled_ask_has_actionable_error() {
             "--model",
             "m",
         ]);
-        let output = tokio::task::spawn_blocking(move || cmd.output().unwrap())
-            .await
-            .unwrap();
+        let output = cli_daemon::output(cmd).await;
         assert!(!output.status.success());
         assert!(output.stdout.is_empty());
         let text = String::from_utf8(output.stderr).unwrap();
@@ -359,9 +366,7 @@ fn missing_optional_codex_keeps_source_and_compiled_ask_has_actionable_error() {
         );
         let mut source = command();
         source.args(["ast", "source", "raw"]).stdin(Stdio::null());
-        let output = tokio::task::spawn_blocking(move || source.output().unwrap())
-            .await
-            .unwrap();
+        let output = cli_daemon::output(source).await;
         assert!(
             output.status.success(),
             "Source CLI native error: {}",
@@ -435,7 +440,8 @@ fn compiled_cli_kiro_v3_preserves_captured_inputs_and_waits_for_terminal() {
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
         let mut child = cmd.spawn().unwrap();
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
@@ -488,10 +494,7 @@ fn compiled_cli_kiro_v3_preserves_captured_inputs_and_waits_for_terminal() {
         );
         child.stdout = Some(stdout);
         std::fs::write(journal.with_extension("finish"), b"finish").unwrap();
-        let output = tokio::time::timeout(Duration::from_secs(10), child.wait_with_output())
-            .await
-            .unwrap()
-            .unwrap();
+        let output = cli_daemon::child_output(child, Duration::from_secs(10)).await;
         assert!(output.status.success(), "compiled Kiro V3 Ask must succeed");
         assert_eq!(output.stdout, b"fresh fixture answer\n");
         assert!(output.stderr.is_empty());

@@ -148,6 +148,12 @@ then installs the captured artifact and exercises standard Remote reuse,
 canonical slot selection, preservation of the embedding slot and an explicit
 empty selection. `search.rerank = false` remains unchanged.
 
+The default loopback fixture holds a deliberately partial body until the caller
+has returned and its owner releases teardown. It does not auto-close the body
+on a second five-second timer. Teardown also wakes its owned listener if no
+client connected, so a failed zero-send regression cannot strand the server
+join. Request checks still reject Authorization and Cookie headers.
+
 ```sh
 cargo xtask cargo test --locked --offline --release -p graphit-app --test model_provision
 GRAPHIT_BGE_RERANK_TEST_FILE=prepared/bge-reranker-v2-m3-F16.gguf \

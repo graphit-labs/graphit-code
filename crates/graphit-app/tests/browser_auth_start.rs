@@ -274,10 +274,23 @@ async fn login_start_deadline_preserves_original_and_cleans_pending_work() {
 async fn login_start_cancellation_retains_cause_and_joins_owned_work() {
     let f = Fixture::new(Mode::HeldDiscovery, Duration::from_secs(2)).await;
     let request = f.request();
-    let job = tokio::spawn(async move { request.send().await.unwrap() });
-    f.entered.notified().await;
-    f.stop.cancel();
-    let (status, body) = diagnostic(job.await.unwrap()).await;
+    let mut job = tokio::spawn(async move { request.send().await.unwrap() });
+    let response = tokio::time::timeout(Duration::from_secs(5), async {
+        f.entered.notified().await;
+        f.stop.cancel();
+        (&mut job).await
+    })
+    .await;
+    let response = match response {
+        Ok(joined) => joined.unwrap(),
+        Err(_) => {
+            job.abort();
+            let _ = job.await;
+            f.finish().await;
+            panic!("discovery admission and the cancelled request must finish");
+        }
+    };
+    let (status, body) = diagnostic(response).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(
         body,

@@ -31,7 +31,7 @@ use graphit_process::{
 };
 use graphit_records::memory_store::{Memory, MemoryListFilter, MemoryListRead, NativeMemoryStore};
 use graphit_runtime::{
-    instructions::{InstructionOrigin, InstructionValue, InstructionVariable, render_instruction},
+    instructions::{InstructionOrigin, InstructionValue, InstructionVariable},
     policy_instructions::{PolicyPrompt, policy_prompt},
 };
 use serde::Serialize;
@@ -769,35 +769,42 @@ async fn perform(
         let attempt_id = operation_id()?;
         let project_id = id.to_string();
         let set = policy_prompt(PolicyPrompt::DreamConsolidation);
-        let prompt = render_instruction(
-            set.entry(),
-            set.candidates(),
-            &[
-                InstructionVariable {
-                    name: "dream_session_id",
-                    value: InstructionValue::Text(&attempt_id),
-                },
-                InstructionVariable {
-                    name: "dream_agent",
-                    value: InstructionValue::Text(&plan.agent),
-                },
-                InstructionVariable {
-                    name: "project_id",
-                    value: InstructionValue::Text(&project_id),
-                },
-                InstructionVariable {
-                    name: "project_version",
-                    value: InstructionValue::Text(version.version()),
-                },
-                InstructionVariable {
-                    name: "memories_json",
-                    value: InstructionValue::Text(&corpus),
-                },
-            ],
-            plan.policy.instructions,
-            original.snapshot(),
-        )
-        .map_err(io::Error::other)?;
+        let sources = crate::instruction_overrides::InstructionSources::capture(
+            plan.auth.issuer(),
+            &plan.policy.source,
+            Some(paths),
+            &original,
+        )?;
+        let prompt = sources
+            .render(
+                set.entry(),
+                set.candidates(),
+                &[
+                    InstructionVariable {
+                        name: "dream_session_id",
+                        value: InstructionValue::Text(&attempt_id),
+                    },
+                    InstructionVariable {
+                        name: "dream_agent",
+                        value: InstructionValue::Text(&plan.agent),
+                    },
+                    InstructionVariable {
+                        name: "project_id",
+                        value: InstructionValue::Text(&project_id),
+                    },
+                    InstructionVariable {
+                        name: "project_version",
+                        value: InstructionValue::Text(version.version()),
+                    },
+                    InstructionVariable {
+                        name: "memories_json",
+                        value: InstructionValue::Text(&corpus),
+                    },
+                ],
+                plan.policy.instructions,
+                &original,
+            )
+            .map_err(io::Error::other)?;
         let config = managed_roles::capture_template(
             paths.root(),
             Path::new(".codex/config.toml"),

@@ -884,3 +884,75 @@ abertura do mesmo banco e a validação de catálogo, namespace e estado salvo.
 Isso reduz a retenção do produtor durante um full, mas não comprova limite de
 RSS nem elimina memória de uma FILE ativa ou dos stores Lance. O
 [contrato do grafo local](rust_ast_live_graph.md) descreve o lifecycle e o fence.
+
+O publicador estrutural conserva o locator, o cohort e os diretórios capturados,
+mas não um snapshot Lance durante a passagem inteira. Cada operação recaptura
+o corpus sob o fence existente e conserva a proteção de leitura até terminar
+seu preparo e commit. O snapshot é liberado antes do próximo FILE ou gate,
+permitindo que a limpeza por NN FILE encontre o corpus sem um reader estrutural
+ocioso. Leitores ativos continuam protegidos e podem adiar essa limpeza. Essa
+manutenção cobre `corpus.lance` e, após commits Source por FILE e no EOF,
+`source.lance`. O mesmo helper consulta a cadência de 32 versões antes de limpar;
+não executa GC pesado a cada commit. Source usa capturas admitidas e SHA por FILE,
+sem depender de consultas a versões históricas. Leitores Source retidos e branches
+continuam protegidos pelo SDK e pelo lease existente.
+
+## Testes offline de Source e publicação AST
+
+Após `cargo fetch --locked`, as suítes `source_server`, `foreground_source` e
+`foreground_ast_semantic` executam pelos alvos Cargo abaixo. Cada teste usa
+instalação, PROJECT, credenciais de fixture e porta loopback próprios. Os clients
+HTTP locais desabilitam proxy ambiente e limitam o tempo de requisição. A espera
+pela publicação consulta tabelas e FILEs esperados com prazo finito.
+
+```text
+cargo xtask cargo test --locked --offline -p graphit-app --test source_server --test foreground_source --test foreground_ast_semantic
+```
+
+Os cenários de branches usam Git 2.54+ do toolchain, repositório temporário sem
+remotos e configuração global/sistema isolada na criação da fixture. O cenário
+`ast_only_publishes_current_graph_without_native_nn` publica Rust, JSON e Java
+pelo Foreground real com embeddings desabilitados e PATH privado. O mesmo teste
+é compilado para Linux, macOS e Windows. Ele também publica uma FILE posterior
+e verifica que o pin histórico da FILE inalterada continua válido.
+
+Os oracles verificam o Source e seu hash no pin retido de cada FILE. A espera
+por conteúdo atualizado compara com o arquivo esperado, sem exigir que linhas
+NN ou observações do grafo compartilhem a versão global mais recente do Raw.
+A falha de gramática e sua recuperação são verificadas pelo teste unitário
+`grammar_failure_acknowledgement_preserves_source_and_recovers_without_models`
+em [scip_pipeline_tests.rs](../../crates/graphit-app/src/foreground_ast_sources/scip_pipeline_tests.rs).
+O mesmo produtor processa dois PROJECTs, retorna o erro efetivo antes do reparo
+e preserva os pins de Source e NN. O segundo PROJECT progride com configuração
+válida. Esse recorte Linux usa o peer RPC controlado existente, sem pesos de
+modelo. As qualificações com inferência real verificam atualização de perfil,
+conteúdo e consumo nos dois projetos.
+
+Os dez cenários de inferência nesse último alvo são qualificações explícitas
+com `--ignored`, `GRAPHIT_TEST_MODEL_SERVER` e
+`GRAPHIT_EMBEDDINGGEMMA2_MODEL`. Eles exigem o executável compilado e o GGUF
+fixado. A suíte padrão preserva as asserções de publicação e Source sem carregar
+esses pesos. A execução nativa em cada SO é verificada pelo CI correspondente.
+
+Os testes de consumidores em `graph_server`, `ast_source` e `foreground_ast_*`
+aplicam o mesmo isolamento de proxy. Requests JSON têm timeout de transporte.
+Clients MCP limitam conexão e leitura; handshake e RPC obedecem ao Original ou
+a um timeout por operação, preservando a sessão SSE. As provas de shutdown
+pollam o waiter retido antes de descartá-lo. A fixture SCIP conserva seu handle
+do produtor em erros e panics, cancela os tokens e faz join com prazo antes de
+aguardar o shutdown do serviço de compiler.
+
+O cenário de scheduling espera a preempção real do job retido antes de liberar
+o FILE. Publicação, tail, tombstones e identidades históricas são observados nos
+consumidores, aceitando eventos admitidos em um ou mais batches. O coalescing
+da fila é verificado separadamente pelos testes do supervisor no Daemon.
+O delta deve aparecer enquanto o tail permanece pendente; a exclusão Graph e
+FTS de um evento independente é confirmada após o `full_completion` do rescan,
+preservando o sibling que não pertence à subárvore removida.
+
+O teste `full_and_nn_backlog_release_native_owner_between_files` prepara
+histórico real com commits SDK de rows inalteradas no corpus temporário. No
+gate após o primeiro NN FILE, consulta `Dataset::versions()` e exige pruning
+enquanto a segunda FILE ainda tem projeções pendentes, preservando seus oracles
+de Source, hash e identidade. Esse teste cobre a limpeza por NN FILE; o EOF do
+produtor estrutural tem sua própria fronteira de execução.

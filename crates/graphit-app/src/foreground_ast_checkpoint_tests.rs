@@ -479,11 +479,14 @@ async fn final_mcp(
             axum::http::HeaderValue::from_static("runtime"),
         ),
     ]);
-    let client: rmcp::service::RunningService<RoleClient, ()> = ()
-        .serve_with_lifecycle(
+    let client: rmcp::service::RunningService<RoleClient, ()> = tokio::time::timeout(
+        Duration::from_secs(30),
+        ().serve_with_lifecycle(
             StreamableHttpClientTransport::with_client(
                 reqwest::Client::builder()
                     .no_proxy()
+                    .connect_timeout(Duration::from_secs(5))
+                    .read_timeout(Duration::from_secs(30))
                     .redirect(reqwest::redirect::Policy::none())
                     .build()?,
                 StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(headers),
@@ -491,15 +494,18 @@ async fn final_mcp(
             ClientLifecycleMode::Discover {
                 preferred_versions: vec![rmcp::model::ProtocolVersion::LATEST],
             },
-        )
-        .await?;
+        ),
+    )
+    .await??;
     let args = json!({"project_dir":graphit_core::native_path::NativePath::new(selected.0.root().to_owned())?,"project_version":selected.2.version(),"query":"checkpoint table","mode":"semantic","k":3,"ai_optimized":false});
-    let response = client
-        .call_tool(
+    let response = tokio::time::timeout(
+        Duration::from_secs(30),
+        client.call_tool(
             rmcp::model::CallToolRequestParams::new("graphit_ast_search")
                 .with_arguments(args.as_object().unwrap().clone()),
-        )
-        .await?;
+        ),
+    )
+    .await??;
     assert_eq!(response.is_error, Some(false));
     let payload = response.structured_content.unwrap();
     assert_eq!(payload["status"], "available");

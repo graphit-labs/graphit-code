@@ -144,7 +144,7 @@ if (process.env.FIXTURE_NATIVE_ENGINE) {
   const selected = process.env.FIXTURE_LINUX_ISSUE === "outside-engine" ? process.env.FIXTURE_NATIVE_OUTSIDE : process.env.FIXTURE_NATIVE_ENGINE;
   for (const name of ["libllama.so", "libggml.so", "libggml-base.so", "libggml-cpu.so", "libggml-cuda.so"])
     console.log(name + " => " + path.join(patched ? root : path.join(selected, "lib"), name) + " (0x1234)");
-  for (const name of ["libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12"])
+  for (const name of ["libcudart.so.", "libcublas.so.", "libcublasLt.so."].map(name => name + (process.env.FIXTURE_CUDA_MAJOR || "12")))
     console.log(name + " => " + path.join(patched ? root : path.join(process.env.CUDA_PATH, "lib64"), name) + " (0x1234)");
 }
 
@@ -177,9 +177,18 @@ else console.log((process.env.FIXTURE_LINUX_ISSUE === "missing-license" ? "no-su
   process.env.FIXTURE_REQUESTS = path.join(temp, "requests");
   write(process.env.FIXTURE_REQUESTS, "");
 
+  const binaries = output("binaries");
+  for (const name of ["graphit", "graphit-model-server"]) {
+    write(path.join(binaries, name), "controlled executable payload\n");
+    fs.chmodSync(path.join(binaries, name), 0o755);
+  }
+  receipt();
+  // Installer checks consume an immutable baseline, independently of whether
+  // the release-consumer assertion below was selected or ran first.
+  const baseline = output("baseline-dist");
+  okay(run("bash", [path.join(project, "scripts/package-release.sh"), "linux-amd64", artifactsReceipt, baseline]));
+
   check("release consumer includes both executables, runtime and valid checksums", () => {
-    const binaries = output("binaries");
-    for (const name of ["graphit", "graphit-model-server"]) { write(path.join(binaries, name), "controlled executable payload\n"); fs.chmodSync(path.join(binaries, name), 0o755); }
     receipt();
     const dist = output("dist");
     okay(run("bash", [path.join(project, "scripts/package-release.sh"), "linux-amd64", artifactsReceipt, dist]));
@@ -262,22 +271,22 @@ else console.log((process.env.FIXTURE_LINUX_ISSUE === "missing-license" ? "no-su
     });
   }
 
-  check("Cargo shared engine and CUDA runtime use selected build output and relative loader paths", () => {
+  for (const major of ["12", "13"]) check("Cargo shared engine and CUDA " + major + " runtime use selected build output and relative loader paths", () => {
     const engine = output("selected-engine");
-    const toolkit = output("selected-toolkit");
+    const toolkit = output("selected-toolkit-" + major);
     const outside = output("unselected-engine");
     const engineNames = ["libllama.so", "libggml.so", "libggml-base.so", "libggml-cpu.so", "libggml-cuda.so"];
-    const cudaNames = ["libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12"];
+    const cudaNames = ["libcudart.so.", "libcublas.so.", "libcublasLt.so."].map(name => name + major);
     for (const root of [engine, outside]) for (const name of engineNames) write(path.join(root, "lib", name), "native engine: " + name);
     for (const name of cudaNames) write(path.join(toolkit, "lib64", name), "NVIDIA runtime: " + name);
-    const env = { FIXTURE_NATIVE_ENGINE: engine, FIXTURE_NATIVE_OUTSIDE: outside, CUDA_PATH: toolkit };
+    const env = { FIXTURE_NATIVE_ENGINE: engine, FIXTURE_NATIVE_OUTSIDE: outside, CUDA_PATH: toolkit, FIXTURE_CUDA_MAJOR: major };
     const select = () => receipt((messages) => messages.splice(-1, 0, {
       reason: "build-script-executed", package_id: "resolved-llama", out_dir: engine, linked_libs: ["dylib=ggml-cuda"],
     }));
     select();
-    const dist = output("dynamic-dist");
+    const dist = output("dynamic-dist-" + major);
     okay(run("bash", [path.join(project, "scripts/package-release.sh"), "linux-amd64", artifactsReceipt, dist], env));
-    const extract = output("dynamic-release");
+    const extract = output("dynamic-release-" + major);
     fs.mkdirSync(extract);
     okay(run("tar", ["-xzf", path.join(dist, "graphit-linux-amd64.tar.gz"), "-C", extract]));
     const root = path.join(extract, "graphit-linux-amd64/graphit-runtime");
@@ -413,7 +422,7 @@ else console.log((process.env.FIXTURE_LINUX_ISSUE === "missing-license" ? "no-su
   });
 
   check("Unix product installer preserves the complete namespaced release layout", () => {
-    const release = path.join(output("dist"), "graphit-linux-amd64.tar.gz");
+    const release = path.join(baseline, "graphit-linux-amd64.tar.gz");
     const destination = output("user-bin");
     fs.mkdirSync(destination);
     write(path.join(destination, "LICENSE"), "unrelated installed product license\n");
@@ -434,7 +443,7 @@ else console.log((process.env.FIXTURE_LINUX_ISSUE === "missing-license" ? "no-su
   });
 
   check("Unix product installer rejects a bad release digest before modifying the destination", () => {
-    const release = path.join(output("dist"), "graphit-linux-amd64.tar.gz");
+    const release = path.join(baseline, "graphit-linux-amd64.tar.gz");
     const badDigest = output("bad-release-sha");
     write(badDigest, "0".repeat(64) + "  graphit-linux-amd64.tar.gz\n");
     const destination = output("bad-user-install");
@@ -448,7 +457,7 @@ else console.log((process.env.FIXTURE_LINUX_ISSUE === "missing-license" ? "no-su
   });
 
   check("Unix local installer verifies the complete package offline and replaces active files by rename", () => {
-    const release = path.join(output("dist"), "graphit-linux-amd64.tar.gz");
+    const release = path.join(baseline, "graphit-linux-amd64.tar.gz");
     const destination = output("local-user-bin");
     fs.mkdirSync(destination);
     const executable = path.join(destination, "graphit");
@@ -481,7 +490,7 @@ else console.log((process.env.FIXTURE_LINUX_ISSUE === "missing-license" ? "no-su
   });
 
   check("Unix local installer rejects checksum errors and ambiguous selection without network or effects", () => {
-    const release = path.join(output("dist"), "graphit-linux-amd64.tar.gz");
+    const release = path.join(baseline, "graphit-linux-amd64.tar.gz");
     const badRelease = output("local-bad-package.tar.gz");
     fs.copyFileSync(release, badRelease);
     write(badRelease + ".sha256", "0".repeat(64) + "  graphit-linux-amd64.tar.gz\n");

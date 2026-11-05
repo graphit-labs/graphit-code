@@ -137,21 +137,13 @@ async fn no_corpus_publication() {
     let router = f
         .service
         .task_router(tasks.clone(), Arc::clone(&backend), None)
-        .merge(
-            f.service.live_execution_router(
-                tasks.clone(),
-                backend,
-                address,
-                std::env::current_exe()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .join("graphit"),
-                None,
-            ),
-        );
+        .merge(f.service.live_execution_router(
+            tasks.clone(),
+            backend,
+            address,
+            graphit_executable(),
+            None,
+        ));
     let stop = f.stop.clone();
     f.servers.push(tokio::spawn(async move {
         axum::serve(listener, router)

@@ -424,6 +424,14 @@ mod tests {
     use super::*;
     use std::io;
 
+    fn client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .unwrap()
+    }
+
     async fn listener(
         timeout: Duration,
     ) -> (
@@ -491,7 +499,7 @@ mod tests {
         let result = send(
             &fixture.paths,
             address,
-            &reqwest::Client::new(),
+            &client(),
             (policy.index, policy.content),
             &command,
             &original,
@@ -582,7 +590,7 @@ mod tests {
     #[tokio::test]
     async fn browser_origin_and_duplicate_credentials_never_enter_owner() {
         let (url, mut receiver, stop, served) = listener(Duration::from_secs(5)).await;
-        let client = reqwest::Client::new();
+        let client = client();
         let origin = client
             .post(&url)
             .header("Origin", "https://example.test")
@@ -615,7 +623,7 @@ mod tests {
     async fn queued_deadline_cancels_same_owner_original() {
         let (url, mut receiver, stop, served) = listener(Duration::from_millis(100)).await;
         let request = tokio::spawn(async move {
-            reqwest::Client::new()
+            client()
                 .post(url)
                 .header("x-graphit-auth-origin", "runtime")
                 .bearer_auth("not-a-runtime-token")
@@ -624,13 +632,20 @@ mod tests {
                 .await
                 .unwrap()
         });
-        let OwnerCommand::Project(pending) = receiver.recv().await.unwrap() else {
+        let OwnerCommand::Project(pending) =
+            tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+                .await
+                .expect("owner command deadline")
+                .unwrap()
+        else {
             panic!("HTTP command must use the existing PROJECT variant");
         };
         assert!(!pending.cancellation.is_cancelled());
         let response = request.await.unwrap();
         assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT);
-        pending.cancellation.cancelled().await;
+        tokio::time::timeout(Duration::from_secs(5), pending.cancellation.cancelled())
+            .await
+            .expect("owner cancellation deadline");
         assert!(Instant::now() >= pending.deadline);
         stop.cancel();
         served.await.unwrap().unwrap();
@@ -640,7 +655,7 @@ mod tests {
     async fn daemon_shutdown_cancels_waiting_command_without_abandoning_owner() {
         let (url, mut receiver, stop, served) = listener(Duration::from_secs(5)).await;
         let request = tokio::spawn(async move {
-            reqwest::Client::new()
+            client()
                 .post(url)
                 .header("x-graphit-auth-origin", "runtime")
                 .bearer_auth("not-a-runtime-token")
@@ -649,13 +664,20 @@ mod tests {
                 .await
                 .unwrap()
         });
-        let OwnerCommand::Project(pending) = receiver.recv().await.unwrap() else {
+        let OwnerCommand::Project(pending) =
+            tokio::time::timeout(Duration::from_secs(5), receiver.recv())
+                .await
+                .expect("owner command deadline")
+                .unwrap()
+        else {
             panic!("HTTP command must use the existing PROJECT variant");
         };
         stop.cancel();
         let response = request.await.unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        pending.cancellation.cancelled().await;
+        tokio::time::timeout(Duration::from_secs(5), pending.cancellation.cancelled())
+            .await
+            .expect("owner cancellation deadline");
         // This object remains with the owner; shutdown signals it, never replaces it.
         assert!(pending.response.is_closed());
         served.await.unwrap().unwrap();

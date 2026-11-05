@@ -102,9 +102,9 @@ specified in [Native AST and Knowledge packages](../development/native-packages.
 Focused checks are:
 
 ```text
-cargo xtask cargo test --locked --offline -j1 -p graphit-app --test native_install_http
-cargo xtask cargo test --locked --offline -j1 -p graphit-app --lib native_install_http::tests
-cargo xtask cargo test --locked --offline -j1 -p graphit-app --test native_install
+cargo xtask cargo test --locked --offline -p graphit-app --test native_install_http
+cargo xtask cargo test --locked --offline -p graphit-app --lib native_install_http::tests
+cargo xtask cargo test --locked --offline -p graphit-app --test native_install
 ```
 
 The HTTP fixtures use a real loopback listener, real Runtime issuer, temporary Auth
@@ -117,5 +117,6 @@ tests separately prove a retained job gated before FILE reading and a sibling re
 FILE read; this does not prove interruption inside a blocked filesystem syscall.
 These checks do not qualify
 production JWTs, installed hosts, nonempty Parquet corpus semantics or Windows/macOS.
-Kiro V2 support and explicit `--v3` preview selection remain host-operation contracts;
-global corpus installation does not select a host.
+Kiro uses the current V3 contract (`acp --agent-engine=v3`); global corpus
+installation does not select a host. Standard tests emulate the host boundary
+with Cargo-built fixtures and require no vendor executable, account or plan.

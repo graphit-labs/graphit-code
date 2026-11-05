@@ -4,7 +4,7 @@ use graphit_ai::{
     cli_grok_wire::GrokEventView,
 };
 use graphit_core::file_io::SnapshotContext;
-use std::{io::Write, os::unix::fs::PermissionsExt};
+use std::io::Write;
 
 struct Ignore;
 impl GrokSink for Ignore {
@@ -22,22 +22,20 @@ impl GrokSink for Ignore {
 async fn grok_pending_process_retains_prompt_until_join() {
     let temp = tempfile::tempdir().unwrap();
     let program = temp.path().join("grok");
-    std::fs::write(
+    let mut file = tempfile::NamedTempFile::new().unwrap();
+    file.write_all(b"private prompt").unwrap();
+    let file = file.into_temp_path();
+    let path = file.to_path_buf();
+    crate::test_agent_fixture::install(
         &program,
-        r#"#!/usr/bin/python3
-import sys,time
-from pathlib import Path
-assert sys.argv[1]=='--prompt-file'
-assert sys.argv[3:5]==['--output-format','streaming-json']
-assert sys.argv[5:]==['--model','literal model','--verbatim','--deny','*']
-assert Path(sys.argv[2]).read_text()=='private prompt'
-assert sys.stdin.read()==''
-print('{"type":"text","data":"native prefix"}',flush=True)
-time.sleep(2)
-"#,
-    )
-    .unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        serde_json::json!({
+            "kind":"raw", "process":{
+                "args":["--prompt-file",path,"--output-format","streaming-json","--model","literal model","--verbatim","--deny","*"],
+                "prompt_file":{"flag":"--prompt-file","expected":"private prompt"},
+                "stdout":"{\"type\":\"text\",\"data\":\"native prefix\"}\n", "hold":true
+            }
+        }),
+    );
     let native = NativeDocumentFileLimits::new(65536, 4096, 128, 65536).unwrap();
     let available = AskAvailability::capture(
         CliCompletionProvider::Grok,
@@ -57,11 +55,9 @@ time.sleep(2)
         Instant::now() + Duration::from_secs(10),
         Cancellation::default(),
     ));
-    let mut file = tempfile::NamedTempFile::new().unwrap();
-    file.write_all(b"private prompt").unwrap();
-    let file = file.into_temp_path();
-    let path = file.to_path_buf();
+
     let mut request = service.grok_request(temp.path(), "literal model", file.as_ref());
+    assert!(request.stdin.is_none());
     // Force the existing Process producer to return its real pending cleanup owner.
     request.limits.cleanup = Duration::from_nanos(2);
     request.limits.termination_grace = Duration::from_nanos(1);
@@ -111,21 +107,21 @@ async fn grok_conversation_guard_retains_prompt_and_writer_until_real_join() {
     for return_remaining in [false, true] {
         let temp = tempfile::tempdir().unwrap();
         let program = temp.path().join("grok");
-        std::fs::write(&program, r#"#!/usr/bin/python3
-import json, os, signal, sys, time
-from pathlib import Path
-args=sys.argv[1:]
-assert args[0]=='--prompt-file'
-prompt=Path(args[1])
-assert prompt.read_text()=='private prompt'
-assert args[2:]==['--output-format','streaming-json','--model','fixture-model','--verbatim','--deny','*']
-signal.signal(signal.SIGTERM, lambda *_: None)
-print(json.dumps({'type':'text','data':'native prefix'}), flush=True)
-while not Path(os.environ['GROK_RELEASE']).exists():
-    time.sleep(0.01)
-assert prompt.exists()
-"#).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut file = tempfile::NamedTempFile::new().unwrap();
+        file.write_all(b"private prompt").unwrap();
+        let file = file.into_temp_path();
+        let path = file.to_path_buf();
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({
+                "kind":"raw", "process":{
+                    "args":["--prompt-file",path,"--output-format","streaming-json","--model","fixture-model","--verbatim","--deny","*"],
+                    "prompt_file":{"flag":"--prompt-file","expected":"private prompt"},
+                    "stdout":"{\"type\":\"text\",\"data\":\"native prefix\"}\n",
+                    "ignore_term":true, "release":temp.path().join("release")
+                }
+            }),
+        );
         let native = NativeDocumentFileLimits::new(65536, 4096, 128, 65536).unwrap();
         let available = AskAvailability::capture(
             CliCompletionProvider::Grok,
@@ -154,11 +150,9 @@ assert prompt.exists()
             ConversationEngine::Grok,
         );
         let entry = service.hold_conversation_turn(turn);
-        let mut file = tempfile::NamedTempFile::new().unwrap();
-        file.write_all(b"private prompt").unwrap();
-        let file = file.into_temp_path();
-        let path = file.to_path_buf();
+
         let mut request = service.grok_request(temp.path(), "fixture-model", file.as_ref());
+        assert!(request.stdin.is_none());
         if return_remaining {
             request.limits.cleanup = Duration::from_nanos(2);
             request.limits.termination_grace = Duration::from_nanos(1);

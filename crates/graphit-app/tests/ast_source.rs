@@ -135,7 +135,11 @@ async fn actual_http_source_exact_text_empty_selectors_and_shared_key() -> TestR
     fixture.file(0, "null", "fallback");
     let key = fixture.paths.global_path(&["daemon", "mcp.key"])?;
     let before = std::fs::read(&key)?;
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(5))
+        .read_timeout(Duration::from_secs(30))
+        .build()?;
     let cancel = Cancellation::default();
     let original = support::request(&cancel);
     for (flags, expected) in [
@@ -231,7 +235,11 @@ async fn credentials_original_and_output_failures_never_deliver_payload() -> Tes
     fixture.file(0, "file", "payload");
     let endpoint = fixture.start().await;
     let parsed = parse(&["graphit", "ast", "source", "file"]);
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(5))
+        .read_timeout(Duration::from_secs(30))
+        .build()?;
     let cancel = Cancellation::default();
     let original = support::request(&cancel);
     let headers = runtime_headers(&fixture.paths, support::key_limits(), &original).await?;

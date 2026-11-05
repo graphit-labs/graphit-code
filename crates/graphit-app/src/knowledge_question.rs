@@ -258,36 +258,52 @@ impl io::Write for PromptWriter<'_> {
         self.check()
     }
 }
+const QUESTION_TEMPLATE: &str = "knowledge-question.md";
+const QUESTION_DEFAULT: graphit_runtime::instructions::CapturedInstruction<'static> =
+    graphit_runtime::instructions::CapturedInstruction {
+        name: QUESTION_TEMPLATE,
+        origin: graphit_runtime::instructions::InstructionOrigin::CompiledDefault,
+        markdown: include_str!("../../../templates/agent-instructions/knowledge-question.md"),
+    };
+
+fn question_instruction_limits() -> graphit_runtime::instructions::InstructionLimits {
+    use graphit_runtime::instructions::InstructionLimits;
+    InstructionLimits {
+        max_templates: NonZeroUsize::new(4).unwrap(),
+        max_template_bytes: NonZeroUsize::new(65_536).unwrap(),
+        max_values: NonZeroUsize::new(1).unwrap(),
+        max_variable_bytes: NonZeroUsize::new(1).unwrap(),
+        max_output_bytes: NonZeroUsize::new(65_536).unwrap(),
+        fuel: std::num::NonZeroU64::new(10_000).unwrap(),
+        recursion: NonZeroUsize::new(32).unwrap(),
+    }
+}
+
+pub(crate) fn capture_question_instruction(
+    issuer: &graphit_auth::RoleIssuer,
+    paths: &graphit_core::project_paths::ProjectPaths,
+    original: &graphit_hub::policy::RequestContext<'_>,
+) -> io::Result<String> {
+    crate::instruction_overrides::InstructionSources::capture_project(issuer, paths, original)?
+        .render(
+            QUESTION_TEMPLATE,
+            &[QUESTION_DEFAULT],
+            &[],
+            question_instruction_limits(),
+            original,
+        )
+        .map(|value| value.into_body())
+        .map_err(io::Error::other)
+}
+
 fn encode_prompt(
     original: &SnapshotContext,
     query: &str,
     documents: &[KnowledgeDocument],
     limit: usize,
+    instruction: &str,
 ) -> Result<String, KnowledgeQuestionError> {
     original.check().map_err(KnowledgeQuestionError::Request)?;
-    use graphit_runtime::instructions::{
-        CapturedInstruction, InstructionLimits, InstructionOrigin, render_instruction,
-    };
-    let instruction = render_instruction(
-        "knowledge-question.md",
-        &[CapturedInstruction {
-            name: "knowledge-question.md",
-            origin: InstructionOrigin::CompiledDefault,
-            markdown: include_str!("../../../templates/agent-instructions/knowledge-question.md"),
-        }],
-        &[],
-        InstructionLimits {
-            max_templates: NonZeroUsize::new(1).expect("one"),
-            max_template_bytes: NonZeroUsize::new(65_536).expect("positive"),
-            max_values: NonZeroUsize::new(1).expect("one"),
-            max_variable_bytes: NonZeroUsize::new(1).expect("one"),
-            max_output_bytes: NonZeroUsize::new(65_536).expect("positive"),
-            fuel: std::num::NonZeroU64::new(10_000).expect("positive"),
-            recursion: NonZeroUsize::new(32).expect("positive"),
-        },
-        original,
-    )
-    .map_err(|error| KnowledgeQuestionError::Instruction(Box::new(error)))?;
     let mut pages = Vec::new();
     pages
         .try_reserve_exact(documents.len())
@@ -301,7 +317,7 @@ fn encode_prompt(
         });
     }
     let prompt = Prompt {
-        instruction: instruction.body(),
+        instruction,
         question: query,
         pages,
     };
@@ -406,6 +422,10 @@ impl PreparedDocumentaryQuestion<'_, '_, '_> {
         })
     }
 }
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The question retains its authorized context, existing limits and rendered instruction"
+)]
 pub(crate) async fn prepare_documentary_question<'n, 'r, 'p>(
     original: &'n Arc<SnapshotContext>,
     read: &'r ProjectReadAdmission<'p>,
@@ -414,6 +434,7 @@ pub(crate) async fn prepare_documentary_question<'n, 'r, 'p>(
     requested_model: &str,
     model_id_bytes: usize,
     limits: KnowledgeQuestionLimits,
+    instruction: &str,
 ) -> Result<PreparedDocumentaryQuestion<'n, 'r, 'p>, KnowledgeQuestionError> {
     check_read(original, read)?;
     original
@@ -422,7 +443,8 @@ pub(crate) async fn prepare_documentary_question<'n, 'r, 'p>(
     if requested_model.is_empty() || requested_model.len() > model_id_bytes {
         return Err(KnowledgeQuestionError::Limit("model id"));
     }
-    let preparation = prepare_corpus(original, read, query, selected_slugs, limits).await?;
+    let preparation =
+        prepare_corpus(original, read, query, selected_slugs, limits, instruction).await?;
     Ok(PreparedDocumentaryQuestion {
         original,
         read,
@@ -444,6 +466,7 @@ async fn prepare_corpus(
     query: &str,
     selected_slugs: &[&str],
     limits: KnowledgeQuestionLimits,
+    instruction: &str,
 ) -> Result<Preparation<()>, KnowledgeQuestionError> {
     check_read(original, read)?;
     if query.trim().is_empty() {
@@ -475,7 +498,7 @@ async fn prepare_corpus(
         .read_selected_documents(original, read, &selection)
         .await
         .map_err(selection_error)?;
-    selected_preparation(original, read, query, selected, limits)
+    selected_preparation(original, read, query, selected, limits, instruction)
 }
 fn selection_error(error: KnowledgeSearchError) -> KnowledgeQuestionError {
     match error {
@@ -490,6 +513,7 @@ fn selected_preparation(
     query: &str,
     selected: KnowledgeSelectedDocuments,
     limits: KnowledgeQuestionLimits,
+    instruction: &str,
 ) -> Result<Preparation<()>, KnowledgeQuestionError> {
     check_read(original, read)?;
     if query.trim().is_empty() {
@@ -515,7 +539,13 @@ fn selected_preparation(
         }
         KnowledgeSelectedDocumentsState::Selected => (),
     }
-    let prompt = encode_prompt(original, query, &documents, limits.max_prompt_bytes.get())?;
+    let prompt = encode_prompt(
+        original,
+        query,
+        &documents,
+        limits.max_prompt_bytes.get(),
+        instruction,
+    )?;
     check_read(original, read)?;
     Ok(Preparation::Ready(Box::new(PreparedKnowledgeExecution {
         generation,
@@ -531,11 +561,12 @@ pub(crate) fn prepare_selected_documentary_question<'n, 'r, 'p>(
     query: &str,
     selected: KnowledgeSelectedDocuments,
     limits: KnowledgeQuestionLimits,
+    instruction: &str,
 ) -> Result<PreparedDocumentaryQuestion<'n, 'r, 'p>, KnowledgeQuestionError> {
     Ok(PreparedDocumentaryQuestion {
         original,
         read,
-        preparation: selected_preparation(original, read, query, selected, limits)?,
+        preparation: selected_preparation(original, read, query, selected, limits, instruction)?,
     })
 }
 pub async fn prepare_knowledge_codex<'n, 'r, 'p>(
@@ -550,10 +581,26 @@ pub async fn prepare_knowledge_codex<'n, 'r, 'p>(
     if model.completion_limits.max_graphit_attempts != 1 {
         return Err(KnowledgeQuestionError::InvalidAttemptLimit.into());
     }
+    let instruction = graphit_runtime::instructions::render_instruction(
+        QUESTION_TEMPLATE,
+        &[QUESTION_DEFAULT],
+        &[],
+        question_instruction_limits(),
+        original,
+    )
+    .map_err(|error| KnowledgeQuestionError::Instruction(Box::new(error)))?;
     let prepared = PreparedDocumentaryQuestion {
         original,
         read,
-        preparation: prepare_corpus(original, read, query, selected_slugs, limits).await?,
+        preparation: prepare_corpus(
+            original,
+            read,
+            query,
+            selected_slugs,
+            limits,
+            instruction.body(),
+        )
+        .await?,
     };
     prepared.into_codex(model)
 }

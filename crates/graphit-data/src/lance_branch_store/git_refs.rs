@@ -80,6 +80,7 @@ impl BranchSnapshot {
             dataset: Arc::new(dataset),
             delegate: Arc::clone(&self.delegate),
             inherited_target: None,
+            ast_reader: self.ast_reader.clone(),
         }))
     }
 
@@ -125,6 +126,7 @@ impl BranchSnapshot {
             dataset: Arc::new(dataset),
             delegate: source.delegate,
             inherited_target: None,
+            ast_reader: source.ast_reader,
         })
     }
 

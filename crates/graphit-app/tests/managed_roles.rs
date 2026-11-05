@@ -105,10 +105,12 @@ impl Fixture {
     async fn executable(&self, args: &[&str]) -> std::process::Output {
         let root = self.installation.root().to_owned();
         let project = self.project.root().to_owned();
+        let home = self.temp.path().to_owned();
         let arguments: Vec<_> = args.iter().map(|v| (*v).to_owned()).collect();
         tokio::task::spawn_blocking(move || {
             std::process::Command::new(env!("CARGO_BIN_EXE_graphit"))
                 .env_clear()
+                .env("HOME", home)
                 .current_dir(project)
                 .arg("--global-dir")
                 .arg(root)

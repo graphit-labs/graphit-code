@@ -966,7 +966,7 @@ async fn client(
     let client = ()
         .serve_with_lifecycle(
             StreamableHttpClientTransport::with_client(
-                reqwest::Client::new(),
+                crate::source_server::test_http_client(),
                 StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(headers),
             ),
             ClientLifecycleMode::Discover {

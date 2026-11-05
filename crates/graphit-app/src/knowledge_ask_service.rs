@@ -1146,7 +1146,10 @@ pub(crate) mod tests {
     #[cfg(unix)]
     fn missing_explicit_program_retains_resolver_failure_without_host_fallback() {
         let directory = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink("/usr/bin/true", directory.path().join("codex")).unwrap();
+        crate::test_agent_fixture::install(
+            &directory.path().join("codex"),
+            serde_json::json!({"kind":"raw","process":{}}),
+        );
         let selected = directory.path().join("missing").join("copilot");
         let available = AskAvailability::capture(
             CliCompletionProvider::Copilot,
@@ -1277,11 +1280,17 @@ pub(crate) mod tests {
             cli_codex_wire::CodexEventView,
             codex_completion::{AttemptPurpose, CodexCompletionRun},
         };
-        use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
         let program = temp.path().join("codex");
-        std::fs::write(&program,"#!/usr/bin/python3\nimport json,time\nprint(json.dumps({'type':'thread.started','thread_id':'private-fixture-id'}),flush=True)\ntime.sleep(10)\n").unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({
+                "kind":"raw", "process":{
+                    "stdout":"{\"type\":\"thread.started\",\"thread_id\":\"private-fixture-id\"}\n",
+                    "hold":true
+                }
+            }),
+        );
         let native = NativeDocumentFileLimits::new(65536, 4096, 128, 65536).unwrap();
         let availability = AskAvailability::capture(
             CliCompletionProvider::Codex,
@@ -1387,8 +1396,14 @@ pub(crate) mod tests {
             host.ready(Instant::now() + Duration::from_secs(5)).await,
             HostReadiness::Ready
         ));
+        let executable = tempfile::tempdir().unwrap();
+        let program = executable.path().join("codex");
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({"kind":"raw","process":{}}),
+        );
         let service = AskService {
-            program: "/usr/bin/python3".into(),
+            program,
             provider: CliCompletionProvider::Codex,
             kiro_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             kiro_processes: Mutex::new(Vec::new()),
@@ -1484,8 +1499,14 @@ pub(crate) mod tests {
             host.ready(Instant::now() + Duration::from_secs(5)).await,
             HostReadiness::Ready
         ));
+        let executable = tempfile::tempdir().unwrap();
+        let program = executable.path().join("claude");
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({"kind":"raw","process":{}}),
+        );
         let service = AskService {
-            program: "/usr/bin/python3".into(),
+            program,
             provider: CliCompletionProvider::Claude,
             kiro_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             kiro_processes: Mutex::new(Vec::new()),
@@ -1562,11 +1583,17 @@ pub(crate) mod tests {
             cli_claude::{ClaudeSink, run_claude},
             cli_claude_wire::{ClaudeEventData, ClaudeEventView},
         };
-        use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
         let program = temp.path().join("claude");
-        std::fs::write(&program,"#!/usr/bin/python3\nimport json,time\nprint(json.dumps({'type':'system','subtype':'init','session_id':'private-fixture-id','model':'fixture-model'}),flush=True)\ntime.sleep(10)\n").unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({
+                "kind":"raw", "process":{
+                    "stdout":"{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"private-fixture-id\",\"model\":\"fixture-model\"}\n",
+                    "hold":true
+                }
+            }),
+        );
         let native = NativeDocumentFileLimits::new(65536, 4096, 128, 65536).unwrap();
         let availability = AskAvailability::capture(
             CliCompletionProvider::Claude,
@@ -1651,11 +1678,17 @@ pub(crate) mod tests {
             cli_claude::{ClaudeSink, run_claude},
             cli_claude_wire::{ClaudeEventData, ClaudeEventView},
         };
-        use std::os::unix::fs::PermissionsExt;
         let temp = tempfile::tempdir().unwrap();
         let program = temp.path().join("claude");
-        std::fs::write(&program, "#!/usr/bin/python3\nimport json,time,signal\nsignal.signal(signal.SIGTERM,signal.SIG_IGN)\nprint(json.dumps({'type':'system','subtype':'init','session_id':'remaining-fixture-id','model':'fixture-model'}),flush=True)\ntime.sleep(10)\n").unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({
+                "kind":"raw", "process":{
+                    "stdout":"{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"remaining-fixture-id\",\"model\":\"fixture-model\"}\n",
+                    "ignore_term":true, "hold":true
+                }
+            }),
+        );
         let availability = AskAvailability::capture(
             CliCompletionProvider::Claude,
             OsStr::new("claude"),
@@ -1768,9 +1801,10 @@ pub(crate) mod tests {
     ) -> (AskService, tempfile::TempDir, Arc<tokio::sync::Notify>) {
         let temp = tempfile::tempdir().unwrap();
         let program = temp.path().join("codex");
-        std::fs::write(&program, "#!/usr/bin/python3\n").unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({"kind":"raw","process":{}}),
+        );
         let native = NativeDocumentFileLimits::new(65536, 4096, 128, 65536).unwrap();
         let availability = AskAvailability::capture(
             CliCompletionProvider::Codex,
@@ -1871,6 +1905,13 @@ pub(crate) mod tests {
             }
         }
         let temp = tempfile::tempdir().unwrap();
+        let program = temp.path().join("native-process");
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({
+                "kind":"raw", "process":{"stdout":"started\n","hold":true}
+            }),
+        );
         let native = NativeDocumentFileLimits::new(65536, 4096, 128, 65536).unwrap();
         let stop = Cancellation::default();
         let host = ProcessHost::install(&stop, HostLimits::new(2, 2).unwrap()).unwrap();
@@ -1879,7 +1920,7 @@ pub(crate) mod tests {
             HostReadiness::Ready
         ));
         let service = AskService {
-            program: "/usr/bin/python3".into(),
+            program,
             provider: CliCompletionProvider::Codex,
             kiro_slots: Arc::new(tokio::sync::Semaphore::new(2)),
             kiro_processes: Mutex::new(Vec::new()),
@@ -1899,10 +1940,7 @@ pub(crate) mod tests {
             Cancellation::default(),
         ));
         let mut request = service.request(temp.path(), "unused-model");
-        request.args = vec![
-            "-c".into(),
-            "import time; print('started', flush=True); time.sleep(2)".into(),
-        ];
+        request.args.clear();
         request.limits.cleanup = Duration::from_nanos(2);
         request.limits.termination_grace = Duration::from_nanos(1);
         let host = service.host().unwrap();
@@ -1954,8 +1992,10 @@ pub(crate) mod tests {
     async fn kiro_drop_stage(after_receipt: bool) {
         use agent_client_protocol::schema::v1::SessionNotification;
         use graphit_ai::cli_kiro::{KiroDeliveryPhase, KiroSink, run_kiro};
-        use std::os::unix::fs::PermissionsExt;
-        struct Sink(Arc<tokio::sync::Notify>);
+        struct Sink {
+            notified: Arc<tokio::sync::Notify>,
+            hold_notification: bool,
+        }
         impl KiroSink for Sink {
             async fn push<'a>(
                 &'a mut self,
@@ -1964,30 +2004,24 @@ pub(crate) mod tests {
                 original: &'a SnapshotContext,
             ) -> io::Result<()> {
                 original.check()?;
-                self.0.notify_one();
+                self.notified.notify_one();
+                if self.hold_notification {
+                    // Drop the caller inside a real streamed notification, before
+                    // it can receive the SDK's terminal receipt.
+                    std::future::pending::<()>().await;
+                }
                 Ok(())
             }
         }
-        let executable = std::env::current_exe().unwrap();
-        let binary = executable
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("kiro-knowledge-fixture");
-        assert!(
-            binary.is_file(),
-            "build the pinned SDK fixture target before this custody test"
+        let binary = PathBuf::from(
+            std::env::var_os("GRAPHIT_TEST_KIRO_KNOWLEDGE_FIXTURE")
+                .expect("cargo xtask cargo test must emit the Kiro SDK fixture target"),
         );
+        assert!(binary.is_absolute() && binary.is_file());
         let temp = tempfile::tempdir().unwrap();
         let program = temp.path().join("kiro-cli");
-        let escaped = binary.to_str().unwrap().replace('\'', "'\\''");
-        std::fs::write(
-            &program,
-            format!("#!/bin/sh\ntrap '' TERM\nexec '{escaped}' \"$@\"\n"),
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::copy(binary, &program).unwrap();
+        let journal = temp.path().join("kiro-journal");
         let native = NativeDocumentFileLimits::new(65536, 4096, 128, 65536).unwrap();
         let availability = AskAvailability::capture(
             CliCompletionProvider::KiroV3,
@@ -1996,14 +2030,10 @@ pub(crate) mod tests {
                 ("PATH".into(), temp.path().as_os_str().to_owned()),
                 ("KIRO_CAPTURED".into(), "literal-captured".into()),
                 ("KIRO_FIXTURE_MODEL".into(), "fixture-model".into()),
+                ("KIRO_FIXTURE_MODE".into(), "answer_exit_gate".into()),
                 (
-                    "KIRO_FIXTURE_MODE".into(),
-                    if after_receipt {
-                        "delay_exit"
-                    } else {
-                        "cancel"
-                    }
-                    .into(),
+                    "KIRO_FIXTURE_JOURNAL".into(),
+                    journal.clone().into_os_string(),
                 ),
             ],
             temp.path(),
@@ -2029,7 +2059,10 @@ pub(crate) mod tests {
             .unwrap();
         decision.submitted();
         let notified = Arc::new(tokio::sync::Notify::new());
-        let mut sink = Sink(Arc::clone(&notified));
+        let mut sink = Sink {
+            notified: Arc::clone(&notified),
+            hold_notification: !after_receipt,
+        };
         let mut future=Box::pin(run_kiro(&original,transport,service.kiro_engine().unwrap(),custody.configure_kiro(service.program(),temp.path(),&original).unwrap(),service.kiro_prompt(serde_json::json!({"question":"bounded","pages":[{"slug":"Paris","body":"physical fixture"}]}).to_string(),"fixture-model"),service.kiro_limits(),&mut sink));
         if after_receipt {
             let receipt = future.as_mut().await.unwrap();
@@ -2052,8 +2085,19 @@ pub(crate) mod tests {
         // The native process ignores TERM: losing SDK future ownership must not
         // be mistaken for its actual kernel wait or release the USER writer.
         assert_writer_held(&scope);
-        tokio::time::sleep(Duration::from_millis(40)).await;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let events = std::fs::read_to_string(&journal).unwrap();
+                if events.lines().any(|line| line == "term_received") {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("the native peer must observe the owner's actual TERM");
         assert_writer_held(&scope);
+        std::fs::write(journal.with_extension("exit"), b"exit").unwrap();
         assert!(service.join_kiro(&owner).await.unwrap());
         assert!(custody.released());
         assert!(
@@ -2095,16 +2139,13 @@ pub(crate) mod tests {
                 Ok(())
             }
         }
-        let binary = std::env::current_exe()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("kiro-knowledge-fixture");
-        assert!(binary.is_file());
+        let binary = PathBuf::from(
+            std::env::var_os("GRAPHIT_TEST_KIRO_KNOWLEDGE_FIXTURE")
+                .expect("cargo xtask cargo test must emit the Kiro SDK fixture target"),
+        );
+        assert!(binary.is_absolute() && binary.is_file());
         let temp = tempfile::tempdir().unwrap();
-        std::os::unix::fs::symlink(binary, temp.path().join("kiro-cli")).unwrap();
+        std::fs::copy(binary, temp.path().join("kiro-cli")).unwrap();
         let availability = Arc::new(
             AskAvailability::capture(
                 CliCompletionProvider::KiroV3,

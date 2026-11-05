@@ -48,7 +48,8 @@ fn file(path: &str, text: &str, version: u64) -> LiveFileObservation {
 }
 
 #[tokio::test]
-async fn source_export_uses_published_historical_files_including_empty_and_null() -> TestResult {
+async fn source_export_checks_current_file_sha_and_preserves_captured_empty_null_and_branches()
+-> TestResult {
     let original = original();
     let dir = tempfile::tempdir()?;
     let uri = dir.path().join("raw.lance");
@@ -88,7 +89,18 @@ async fn source_export_uses_published_historical_files_including_empty_and_null(
         file("private.rs", "not retained", old.version()),
     ];
     let out = dir.path().join("export-source.lance");
-    let version = source(&current, files.clone(), &out, &original).await?;
+    assert!(
+        source(
+            &current,
+            files.clone(),
+            &dir.path().join("stale.lance"),
+            &original
+        )
+        .await
+        .is_err(),
+        "current Source must reject a stale FILE SHA instead of exporting old text or skipping the FILE"
+    );
+    let version = source(&old, files.clone(), &out, &original).await?;
     let pin = open(&out).await?;
     assert_eq!(version, pin.version());
     let raw = pin.module_snapshot();
@@ -110,7 +122,19 @@ async fn source_export_uses_published_historical_files_including_empty_and_null(
     let absent = read_indexed_source(&raw, "unpublished.rs", &original).await?;
     assert!(matches!(absent.source(&original)?, IndexedSource::Missing));
     assert_eq!(pin.scan().count_rows().await?, 3);
-    let mut corrupt = files;
+    let mut current_files = files;
+    current_files[0].source_sha256 = Sha256::digest(b"pub fn changed() {}\n").into();
+    let current_out = dir.path().join("current-source.lance");
+    source(&current, current_files.clone(), &current_out, &original).await?;
+    let current_export = open(&current_out).await?;
+    assert_eq!(current_export.scan().count_rows().await?, 3);
+    let current_source =
+        read_indexed_source(&current_export.module_snapshot(), "a.rs", &original).await?;
+    assert!(matches!(
+        current_source.source(&original)?,
+        IndexedSource::Available("pub fn changed() {}\n")
+    ));
+    let mut corrupt = current_files;
     corrupt[0].source_sha256 = [0; 32];
     assert!(
         source(

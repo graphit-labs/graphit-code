@@ -1,5 +1,7 @@
 //! Actual executable → daemon → native process → run-owned stdio MCP → Role HTTP.
 #![cfg(unix)]
+#[path = "support/runtime_peer.rs"]
+mod runtime_peer;
 use graphit_app::managed_role_run::RunOutcome;
 use graphit_core::{
     brand::Brand,
@@ -11,7 +13,7 @@ use graphit_core::{
 use graphit_hub::NativeBinding;
 use std::{
     fs, io,
-    os::unix::fs::{PermissionsExt, symlink},
+    os::unix::fs::symlink,
     path::Path,
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -55,6 +57,7 @@ fn command(project: &Path, installation: &InstallationPaths, path: &std::ffi::Os
         .current_dir(project)
         .env_clear()
         .env("PATH", path)
+        .env("HOME", installation.root())
         .env(
             installation
                 .brand()
@@ -62,108 +65,20 @@ fn command(project: &Path, installation: &InstallationPaths, path: &std::ffi::Os
                 .unwrap(),
             installation.root(),
         );
-    if let Some(home) = std::env::var_os("HOME") {
-        command.env("HOME", home);
-    }
     command
 }
 fn child_fixture(bin: &Path) -> io::Result<()> {
-    let script = r#"#!/usr/bin/env python3
-import json,os,sys,subprocess,re,base64
-cwd=None
-role=json.loads(os.environ["GRAPHIT_ROLE_REFERENCE"])["role"]
-stage="startup"
-proxy_failure=None
-source_failure=None
-def send(message): print(json.dumps(message),flush=True)
-def receive(child,ident):
-    global proxy_failure
-    for line in child.stdout:
-        message=json.loads(line)
-        if message.get("id")==ident: return message
-    diagnostic=child.stderr.read()
-    known=["Cannot start a runtime from within a runtime","Cannot drop a runtime in a context where blocking is not allowed","Cannot block the current thread from within a runtime","there is no reactor running","Role MCP requires the active daemon","Role catalogue request failed","Role catalogue transport failed to close","Role HTTP negotiation failed","Role stdio negotiation failed","permission denied","invalid input","No such file","connection refused"]
-    site=re.search(r"panicked at .*[/\\]([^/\\\n]+:\d+:\d+)",diagnostic)
-    proxy_failure={"exit":child.wait(),"category":next((value for value in known if value.lower() in diagnostic.lower()),"unclassified"),"panic_site":site.group(1) if site else None}
-    raise RuntimeError("stdio MCP closed before its response")
-def request(child,method,params,ident):
-    message={"jsonrpc":"2.0","method":method,"params":params}
-    if ident is not None: message["id"]=ident
-    child.stdin.write(json.dumps(message)+"\n");child.stdin.flush()
-    if ident is not None: return receive(child,ident)
-for line in sys.stdin:
-    message=json.loads(line);method=message.get("method");ident=message.get("id");params=message.get("params",{})
-    stage=method
-    if method=="initialize":
-        send({"jsonrpc":"2.0","id":ident,"result":{"protocolVersion":1,"agentCapabilities":{}}})
-    elif method=="session/new":
-        cwd=params["cwd"]
-        assert sys.argv[1:] == ["acp", "--agent-engine=v3"]
-        assert params["_meta"]["kiro"]["modeId"].endswith("-"+role)
-        send({"jsonrpc":"2.0","id":ident,"result":{"sessionId":"native-role"}})
-    elif method=="session/prompt":
-        text="".join(block["text"] for block in params["prompt"] if block["type"]=="text")
-        if role=="tracker": assert text=="Read the actual source"
-        else:
-            prefix="[Standing context]\nPROJECT mandatory Memory:\n"
-            assert text.startswith(prefix)
-            payload,prompt=text[len(prefix):].split("\n\n",1)
-            assert json.loads(payload)=={"project_version":"main","memory_state":"no_corpus","memories":[]}
-            assert prompt=="Read the actual source"
-        assert os.environ.get("GRAPHIT_ROLE_BEARER")
-        assert os.environ.get("GRAPHIT_ROLE_REFERENCE")
-        with subprocess.Popen(["graphit","mcp","--stdio","--role"],cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True) as proxy:
-            stage="stdio-initialize"
-            initial=request(proxy,"initialize",{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"role-child","version":"1"}},1)
-            assert "result" in initial
-            request(proxy,"notifications/initialized",{},None)
-            stage="stdio-source"
-            answer=request(proxy,"tools/call",{"name":"graphit_ast_source","arguments":{"input":{"path":"raw"}}},2)
-            source_failure={"is_error":answer.get("result",{}).get("isError",False),"rpc_error":answer.get("error",{}).get("code"),"tool_code":None,"category":None,"storage_kind":None,"io_kind":None}
-            allowed=["authentication_or_permission_denied","project_required","invalid_path","source_operation_failed","source_index_failed","indexed_source_failed","source_inspection_failed","request_cancelled_or_expired","selection_unavailable","tool_not_available"]
-            kinds=["Interrupted","TimedOut","NotFound","PermissionDenied","InvalidInput","InvalidData","Other"]
-            categories=["invalid_scope","request_mismatch","invalid_locator","unexpected_entry","operation","storage","source"]
-            storage_kinds=["schema_mismatch","sdk_dataset_not_found","sdk_version_not_found","sdk_schema_mismatch","sdk_schema","sdk_io_not_found","sdk_io","sdk_corrupt_file","sdk_invalid_input","sdk_not_found","sdk_ref_not_found","sdk_other","unsupported_commit_scheme","invalid_version","branch_state"]
-            for content in answer.get("result",{}).get("content",[]):
-                try: detail=json.loads(content.get("text",""))
-                except (ValueError,TypeError):continue
-                if isinstance(detail,dict):
-                    if detail.get("code") in allowed:source_failure["tool_code"]=detail["code"]
-                    if detail.get("category") in categories:source_failure["category"]=detail["category"]
-                    if detail.get("storage_kind") in storage_kinds:source_failure["storage_kind"]=detail["storage_kind"]
-                    if detail.get("io_kind") in kinds:source_failure["io_kind"]=detail["io_kind"]
-            assert "result" in answer and not answer["result"].get("isError",False)
-            assert "actual executable Role payload" in json.dumps(answer)
-            if role=="tracker":
-                stage="stdio-git-status"
-                status=request(proxy,"tools/call",{"name":"graphit_git_status","arguments":{"ai_optimized":False,"input":{}}},3)
-                assert not status["result"].get("isError",False)
-                assert status["result"]["structuredContent"]["object_format"]=="sha1"
-                stage="stdio-git-diff"
-                diff=request(proxy,"tools/call",{"name":"graphit_git_diff","arguments":{"ai_optimized":False,"input":{}}},4)
-                assert not diff["result"].get("isError",False)
-                patches=diff["result"]["structuredContent"]["patches"]
-                tracked=next(p for p in patches if base64.b64decode(p["path_base64"])==b"tracked")
-                assert b"+bravo" in base64.b64decode(tracked["hunks_base64"])
-            stage="stdio-close"
-            proxy.stdin.close()
-            assert proxy.wait(timeout=10)==0
-        send({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"native-role","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"actual executable Role payload"}}}})
-        send({"jsonrpc":"2.0","id":ident,"result":{"stopReason":"end_turn"}})
-"#;
-    let path = bin.join("kiro-cli");
-    let (prefix, body) = script.split_once("for line in sys.stdin:").unwrap();
-    let body = format!("for line in sys.stdin:{body}");
-    let guarded = format!(
-        "{prefix}\ntry:\n{}\nexcept BaseException as error:\n    with open({},'w') as failure:\n        json.dump({{\"stage\":stage,\"class\":type(error).__name__,\"proxy\":proxy_failure,\"source\":source_failure}},failure)\n    sys.exit(1)\n",
-        body.lines()
-            .map(|line| format!("    {line}\n"))
-            .collect::<String>(),
-        serde_json::to_string(&bin.join("fixture-phase.json").to_str().unwrap()).unwrap()
-    );
-    fs::write(&path, guarded)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+    runtime_peer::install(
+        bin,
+        Some(serde_json::json!({
+            "fixture":"kiro-run", "brand":env!("GRAPHIT_COMPILED_BUILD_BRAND"),
+            "graphit":env!("CARGO_BIN_EXE_graphit"),
+            "failure_file":bin.join("fixture-phase.json")
+        })),
+        &["kiro-cli"],
+    )
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn compiled_role_run_v3_uses_only_run_owned_stdio_credentials()
 -> Result<(), Box<dyn std::error::Error>> {

@@ -209,14 +209,19 @@ impl Daemon {
     }
 }
 fn signal_child(child: &Child, signal: &str) -> io::Result<()> {
-    let status = Command::new("kill")
-        .args([signal, &child.id().to_string()])
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other("owned child signal failed"))
-    }
+    let signal = match signal {
+        "-INT" => rustix::process::Signal::INT,
+        "-TERM" => rustix::process::Signal::TERM,
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "unexpected fixture signal",
+            ));
+        }
+    };
+    let pid = rustix::process::Pid::from_raw(i32::try_from(child.id()).map_err(io::Error::other)?)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid fixture child PID"))?;
+    rustix::process::kill_process(pid, signal).map_err(io::Error::from)
 }
 
 impl Drop for Daemon {

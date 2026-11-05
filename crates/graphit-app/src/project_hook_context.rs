@@ -264,7 +264,20 @@ fn render(
     variables: &[InstructionVariable<'_>],
     input: &ProjectHookInput<'_>,
     original: &RequestContext<'_>,
+    sources: Option<&crate::instruction_overrides::InstructionSources<'_>>,
 ) -> Result<String, HookContextError> {
+    if let Some(sources) = sources {
+        return sources
+            .render(
+                set.entry(),
+                set.candidates(),
+                variables,
+                input.instruction_limits,
+                original,
+            )
+            .map(|value| value.into_body())
+            .map_err(HookContextError::Instruction);
+    }
     render_instruction(
         set.entry(),
         set.candidates(),
@@ -320,7 +333,7 @@ pub async fn render_project_hook(
     memory: Option<(&ProjectReadAdmission<'_>, MemoryStoreReadLimits)>,
     task: Option<(&ProjectReadAdmission<'_>, TaskStoreReadLimits)>,
 ) -> Result<EncodedOutput, HookContextError> {
-    render_captured_hook(original, input, memory, task, None).await
+    render_captured_hook(original, input, memory, task, None, None).await
 }
 
 pub(crate) async fn render_captured_hook(
@@ -329,6 +342,7 @@ pub(crate) async fn render_captured_hook(
     memory: Option<(&ProjectReadAdmission<'_>, MemoryStoreReadLimits)>,
     task: Option<(&ProjectReadAdmission<'_>, TaskStoreReadLimits)>,
     user: Option<UserContext<'_>>,
+    sources: Option<&crate::instruction_overrides::InstructionSources<'_>>,
 ) -> Result<EncodedOutput, HookContextError> {
     original.remaining().map_err(HookContextError::Request)?;
     input
@@ -444,7 +458,7 @@ pub(crate) async fn render_captured_hook(
         if input.modules.enabled(module) {
             // The closed list above consists solely of supported compiled mandates.
             let set = module_mandate(module, input.audience).expect("supported policy module");
-            let body = render(set, input.variables, &input, original)?;
+            let body = render(set, input.variables, &input, original, sources)?;
             let tag = set.module_tag().expect("module mandate tag");
             mandates.push(format!("<{tag}>{body}</{tag}>"));
         }
@@ -493,6 +507,7 @@ pub(crate) async fn render_captured_hook(
         &variables,
         &input,
         original,
+        sources,
     )?;
     let encoded = encode(
         input.binding,

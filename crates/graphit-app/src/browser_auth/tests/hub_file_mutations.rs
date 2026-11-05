@@ -841,7 +841,7 @@ async fn run_file_mutation_fixture(
         relay.hold_next_file();
         requests.push(spawn_mutation(host, &cookie, INSTALL, held.clone()));
         relay.entered().await;
-        hub_remote_catalog::assert_catalog_job_pending(host).await;
+        hub_remote_catalog::assert_current_client_pending(&mut requests).await;
         let response = checked(checked(tokio::time::timeout(Duration::from_secs(40), requests.last_mut().expect("owned deadline mutation")).await, "mutation deadline response guard"), "deadline client joined");
         requests.pop();
         assert_eq!(response.status(), StatusCode::GATEWAY_TIMEOUT, "Original deadline reaches mutable owner");
@@ -851,7 +851,7 @@ async fn run_file_mutation_fixture(
         page(host, &sibling, "/api/hub/installed/files", healthy.clone()).await;
         relay.hold_next_file();
         requests.push(spawn_mutation(host, &cookie, INSTALL, held.clone()));
-        relay.entered().await; hub_remote_catalog::assert_catalog_job_pending(host).await;
+        relay.entered().await; hub_remote_catalog::assert_current_client_pending(&mut requests).await;
         let request = requests.last_mut().expect("owned disconnect mutation"); request.abort();
         assert!(request.await.is_err_and(|error| error.is_cancelled())); requests.pop();
         relay.release(); hub_remote_catalog::join_catalog_read_job(host).await;

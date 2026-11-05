@@ -1,5 +1,7 @@
 #![cfg(target_os = "linux")]
 //! Actual PROJECT/FULL16 and native Process/Codex; no vendor authentication claim.
+#[path = "support/agent_fixture.rs"]
+mod native_agent_fixture;
 use graphit_ai::{
     cli_codex::{CodexReceipt, CodexSink, CodexStreamLimits, run_codex},
     cli_codex_wire::{CodexEventView, CodexWireLimits},
@@ -380,36 +382,21 @@ fn native_test(f: impl Future<Output = ()> + Send + 'static) {
         .join()
         .unwrap();
 }
-const SCRIPT: &str = r#"
-import sys,json,time
-p=json.load(sys.stdin)
-for page in p['pages']:
- if page['slug']=='Paris': assert page['body']==sys.argv[2]
-m=sys.argv[1]
-def emit(v):
- sys.stdout.buffer.write(json.dumps(v,ensure_ascii=False).encode('utf-8')+b'\n');sys.stdout.buffer.flush()
-if m=='malformed':
- sys.stdout.buffer.write(b'{broken\n');sys.exit(0)
-emit({'type':'turn.started'})
-if m in ('cancel','timeout'): time.sleep(30)
-if m=='provider':
- emit({'type':'turn.failed','error':{'message':'fixture failure'}});sys.exit(0)
-if m!='missing':
- text=' \n\t' if m=='empty' else p['question']+'\n'+p['pages'][0]['title']+'|'+p['pages'][0]['body']+'\n[[outside-selection]]'
- emit({'type':'item.completed','item':{'id':'fixture','type':'agent_message','text':text}})
-emit({'type':'turn.completed','usage':{'input_tokens':8,'cached_input_tokens':2,'output_tokens':3,'reasoning_output_tokens':1}})
-sys.exit(7 if m=='nonzero' else 0)
-"#;
-fn python() -> PathBuf {
-    std::env::split_paths(&std::env::var_os("PATH").unwrap())
-        .map(|p| p.join("python3"))
-        .find(|p| p.is_file())
-        .expect("Python3 fixture must be installed on PATH")
-}
 fn process(directory: &Path, prompt: String, mode: &str) -> Request {
+    let program = directory.join(format!("question-native-{mode}"));
+    if !program.exists() {
+        native_agent_fixture::install(
+            &program,
+            serde_json::json!({
+                "kind":"question", "mode":mode, "expected_body":BODY
+            }),
+        );
+    }
+    // Authenticated callers construct an unfilled Request before admission.
+    // Only the real child reads the prompt after the pipeline supplies stdin.
     Request {
-        program: python(),
-        args: vec!["-c".into(), SCRIPT.into(), mode.into(), BODY.into()],
+        program,
+        args: Vec::new(),
         cwd: directory.to_owned(),
         environment: vec![],
         stdin: Some(prompt.into_bytes().into()),

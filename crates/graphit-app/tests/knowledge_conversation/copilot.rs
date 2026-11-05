@@ -39,13 +39,7 @@ async fn release(f: &Fixture) -> Result<reqwest::Response, reqwest::Error> {
 impl Fixture {
     async fn start_copilot(&self, broker: &Broker, deadline_ms: Option<u64>) -> ForegroundSource {
         let program = self.temp.path().join("copilot");
-        let quoted = format!(
-            "'{}'",
-            env!("CARGO_BIN_EXE_app-copilot-fixture").replace('\'', "'\"'\"'")
-        );
-        let script = format!("#!/bin/sh\nexec {quoted} \"$@\"\n");
-        std::fs::write(&program, script).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::copy(env!("CARGO_BIN_EXE_app-copilot-fixture"), program).unwrap();
         let browser = json!({"providers":["broker"],"project_endpoint":format!("{}/v1/project/access/authorize",broker.state.origin),
             "allow_loopback_http":true,"knowledge_conversations":true});
         let mut values = vec![

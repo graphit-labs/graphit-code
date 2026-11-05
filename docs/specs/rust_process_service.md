@@ -69,7 +69,7 @@ Application authorization, per-operation `LocalServiceLease`, private connection
 
 Ordinary prebirth SDK errors report `NotSpawned`. Setup failure after observing a child conserves that child and requests cleanup. A native attempt whose birth cannot be observed reports `BirthUnobserved` and unobserved pipes; it cannot manufacture a child owner or exit status. Driver and Host panics report their actual unknown cleanup category and release their SDK guards through RAII.
 
-The SAME driver remains in the Host's owner table. Cleanup starts a finite endpoint from the captured `Limits.cleanup`, sends termination, escalates and waits using the existing SDK. It has no inherited RPC execution deadline. If the caller's cleanup observation expires first, the result carries `ServiceRemaining` for the actual Host record. `repair(deadline)` observes that SAME record and does not recreate a process or a second native wait. Once the drive has dropped its physical owner, `Cleanup::Complete` or `Cleanup::NotSpawned` releases that invocation's reservation idempotently before `Closed` is observable. Terminal observers may retain the result without blocking that released capacity; their later Drop cannot free a newer invocation's reservation. Running, unknown or remaining cleanup keeps its capacity protection. The revised release ordering awaits affected Runtime/`host_runtime` qualification; earlier receipts below keep their recorded scope.
+The SAME driver remains in the Host's owner table. Cleanup starts a finite endpoint from the captured `Limits.cleanup`, sends termination, escalates and waits using the existing SDK. It has no inherited RPC execution deadline. If the caller's cleanup observation expires first, the result carries `ServiceRemaining` for the actual Host record. `repair(deadline)` observes that SAME record and does not recreate a process or a second native wait. The cleanup result and remaining handle use the same consumed observation. When the driver finishes after the caller stops observing, the handle remains available to receive its actual terminal cleanup and status. Once the drive has dropped its physical owner, `Cleanup::Complete` or `Cleanup::NotSpawned` releases that invocation's reservation idempotently before `Closed` is observable. Terminal observers may retain the result without blocking that released capacity; their later Drop cannot free a newer invocation's reservation. Running, unknown or remaining cleanup keeps its capacity protection. The revised release ordering awaits affected Runtime/`host_runtime` qualification; earlier receipts below keep their recorded scope.
 
 Unix cleanup targets the owned process group, including escalation after leader exit; processes deliberately leaving the group remain outside its containment. Windows retains the actual leader status and reports `TreeUnknownWindows` when job emptiness is not established. EOF, connection closure, leader status and successful control calls do not independently prove all descendants are quiescent.
 
@@ -80,9 +80,9 @@ Host service cancellation seals admission and closes actual records. `shutdown` 
 Run the affected commands identically on supported hosts:
 
 ```text
-cargo test --locked --offline -j1 -p graphit-process --all-targets -- --test-threads=1
-cargo test --locked --offline -j1 -p graphit-process --doc
-cargo clippy --locked --offline -j1 -p graphit-process --all-targets -- -D warnings
+cargo xtask cargo test --locked --offline -p graphit-process --all-targets
+cargo xtask cargo test --locked --offline -p graphit-process --doc
+cargo xtask cargo clippy --locked --offline -p graphit-process --all-targets -- -D warnings
 ```
 
 The finite-admission update (`tsk-b9b9`) passed the eight existing service regressions, including the new missing-deadline case in the admission test. An exact rerun after preserving cancellation/timeout mapping passed. Strict all-target Clippy and scoped formatting passed; this update adds no model or foreground qualification.
@@ -90,3 +90,7 @@ The finite-admission update (`tsk-b9b9`) passed the eight existing service regre
 Main qualification passed eight real service regressions, seven documentation tests, strict all-target Clippy and scoped rustfmt. The native-child entry is exercised by the parent tests. Private Linux qualification passed 59 tests (51 existing and eight service regressions), seven documentation tests, strict all-target Clippy and scoped rustfmt. One ignored native-child entry is exercised by its parent tests. The new tests execute native child processes and actual Host/SDK owners for finite bootstrap, first-request independence, local/service/Host stop, caps, failure, A/B isolation, capacity and remaining cleanup. Windows/macOS, application/model context delivery and Kiro are unexecuted here. Current agent compatibility targets Kiro V3; former V2/preview requirements are superseded and impose no vendor installation/account gate. A fixture child is evidence for Process behavior and cannot qualify a native model or host journey.
 
 Source: `crates/graphit-process/src/service.rs`, shared Host/supervisor integration and `crates/graphit-process/tests/service.rs`.
+
+The Linux inherited-SIGCHLD regression starts a Cargo-prepared C executable that sets `SIGCHLD` to `SIG_IGN` and immediately `execv`s the Rust test process. Its path comes from the build output. The test inspects the actual inherited disposition before installing Tokio or the Process host and then exercises the real wait. No interpreter or compiler runs during the test.
+
+The default bootstrap-failure regression separates its causes: the blocked child exercises the finite deadline, while the broken-input child announces readiness over its private loopback connection and waits for the parent ACK before exiting. The latter uses the normal startup watchdog and still requires an actual input I/O failure.

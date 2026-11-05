@@ -13,6 +13,14 @@ use serde_json::json;
 use std::time::Duration;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("loopback fixture HTTP client")
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn imported_context_through_proxy_never_injects_current_project_or_version() -> TestResult {
     let fixture = support::Fixture::in_directory(
@@ -32,7 +40,7 @@ async fn imported_context_through_proxy_never_injects_current_project_or_version
     let proxy = SourceProxy::new(
         fixture.paths.clone(),
         endpoint.address,
-        reqwest::Client::new(),
+        http_client(),
         (
             support::key_limits(),
             support::content(),
@@ -53,7 +61,7 @@ async fn imported_context_through_proxy_never_injects_current_project_or_version
             .await?;
     let direct = ()
         .serve(StreamableHttpClientTransport::with_client(
-            reqwest::Client::new(),
+            http_client(),
             StreamableHttpClientTransportConfig::with_uri(format!(
                 "http://{}/mcp",
                 endpoint.address
@@ -104,7 +112,7 @@ async fn sdk_stdio_forwards_real_source_catalog_text_empty_and_schema() -> TestR
     let proxy = SourceProxy::new(
         fixture.paths.clone(),
         endpoint.address,
-        reqwest::Client::new(),
+        http_client(),
         (
             support::key_limits(),
             support::content(),
@@ -125,7 +133,7 @@ async fn sdk_stdio_forwards_real_source_catalog_text_empty_and_schema() -> TestR
             .await?;
     let direct = ()
         .serve(StreamableHttpClientTransport::with_client(
-            reqwest::Client::new(),
+            http_client(),
             StreamableHttpClientTransportConfig::with_uri(format!(
                 "http://{}/mcp",
                 endpoint.address
@@ -231,7 +239,7 @@ async fn current_credentials_and_proxy_shutdown_are_independent() -> TestResult 
     let endpoint = fixture.start().await;
     let cancel = Cancellation::default();
     let original = support::request(&cancel);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let first = SourceProxy::new(
         fixture.paths.clone(),
         endpoint.address,
@@ -343,7 +351,7 @@ async fn same_stdio_proxy_discovers_replacement_endpoint_for_each_new_request() 
     let proxy = SourceProxy::new(
         fixture.paths.clone(),
         first.address,
-        reqwest::Client::new(),
+        http_client(),
         (
             support::key_limits(),
             support::content(),
@@ -436,8 +444,8 @@ async fn same_stdio_proxy_discovers_replacement_endpoint_for_each_new_request() 
     Ok(())
 }
 
-#[test]
-fn role_context_denies_root_before_credential_access() -> TestResult {
+#[tokio::test]
+async fn role_context_denies_root_before_credential_access() -> TestResult {
     const PROBE: &str = "GRAPHIT_ROOT_MCP_DENIAL_PROBE";
     let keys = [
         "GRAPHIT_ROLE_BEARER",
@@ -454,11 +462,10 @@ fn role_context_denies_root_before_credential_access() -> TestResult {
         )?;
         let cancel = Cancellation::default();
         let original = support::request(&cancel);
-        let runtime = tokio::runtime::Runtime::new()?;
-        let result = runtime.block_on(SourceProxy::new(
+        let result = SourceProxy::new(
             paths.clone(),
             "127.0.0.1:9".parse()?,
-            reqwest::Client::new(),
+            http_client(),
             (
                 support::key_limits(),
                 support::content(),
@@ -466,7 +473,8 @@ fn role_context_denies_root_before_credential_access() -> TestResult {
             ),
             None,
             &original,
-        ));
+        )
+        .await;
         let error = match result {
             Ok(_) => panic!("Role entered Root proxy"),
             Err(error) => error,
@@ -489,22 +497,35 @@ fn role_context_denies_root_before_credential_access() -> TestResult {
         )))
     };
     for (key, value) in cases {
-        let mut child = std::process::Command::new(std::env::current_exe()?);
-        child
+        let stderr = tempfile::NamedTempFile::new()?;
+        let mut command = tokio::process::Command::new(std::env::current_exe()?);
+        command
             .args([
                 "--exact",
                 "role_context_denies_root_before_credential_access",
                 "--nocapture",
             ])
-            .env(PROBE, "1");
+            .env(PROBE, "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::from(stderr.reopen()?))
+            .kill_on_drop(true);
         for input in keys {
-            child.env_remove(input);
+            command.env_remove(input);
         }
-        let output = child.env(key, value).output()?;
+        let mut child = command.env(key, value).spawn()?;
+        let status = match tokio::time::timeout(Duration::from_secs(30), child.wait()).await {
+            Ok(status) => status?,
+            Err(error) => {
+                child.kill().await?;
+                child.wait().await?;
+                return Err(error.into());
+            }
+        };
         assert!(
-            output.status.success(),
+            status.success(),
             "isolated denial probe failed: {}",
-            String::from_utf8_lossy(&output.stderr)
+            std::fs::read_to_string(stderr.path())?
         );
     }
     Ok(())
@@ -533,7 +554,7 @@ async fn root_proxy_project_defaults_preserve_explicit_other_project_and_version
     let proxy = SourceProxy::new(
         fixture.paths.clone(),
         endpoint.address,
-        reqwest::Client::new(),
+        http_client(),
         (
             support::key_limits(),
             support::content(),
@@ -641,7 +662,7 @@ async fn stdio_proxy_preserves_protocol_error_code_and_domain_error_result() -> 
     let proxy = SourceProxy::new(
         fixture.paths.clone(),
         endpoint.address,
-        reqwest::Client::new(),
+        http_client(),
         (
             support::key_limits(),
             support::content(),
@@ -656,7 +677,7 @@ async fn stdio_proxy_preserves_protocol_error_code_and_domain_error_result() -> 
             .await?;
     let direct = ()
         .serve(StreamableHttpClientTransport::with_client(
-            reqwest::Client::new(),
+            http_client(),
             StreamableHttpClientTransportConfig::with_uri(format!(
                 "http://{}/mcp",
                 endpoint.address

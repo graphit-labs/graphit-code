@@ -1,4 +1,3 @@
-#![cfg(target_os = "linux")]
 //! Actual foreground Raw -> native model -> authenticated M -> SDK NativeNN publication.
 use arrow_array::{
     Array, FixedSizeBinaryArray, FixedSizeListArray, Float32Array, RecordBatch, StringArray,
@@ -10,7 +9,7 @@ use graphit_app::{
     models::DEFAULT_SLOT,
 };
 use graphit_ast::{
-    indexed_source::{read_branch_source, source_schema},
+    indexed_source::read_branch_source,
     native_nn::validate_native_nn,
     native_nn_index_locator::{NativeNnIndexPresence, open_local_native_nn_index},
 };
@@ -39,7 +38,7 @@ use graphit_daemon::{
     model_service as model_api, model_service::ExpectedModel,
     project_bootstrap::ProjectBootstrapInput,
 };
-use graphit_data::lance_branch_store::{BranchSnapshot, LanceBranchStore};
+use graphit_data::lance_branch_store::BranchSnapshot;
 use graphit_hub::{NativeBinding, policy::HubResourcePolicy};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -58,7 +57,7 @@ type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 const RUST: &str = "pub fn alpha() -> u32 { 42 }";
 const JSON: &str = r#"{"answer":42}"#;
 
-async fn assert_raw_pin(
+async fn assert_current_source(
     raw: &BranchSnapshot,
     path: &str,
     observed: &Value,
@@ -70,13 +69,35 @@ async fn assert_raw_pin(
         version > 0 && version <= raw.version(),
         "invalid Raw pin for {path}"
     );
-    let retained = raw.at_version(version).await?;
-    let read = read_branch_source(&retained, path, original).await?;
+    let read = read_branch_source(raw, path, original).await?;
     assert!(
         matches!(read.source(original)?, graphit_ast::source_inspection::IndexedSource::Available(text) if text == source),
-        "{path} must resolve to the exact indexed Source at Raw {version}"
+        "{path} must resolve to the expected FILE bytes in the captured current Source"
     );
     Ok(())
+}
+
+async fn file_is_current(
+    raw: &BranchSnapshot,
+    path: &str,
+    version: u64,
+    digest: &str,
+    source: &str,
+    original: &std::sync::Arc<graphit_core::file_io::SnapshotContext>,
+) -> TestResult<bool> {
+    assert!(
+        version > 0 && version <= raw.version(),
+        "invalid Raw pin for {path}"
+    );
+    let observed = read_branch_source(raw, path, original).await?;
+    let graphit_ast::source_inspection::IndexedSource::Available(observed) =
+        observed.source(original)?
+    else {
+        return Ok(false);
+    };
+    Ok(observed == source
+        && Sha256::digest(observed.as_bytes()).as_slice()
+            == gix::hash::ObjectId::from_hex(digest.as_bytes())?.as_bytes())
 }
 
 struct Fixture {
@@ -306,13 +327,12 @@ impl Fixture {
         };
         let cancel = Cancellation::default();
         let request = self.policy.request_context(Instant::now(), &cancel)?;
-        let raw_store = LanceBranchStore::open(
-            root.join("source.lance").to_str().unwrap(),
-            source_schema(),
+        let raw = BranchSnapshot::capture_ast_corpus(
+            &root.join("source.lance"),
             None,
+            request.snapshot(),
         )
         .await?;
-        let raw = raw_store.capture_target(None).await?;
         graphit_ast::corpus::validate_schema(nn.schema())?;
         let snapshot = nn;
         let mut stream = snapshot.scan().try_into_stream().await?;
@@ -354,11 +374,14 @@ impl Fixture {
                     "answer.json" => JSON,
                     _ => return Err(format!("unexpected published FILE {path}").into()),
                 };
-                assert_eq!(
-                    versions.value(row),
-                    raw.version(),
-                    "association must use actual Main Raw observation"
-                );
+                assert_current_source(
+                    &raw,
+                    path,
+                    &json!(versions.value(row).to_string()),
+                    source,
+                    request.snapshot(),
+                )
+                .await?;
                 assert_eq!(
                     hashes.value(row),
                     Sha256::digest(source.as_bytes()).as_slice()
@@ -403,30 +426,114 @@ impl Fixture {
         project: &ProjectPaths,
         selected_version: &str,
     ) -> TestResult<(u64, Vec<RecordBatch>)> {
-        let id = ProjectIdentityStore::at(project).load()?.unwrap().id();
-        let root = self
-            .installation
-            .root()
-            .join("projects")
-            .join(id.to_string())
-            .join("ast");
         let version =
             VersionContext::select(project, Checkout::NonGit, selected_version, None, "")?;
         let batches = self
             .native_nn_rows(project, &version)
             .await?
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "NativeNN not published"))?;
-        let raw_store = LanceBranchStore::open(
-            root.join("source.lance").to_str().unwrap(),
-            source_schema(),
-            None,
-        )
-        .await?;
-        let branch = version.lance_branch();
-        let raw = raw_store
-            .capture_target((!branch.is_empty()).then_some(branch.as_str()))
-            .await?;
+        let raw = self.raw_for_version(project, selected_version).await?;
         Ok((raw.version(), batches))
+    }
+
+    async fn raw_for_version(
+        &self,
+        project: &ProjectPaths,
+        selected_version: &str,
+    ) -> TestResult<BranchSnapshot> {
+        let id = ProjectIdentityStore::at(project).load()?.unwrap().id();
+        let cancel = Cancellation::default();
+        let original = self.policy.request_context(Instant::now(), &cancel)?;
+        let scope = CapturedPublicationScope::project(
+            project,
+            id,
+            ScopeLimits::new(16, 65536, 256)?,
+            original.snapshot(),
+        )?;
+        let version =
+            VersionContext::select(project, Checkout::NonGit, selected_version, None, "")?;
+        let content = self.policy.content();
+        let limits = graphit_core::native_document_file::NativeDocumentFileLimits::new(
+            content.max_input_bytes,
+            graphit_core::native_path::MAX_PATH_BYTES,
+            content.max_depth,
+            content.max_scalar_bytes,
+        )?;
+        let relative = graphit_core::local_corpus::resolve(
+            &scope,
+            version.version(),
+            "ast",
+            "source.lance",
+            limits,
+            original.snapshot(),
+        )?;
+        let path = scope.runtime_root().join(relative);
+        let branch = version.lance_branch();
+        Ok(BranchSnapshot::capture_ast_corpus(
+            &path,
+            (!branch.is_empty()).then_some(branch.as_str()),
+            original.snapshot(),
+        )
+        .await?)
+    }
+
+    async fn nn_rows_are_current(
+        &self,
+        project: &ProjectPaths,
+        selected_version: &str,
+        batches: &[RecordBatch],
+    ) -> TestResult<bool> {
+        let raw = self.raw_for_version(project, selected_version).await?;
+        let cancel = Cancellation::default();
+        let original = self.policy.request_context(Instant::now(), &cancel)?;
+        let model = expected_native_nn_model(&self.expected)?;
+        let mut files = std::collections::BTreeMap::new();
+        for batch in batches {
+            validate_native_nn(batch, &model, original.snapshot())?;
+            let paths = batch
+                .column_by_name("path")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let versions = batch
+                .column_by_name("raw_version")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap();
+            let hashes = batch
+                .column_by_name("full_source_sha256")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap();
+            for row in 0..batch.num_rows() {
+                let hash = hashes.value(row);
+                if let Some(previous) = files.insert((paths.value(row), versions.value(row)), hash)
+                {
+                    assert_eq!(
+                        previous, hash,
+                        "one FILE/Raw pin must have one Source digest"
+                    );
+                }
+            }
+        }
+        let mut current = true;
+        for ((path, version), hash) in files {
+            let source = match fs::read_to_string(project.root().join(path)) {
+                Ok(source) => source,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+                Err(error) => return Err(error.into()),
+            };
+            let digest = hash
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            current &=
+                file_is_current(&raw, path, version, &digest, &source, original.snapshot()).await?;
+        }
+        Ok(current)
     }
 
     async fn native_nn_rows(
@@ -514,22 +621,10 @@ impl Fixture {
         loop {
             match self.rows_for_version(project, selected_version).await {
                 Ok((raw, batches)) => {
-                    let current = batches.iter().all(|batch| {
-                        let versions = batch
-                            .column_by_name("raw_version")
-                            .unwrap()
-                            .as_any()
-                            .downcast_ref::<UInt64Array>()
-                            .unwrap();
-                        (0..batch.num_rows()).all(|row| versions.value(row) == raw)
-                    });
+                    let current = self
+                        .nn_rows_are_current(project, selected_version, &batches)
+                        .await?;
                     if raw > after && current && matches(&batches) {
-                        let cancel = Cancellation::default();
-                        let request = self.policy.request_context(Instant::now(), &cancel)?;
-                        let model = expected_native_nn_model(&self.expected)?;
-                        for batch in &batches {
-                            validate_native_nn(batch, &model, request.snapshot())?;
-                        }
                         return Ok((raw, batches));
                     }
                     assert!(
@@ -638,8 +733,15 @@ impl Fixture {
         )?;
         let headers =
             graphit_app::ast_source::runtime_headers(&self.installation, limits, &original).await?;
-        let response = reqwest::Client::new()
+        let response = reqwest::Client::builder()
+            .no_proxy()
+            .build()?
             .post(format!("http://{address}/api/graphs/project/{route}"))
+            .timeout(
+                original
+                    .remaining()?
+                    .ok_or("finite graph request deadline")?,
+            )
             .headers(headers.into_iter().collect())
             .json(body)
             .send()
@@ -731,8 +833,7 @@ impl Fixture {
         let input = json!({"selection":{
             "project_dir":graphit_core::native_path::NativePath::new(project.root().to_owned())?,
             "project_version":version
-        }, "query":{"query":"MATCH (n:AstFileObservation) RETURN n.path,n.raw_version ORDER BY n.path"}});
-        let raw_text = raw.to_string();
+        }, "query":{"query":"MATCH (n:AstFileObservation) RETURN n.path,n.raw_version,n.source_sha256 ORDER BY n.path"}});
         let expires = Instant::now() + Duration::from_secs(30);
         loop {
             let (status, result) = self.graph(address, "query", &input).await?;
@@ -749,11 +850,41 @@ impl Fixture {
                 .as_array()
                 .ok_or("Graph observation rows missing")?;
             if rows.len() == paths.len()
-                && rows.iter().zip(paths).all(|(row, path)| {
-                    row[0]["value"] == *path && row[1]["value"].as_str() == Some(raw_text.as_str())
-                })
+                && rows
+                    .iter()
+                    .zip(paths)
+                    .all(|(row, path)| row[0]["value"] == *path)
             {
-                return Ok(());
+                let current_raw = self.raw_for_version(project, version.unwrap_or("")).await?;
+                assert!(
+                    current_raw.version() >= raw,
+                    "Raw branch must retain the observed version"
+                );
+                let cancel = Cancellation::default();
+                let original = self.policy.request_context(Instant::now(), &cancel)?;
+                let mut current = true;
+                for (row, path) in rows.iter().zip(paths) {
+                    let version = row[1]["value"]
+                        .as_str()
+                        .ok_or("FILE Raw pin missing")?
+                        .parse()?;
+                    let digest = row[2]["value"]
+                        .as_str()
+                        .ok_or("FILE Source digest missing")?;
+                    let source = fs::read_to_string(project.root().join(path))?;
+                    current &= file_is_current(
+                        &current_raw,
+                        path,
+                        version,
+                        digest,
+                        &source,
+                        original.snapshot(),
+                    )
+                    .await?;
+                }
+                if current {
+                    return Ok(());
+                }
             }
             assert!(
                 Instant::now() < expires,
@@ -772,18 +903,40 @@ impl Fixture {
     ) -> TestResult {
         let input = json!({"selection":{"project_dir":
             graphit_core::native_path::NativePath::new(project.root().to_owned())?
-        },"query":{"query":"MATCH (n:Pair) WHERE n.name = 'answer' RETURN n.data_key,n.raw_version"}});
-        let raw_text = raw.to_string();
+        },"query":{"query":"MATCH (n:Pair) WHERE n.name = 'answer' RETURN n.data_key,n.raw_version,n.source_sha256"}});
         let expires = Instant::now() + Duration::from_secs(30);
         loop {
             let (status, result) = self.graph(address, "query", &input).await?;
             assert_eq!(status, reqwest::StatusCode::OK, "Pair query: {result}");
             let rows = result["rows"].as_array().ok_or("Pair rows missing")?;
-            if rows.len() == 1
-                && rows[0][0]["value"] == data_key
-                && rows[0][1]["value"].as_str() == Some(raw_text.as_str())
-            {
-                return Ok(());
+            if rows.len() == 1 && rows[0][0]["value"] == data_key {
+                let current_raw = self.raw_for_version(project, "").await?;
+                assert!(
+                    current_raw.version() >= raw,
+                    "Raw branch must retain the observed version"
+                );
+                let cancel = Cancellation::default();
+                let original = self.policy.request_context(Instant::now(), &cancel)?;
+                let version = rows[0][1]["value"]
+                    .as_str()
+                    .ok_or("Pair Raw pin missing")?
+                    .parse()?;
+                let digest = rows[0][2]["value"]
+                    .as_str()
+                    .ok_or("Pair Source digest missing")?;
+                let source = fs::read_to_string(project.root().join("answer.json"))?;
+                if file_is_current(
+                    &current_raw,
+                    "answer.json",
+                    version,
+                    digest,
+                    &source,
+                    original.snapshot(),
+                )
+                .await?
+                {
+                    return Ok(());
+                }
             }
             assert!(
                 Instant::now() < expires,
@@ -839,17 +992,17 @@ async fn project_graph_http_queries_real_models_neighborhood_and_current_raw() -
             assert_eq!(status, reqwest::StatusCode::OK, "{observations}");
             let rows = observations["rows"].as_array().ok_or("Graph query rows missing")?;
             assert_eq!(rows.len(), 3, "exactly one observation for each real FILE");
-            for (row, path) in rows.iter().zip(["alpha.rs", "answer.json", "relations.go"]) {
-                assert_eq!(row[0]["value"], path);
-                assert_eq!(row[1]["value"], raw.to_string());
-            }
+            fixture.graph_observations(address, &fixture.project, None, &["alpha.rs", "answer.json", "relations.go"], raw).await?;
             query["query"] = json!({"query":"MATCH (n:Function) WHERE n.name = 'Gamma' RETURN n.entity_key,n.raw_version"});
             let (status, function_result) = fixture.graph(address, "query", &query).await?;
             assert_eq!(status, reqwest::StatusCode::OK, "{function_result}");
             let functions = function_result["rows"].as_array().ok_or("Function rows missing")?;
             assert_eq!(functions.len(), 1);
             let gamma = functions[0][0]["value"].as_str().ok_or("Function primary key missing")?;
-            assert_eq!(functions[0][1]["value"], raw.to_string());
+            let original_cancel = Cancellation::default();
+            let original = fixture.policy.request_context(Instant::now(), &original_cancel)?;
+            let retained_raw = fixture.raw_for_version(&fixture.project, "").await?;
+            assert_current_source(&retained_raw, "relations.go", &functions[0][1]["value"], &fs::read_to_string(fixture.project.root().join("relations.go"))?, original.snapshot()).await?;
 
             let (status, sample) = fixture.graph(address, "sample", &selection).await?;
             assert_eq!(status, reqwest::StatusCode::OK, "{sample}");
@@ -947,21 +1100,14 @@ async fn ast_only_publishes_current_graph_without_native_nn() -> TestResult {
                 let root = fixture.project.project_runtime(id, &["ast"])?;
                 let cancel = Cancellation::default();
                 let original = fixture.policy.request_context(Instant::now(), &cancel)?;
-                let raw = LanceBranchStore::open(
-                    root.join("source.lance").to_str().unwrap(),
-                    source_schema(),
-                    None,
-                )
-                .await?
-                .capture_target(None)
-                .await?;
+                let raw = BranchSnapshot::capture_ast_corpus(&root.join("source.lance"), None, original.snapshot()).await?;
                 for (row, (name, path, source)) in rows.iter().zip([
                     ("alpha", "alpha.rs", RUST),
                     ("value", "fallback.java", fallback_source),
                 ]) {
                     assert_eq!(row[0]["value"], name);
                     assert_eq!(row[1]["value"], path);
-                    assert_raw_pin(&raw, path, &row[2]["value"], source, original.snapshot()).await?;
+                    assert_current_source(&raw, path, &row[2]["value"], source, original.snapshot()).await?;
                     assert_eq!(row[3]["value"], Sha256::digest(source.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect::<String>());
                     assert_eq!(row[4]["value"], name);
                     assert_eq!(row[5]["value"], "Exact");
@@ -1000,6 +1146,16 @@ async fn ast_only_publishes_current_graph_without_native_nn() -> TestResult {
                 assert_eq!(available[6]["value"], false);
                 assert_eq!(available[7]["value"], "java");
                 assert_eq!(available[8]["value"], "tree-sitter-java");
+                fs::write(fixture.project.root().join("later.rs"), "pub fn later() {}")?;
+                fixture.graph_observations(address, &fixture.project, None,
+                    &["alpha.rs", "answer.json", "fallback.java", "later.rs"], raw.version()).await?;
+                let updated_raw = fixture.raw_for_version(&fixture.project, "").await?;
+                assert!(updated_raw.version() > raw.version());
+                assert!(file_is_current(&updated_raw, "alpha.rs",
+                    rows[0][2]["value"].as_str().ok_or("Rust Raw pin missing")?.parse()?,
+                    rows[0][3]["value"].as_str().ok_or("Rust Source digest missing")?,
+                    RUST, original.snapshot()).await?,
+                    "an unchanged FILE keeps a valid historical pin after another FILE advances Raw");
                 let corpus = BranchSnapshot::capture_observed(root.join("corpus.lance").to_str().unwrap(), None, None).await?;
                 graphit_ast::corpus::validate_schema(corpus.schema())?;
                 assert!(graphit_ast::corpus::model(corpus.schema())?.is_none(),
@@ -1135,7 +1291,7 @@ queries:
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
-async fn real_model_failure_preserves_queryable_graph_without_partial_nn_commit() -> TestResult {
+async fn corrupt_model_asset_keeps_complete_graph_and_empty_vector_snapshot() -> TestResult {
     let fixture = Fixture::new()?;
     let f = &fixture;
     fixture.run_projects(&[&fixture.project], |address| {
@@ -1160,19 +1316,18 @@ async fn real_model_failure_preserves_queryable_graph_without_partial_nn_commit(
             assert_eq!(rows[1][0]["value"], "answer.json");
             let id = ProjectIdentityStore::at(&f.project).load()?.unwrap().id();
             let root = f.project.project_runtime(id, &["ast"])?;
-            let raw = LanceBranchStore::open(root.join("source.lance").to_str().unwrap(), source_schema(), None)
-                .await?.capture_target(None).await?;
             let cancel = Cancellation::default();
             let original = f.policy.request_context(Instant::now(), &cancel)?;
+            let raw = BranchSnapshot::capture_ast_corpus(&root.join("source.lance"), None, original.snapshot()).await?;
             for (row, (path, text)) in rows.iter().zip([("alpha.rs", RUST), ("answer.json", JSON)]) {
-                assert_raw_pin(&raw, path, &row[1]["value"], text, original.snapshot()).await?;
+                assert_current_source(&raw, path, &row[1]["value"], text, original.snapshot()).await?;
             }
             let corpus = BranchSnapshot::capture_observed(root.join("corpus.lance").to_str().unwrap(), None, None).await?;
             graphit_ast::corpus::validate_schema(corpus.schema())?;
             if corpus.schema().field_with_name(graphit_ast::corpus::VECTOR).is_ok() {
                 let mut scan = corpus.scan();
                 scan.filter_expr(graphit_data::lance_branch_store::col(graphit_ast::corpus::VECTOR).is_not_null());
-                assert_eq!(scan.count_rows().await?, 0, "model failure must not publish partial vectors");
+                assert_eq!(scan.count_rows().await?, 0, "the graph-ready snapshot must contain no vectors for the corrupted asset");
             }
             Ok(())
         }
@@ -1377,91 +1532,71 @@ fn contains_path(batches: &[RecordBatch], path: &str) -> bool {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
-async fn current_raw_preserves_vectors_then_profile_control_recovers_failed_nn() -> TestResult {
+async fn current_raw_preserves_vectors_then_profile_control_refreshes_real_nn() -> TestResult {
     let fixture = Fixture::new()?;
     fixture
-        .run_projects(&[&fixture.project], |address| { let fixture = &fixture; async move {
-            fixture.assert_published().await?;
-            let (before, old) = fixture.rows().await?;
-            let old_vectors = vectors(&old);
+        .run_projects(&[&fixture.project], |address| {
+            let fixture = &fixture;
+            async move {
+                fixture.assert_published().await?;
+                let (before, old) = fixture.rows().await?;
+                let old_vectors = vectors(&old);
 
-            fs::write(fixture.project.root().join("empty.json"), "{}")?;
-            let reassociated = fixture.wait_current_rows(before, "pairs").await?;
-            assert_eq!(
-                vectors(&reassociated),
-                old_vectors,
-                "only Source/Raw association changes for unchanged entities"
-            );
-
-            let (previous, _) = fixture.rows().await?;
-            let directory = fixture.project.brand_directory().join("ast/queries");
-            fs::create_dir_all(&directory)?;
-            let stock = include_str!("../../../crates/graphit-ast/profiles/queries/json.yaml");
-            let profile = directory.join("json.yaml");
-            fs::write(
-                &profile,
-                stock.replace(
-                    "grammar: tree-sitter-json",
-                    "grammar: tree-sitter-not-distributed",
-                ),
-            )?;
-            fs::write(fixture.project.root().join("beta.rs"), "pub fn beta() {}")?;
-
-            let expires = Instant::now() + Duration::from_secs(30);
-            loop {
-                let (raw, batches) = fixture.rows().await?;
-                if raw > previous {
-                    assert!(
-                        batches.iter().any(|batch| {
-                            let versions = batch
-                                .column_by_name("raw_version")
-                                .unwrap()
-                                .as_any()
-                                .downcast_ref::<UInt64Array>()
-                                .unwrap();
-                            (0..batch.num_rows()).any(|i| versions.value(i) < raw)
-                        }),
-                        "invalid grammar cannot publish a fake current semantic image"
-                    );
-                    break;
-                }
-                assert!(
-                    Instant::now() < expires,
-                    "Raw producer did not process the real FILE delta with invalid NN grammar"
+                fs::write(fixture.project.root().join("empty.json"), "{}")?;
+                let reassociated = fixture.wait_current_rows(before, "pairs").await?;
+                assert_eq!(
+                    vectors(&reassociated),
+                    old_vectors,
+                    "only Source/Raw association changes for unchanged entities"
                 );
-                tokio::time::sleep(Duration::from_millis(20)).await;
+
+                let directory = fixture.project.brand_directory().join("ast/queries");
+                fs::create_dir_all(&directory)?;
+                let stock = include_str!("../../../crates/graphit-ast/profiles/queries/json.yaml");
+                let profile = directory.join("json.yaml");
+                fs::write(
+                    &profile,
+                    stock.replace("data_key: pairs", "data_key: refreshed_pairs"),
+                )?;
+                fs::write(fixture.project.root().join("beta.rs"), "pub fn beta() {}")?;
+                let changed = r#"{"answer":43}"#;
+                fs::write(fixture.project.root().join("answer.json"), changed)?;
+                let current = fixture.wait_current_rows(before, "refreshed_pairs").await?;
+                let (raw, _) = fixture.rows().await?;
+                fixture
+                    .graph_observations(
+                        address,
+                        &fixture.project,
+                        None,
+                        &["alpha.rs", "answer.json", "beta.rs", "empty.json"],
+                        raw,
+                    )
+                    .await?;
+                fixture
+                    .graph_pair_data_key(address, &fixture.project, "refreshed_pairs", raw)
+                    .await?;
+                assert!(
+                    current.iter().any(|batch| {
+                        let names = batch
+                            .column_by_name("name")
+                            .unwrap()
+                            .as_any()
+                            .downcast_ref::<StringArray>()
+                            .unwrap();
+                        let paths = batch
+                            .column_by_name("path")
+                            .unwrap()
+                            .as_any()
+                            .downcast_ref::<StringArray>()
+                            .unwrap();
+                        (0..batch.num_rows())
+                            .any(|i| names.value(i) == "beta" && paths.value(i) == "beta.rs")
+                    }),
+                    "the same watcher applies the profile control and publishes the new FILE"
+                );
+                Ok(())
             }
-            // Fix only the real watched profile: the Raw bytes already have their current version.
-            fs::write(
-                &profile,
-                stock.replace("data_key: pairs", "data_key: refreshed_pairs"),
-            )?;
-            let current = fixture.wait_current_rows(before, "refreshed_pairs").await?;
-            let (raw, _) = fixture.rows().await?;
-            fixture.graph_observations(address, &fixture.project, None,
-                &["alpha.rs", "answer.json", "beta.rs", "empty.json"], raw).await?;
-            fixture.graph_pair_data_key(address, &fixture.project, "refreshed_pairs", raw).await?;
-            assert!(
-                current.iter().any(|batch| {
-                    let names = batch
-                        .column_by_name("name")
-                        .unwrap()
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap();
-                    let paths = batch
-                        .column_by_name("path")
-                        .unwrap()
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .unwrap();
-                    (0..batch.num_rows())
-                        .any(|i| names.value(i) == "beta" && paths.value(i) == "beta.rs")
-                }),
-                "same watcher recovered after the invalid NN configuration and a real control event"
-            );
-            Ok(())
-        }})
+        })
         .await
 }
 
@@ -1489,17 +1624,15 @@ async fn incremental_go_callback_publishes_real_model_vectors_and_current_raw() 
                 let cancel = Cancellation::default();
                 let request = fixture.policy.request_context(Instant::now(), &cancel)?;
                 let mut found = std::collections::BTreeSet::new();
-                let mut current = true;
+                let current = fixture.nn_rows_are_current(&fixture.project, "", &batches).await?;
                 for batch in &batches {
                     validate_native_nn(batch, &model, request.snapshot())?;
                     let strings = |name: &str| {
                         batch.column_by_name(name).unwrap().as_any().downcast_ref::<StringArray>().unwrap()
                     };
-                    let versions = batch.column_by_name("raw_version").unwrap().as_any().downcast_ref::<UInt64Array>().unwrap();
                     let vectors = batch.column_by_name("vector").unwrap().as_any().downcast_ref::<FixedSizeListArray>().unwrap();
                     let hashes = batch.column_by_name("full_source_sha256").unwrap().as_any().downcast_ref::<FixedSizeBinaryArray>().unwrap();
                     for row in 0..batch.num_rows() {
-                        current &= versions.value(row) == raw;
                         if strings("path").value(row) != "gamma.go" { continue; }
                         assert_eq!(strings("language").value(row), "go");
                         assert!(source.contains(strings("projection").value(row)));
@@ -1597,7 +1730,7 @@ async fn incremental_ecma_callbacks_publish_graphs_and_real_model_vectors() -> T
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "requires a model-server executable and the pinned EmbeddingGemma GGUF for native AST inference"]
-async fn two_projects_isolate_failed_nn_recover_and_publish_rename_delete() -> TestResult {
+async fn two_projects_refresh_real_nn_and_publish_rename_delete() -> TestResult {
     let fixture = Fixture::new()?;
     let root = fixture._directory.path().join("sibling");
     fs::create_dir(&root)?;
@@ -1627,33 +1760,13 @@ async fn two_projects_isolate_failed_nn_recover_and_publish_rename_delete() -> T
                 fs::write(
                     &profile,
                     stock.replace(
-                        "grammar: tree-sitter-json",
-                        "grammar: tree-sitter-not-distributed",
+                        "data_key: pairs",
+                        "data_key: staged_pairs",
                     ),
                 )?;
                 fs::write(fixture.project.root().join("beta.rs"), "pub fn beta() {}")?;
-
-                let expires = Instant::now() + Duration::from_secs(30);
-                loop {
-                    let (raw, rows) = fixture.rows().await?;
-                    if raw > before_a {
-                        assert!(
-                            rows.iter().any(|batch| {
-                                let versions = batch
-                                    .column_by_name("raw_version")
-                                    .unwrap()
-                                    .as_any()
-                                    .downcast_ref::<UInt64Array>()
-                                    .unwrap();
-                                (0..batch.num_rows()).any(|row| versions.value(row) < raw)
-                            }),
-                            "failed A must not claim current NN"
-                        );
-                        break;
-                    }
-                    assert!(Instant::now() < expires, "A Raw delta was not observed");
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                }
+                let changed = r#"{"answer":77}"#;
+                fs::write(fixture.project.root().join("answer.json"), changed)?;
 
                 let bravo = "pub fn Bravo() -> u32 { 9 }";
                 fs::write(sibling.root().join("bravo.rs"), bravo)?;
@@ -1702,37 +1815,32 @@ async fn two_projects_isolate_failed_nn_recover_and_publish_rename_delete() -> T
                         updated_b,
                     )
                     .await?;
-                fixture
-                    .graph_observations(
-                        address,
-                        &fixture.project,
-                        None,
-                        &["alpha.rs", "answer.json"],
-                        before_a,
-                    )
-                    .await?;
+                fixture.wait_rows_for(&fixture.project, before_a, |rows| {
+                    has_named_row(rows, "answer.json", "answer", "staged_pairs")
+                        && has_named_row(rows, "beta.rs", "beta", "functions")
+                }).await?;
                 fs::write(
                     &profile,
-                    stock.replace("data_key: pairs", "data_key: recovered_pairs"),
+                    stock.replace("data_key: pairs", "data_key: refreshed_pairs"),
                 )?;
                 fixture
                     .wait_rows_for(&fixture.project, before_a, |rows| {
-                        has_named_row(rows, "answer.json", "answer", "recovered_pairs")
+                        has_named_row(rows, "answer.json", "answer", "refreshed_pairs")
                             && has_named_row(rows, "beta.rs", "beta", "functions")
                     })
                     .await?;
-                let (recovered_a, _) = fixture.rows().await?;
+                let (refreshed_a, _) = fixture.rows().await?;
                 fixture
                     .graph_observations(
                         address,
                         &fixture.project,
                         None,
                         &["alpha.rs", "answer.json", "beta.rs"],
-                        recovered_a,
+                        refreshed_a,
                     )
                     .await?;
                 fixture
-                    .graph_pair_data_key(address, &fixture.project, "recovered_pairs", recovered_a)
+                    .graph_pair_data_key(address, &fixture.project, "refreshed_pairs", refreshed_a)
                     .await?;
 
                 fs::rename(

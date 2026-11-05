@@ -321,6 +321,7 @@ impl LanceModuleStore {
             uri: self.uri.clone(),
             schema: Arc::clone(&self.schema),
             dataset: Arc::clone(&self.dataset),
+            ast_reader: None,
         }
     }
     pub async fn resolve(&self, key: &RecoveryKey) -> Result<Resolution, StoreError> {
@@ -393,12 +394,8 @@ impl crate::lance_branch_store::BranchSnapshot {
         stage: TempDir,
         original: Arc<SnapshotContext>,
     ) -> io::Result<tokio::task::JoinHandle<io::Result<NativeModuleClone>>> {
-        ModuleSnapshot {
-            uri: self.dataset().uri().to_owned(),
-            schema: Arc::new(self.schema().clone()),
-            dataset: Arc::clone(self.dataset()),
-        }
-        .spawn_native_clone_local(stage, original)
+        self.module_snapshot()
+            .spawn_native_clone_local(stage, original)
     }
 }
 
@@ -407,6 +404,7 @@ pub struct ModuleSnapshot {
     pub(crate) uri: String,
     pub(crate) schema: Arc<Schema>,
     pub(crate) dataset: Arc<Dataset>,
+    pub(crate) ast_reader: Option<Arc<std::fs::File>>,
 }
 impl ModuleSnapshot {
     pub(crate) async fn build_code_fts(
@@ -459,6 +457,7 @@ impl ModuleSnapshot {
             uri: self.uri.clone(),
             schema: Arc::clone(&self.schema),
             dataset: Arc::new(dataset),
+            ast_reader: self.ast_reader.clone(),
         })
     }
     /// Capture an exact historical version in this snapshot's physical branch,
@@ -473,10 +472,11 @@ impl ModuleSnapshot {
         {
             return Err(StoreError::InvalidVersion);
         }
-        Ok(
+        let mut snapshot =
             LanceModuleStore::from_dataset(&self.uri, Arc::clone(&self.schema), dataset)?
-                .snapshot(),
-        )
+                .snapshot();
+        snapshot.ast_reader = self.ast_reader.clone();
+        Ok(snapshot)
     }
 
     /// Literal locator of this retained pin, without I/O or a new observation.
@@ -574,6 +574,7 @@ impl ModuleSnapshot {
                     uri: dataset.uri().to_owned(),
                     schema: snapshot.schema,
                     dataset: Arc::new(dataset),
+                    ast_reader: None,
                 };
                 Ok(NativeModuleClone { snapshot: output, directory: stage })
             })

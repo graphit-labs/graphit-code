@@ -167,19 +167,21 @@ pub(super) async fn join_catalog_read_job(host: &WebHost) {
     );
 }
 #[track_caller]
-pub(super) fn assert_catalog_job_pending(
-    host: &WebHost,
+pub(super) fn assert_current_client_pending(
+    readers: &mut Vec<tokio::task::JoinHandle<reqwest::Response>>,
 ) -> impl std::future::Future<Output = ()> + '_ {
     let caller = std::panic::Location::caller();
     async move {
-        let mut jobs = host.service.0.jobs.lock().await;
-        match tokio::time::timeout(Duration::from_millis(100), jobs.join_next()).await {
-            Err(_) => {}
-            Ok(Some(Ok(()))) => {
-                panic!("{caller}: a completed job was observed before releasing held I/O")
+        let current = readers.last_mut().expect("owned current client");
+        if let Ok(completed) = tokio::time::timeout(Duration::from_millis(100), current).await {
+            readers.pop();
+            match completed {
+                Ok(response) => panic!(
+                    "{caller}: current client returned status {} before held I/O release",
+                    response.status().as_u16()
+                ),
+                Err(_) => panic!("{caller}: current client failed before held I/O release"),
             }
-            Ok(Some(Err(_))) => panic!("{caller}: an owned job failed before releasing held I/O"),
-            Ok(None) => panic!("{caller}: no owned job remains during held I/O"),
         }
     }
 }
@@ -766,21 +768,20 @@ async fn real_web_hub_catalog_broker_and_standalone_keep_subject_paging_and_deni
         relay.hold_next_metadata();
         readers.push(spawn_catalog_read(host,&cookie,exact.clone()));
         relay.entered().await;
-        assert_catalog_job_pending(host).await;
+        assert_current_client_pending(&mut readers).await;
         let outcome=tokio::time::timeout(Duration::from_secs(40),readers.last_mut().expect("owned pending reader")).await;
         if outcome.is_ok() { readers.pop(); }
         let response=checked(checked(outcome,"deadline response guard"),"deadline reader join");
         assert_eq!(response.status(),StatusCode::GATEWAY_TIMEOUT,"original operation deadline");
         // A transport may already have quiesced at its own deadline. In either
-        // case, observe the held read's actual JoinHandle. Its enqueue drained
-        // older completions; only this read and the live session timers remain.
+        // case, join an owner completion; final teardown drains every owned job.
         relay.state.release.notify_waiters();
         join_catalog_read_job(host).await;
         let _=page(host,&sibling,PROJECTS,projects.clone()).await;
         // Disconnect cancels the request, without detaching its pending work.
         relay.hold_next_metadata();
         readers.push(spawn_catalog_read(host,&cookie,exact.clone()));
-        relay.entered().await;assert_catalog_job_pending(host).await;
+        relay.entered().await;assert_current_client_pending(&mut readers).await;
         let disconnected=readers.last_mut().expect("owned disconnect reader");disconnected.abort();
         let outcome=disconnected.await;readers.pop();
         assert!(outcome.is_err_and(|error|error.is_cancelled()),"client future disconnected");

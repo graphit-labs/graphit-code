@@ -27,7 +27,6 @@ fn emit(value: Value, fragmented: bool) {
         for bytes in text.chunks(7) {
             stdout.write_all(bytes).unwrap();
             stdout.flush().unwrap();
-            std::thread::sleep(std::time::Duration::from_millis(1));
         }
     } else {
         stdout.write_all(&text).unwrap();
@@ -60,6 +59,9 @@ pub fn run() {
         .and_then(|path| std::fs::read_to_string(path).ok())
         .unwrap_or_else(|| std::env::var("COPILOT_MODE").unwrap_or_else(|_| "answer".into()));
     let args: Vec<_> = std::env::args().skip(1).collect();
+    if let Some(path) = std::env::var_os("COPILOT_NATIVE_ARGS") {
+        std::fs::write(path, format!("{}\n", args.join("\n"))).unwrap();
+    }
     assert!(args.iter().any(|a| a == "--output-format=json"));
     assert!(args.iter().any(|a| a == "--available-tools="));
     assert!(args.iter().any(|a| a == "--no-ask-user"));

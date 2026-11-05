@@ -1,3 +1,5 @@
+#[path = "support/cli_control.rs"]
+mod control;
 use graphit_ai::cli_plain::{
     PlainFailure, PlainLimit, PlainLimits, PlainReason, PlainReceipt, TextChunk, TextSink,
     run_plain,
@@ -11,8 +13,8 @@ use graphit_process::{
 use secrecy::zeroize::Zeroizing;
 use std::{
     ffi::OsString,
-    io::{self, Read, Write},
-    net::{TcpListener, TcpStream},
+    io,
+    net::TcpListener,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -21,6 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
+use tokio::net::TcpStream;
 use tokio::{io::AsyncReadExt, sync::Notify, time::sleep};
 
 struct OwnedFixture {
@@ -240,49 +243,28 @@ fn socket() -> TcpListener {
 }
 
 async fn peer(socket: &TcpListener, context: &SnapshotContext) -> Result<TcpStream, SinkFailure> {
-    loop {
-        context.check().map_err(|_| SinkFailure::ConsumerFailed)?;
-        match socket.accept() {
-            Ok((peer, _)) => {
-                peer.set_nonblocking(true)
-                    .map_err(|_| SinkFailure::ConsumerFailed)?;
-                return Ok(peer);
-            }
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            Err(_) => return Err(SinkFailure::ConsumerFailed),
-        }
-    }
+    control::peer(socket, context)
+        .await
+        .map_err(|_| SinkFailure::ConsumerFailed)
 }
 
 async fn byte(peer: &mut TcpStream, context: &SnapshotContext) -> Result<Option<u8>, SinkFailure> {
-    let mut bytes = [0];
-    loop {
-        context.check().map_err(|_| SinkFailure::ConsumerFailed)?;
-        match peer.read(&mut bytes) {
-            Ok(0) => return Ok(None),
-            Ok(_) => return Ok(Some(bytes[0])),
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            Err(_) => return Err(SinkFailure::ConsumerFailed),
-        }
-    }
+    control::byte(peer, context)
+        .await
+        .map_err(|_| SinkFailure::ConsumerFailed)
 }
 
 async fn acknowledge(peer: &mut TcpStream, context: &SnapshotContext) -> Result<(), SinkFailure> {
-    loop {
-        context.check().map_err(|_| SinkFailure::ConsumerFailed)?;
-        match peer.write(b"A") {
-            Ok(1) => return Ok(()),
-            Ok(_) => return Err(SinkFailure::Closed),
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            Err(_) => return Err(SinkFailure::ConsumerFailed),
+    control::acknowledge(peer, context).await.map_err(|error| {
+        if matches!(
+            error.kind(),
+            io::ErrorKind::WriteZero | io::ErrorKind::BrokenPipe
+        ) {
+            SinkFailure::Closed
+        } else {
+            SinkFailure::ConsumerFailed
         }
-    }
+    })
 }
 
 struct Collector<'a> {
@@ -1014,7 +996,8 @@ async fn original_cancel_and_deadline_drop_pending_callback_then_await_real_clea
         );
         let closure = fixture_host.finish(&mut result).await;
         let error = result.unwrap_err();
-        let (connection, alive) = observation.expect("native callback readiness was not observed");
+        let (mut connection, alive) =
+            observation.expect("native callback readiness was not observed");
         assert!(alive);
         let actual = failed(error.receipt());
         assert_eq!(
@@ -1034,7 +1017,6 @@ async fn original_cancel_and_deadline_drop_pending_callback_then_await_real_clea
             (1, 1, 0)
         );
         assert!(actual.status.is_some());
-        let mut connection = tokio::net::TcpStream::from_std(connection).unwrap();
         let closed = tokio::time::timeout(Duration::from_secs(2), connection.read(&mut [0]))
             .await
             .expect("native fixture connection must close after cleanup");

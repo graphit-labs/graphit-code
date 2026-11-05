@@ -76,13 +76,12 @@ mod tests {
         #[cfg(unix)]
         {
             let fifo = dir.path().join("cursor.fifo");
-            assert!(
-                std::process::Command::new("mkfifo")
-                    .arg(&fifo)
-                    .status()
-                    .unwrap()
-                    .success()
-            );
+            rustix::fs::mkfifoat(
+                rustix::fs::CWD,
+                &fifo,
+                rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+            )
+            .unwrap();
             assert_eq!(
                 read_text_file(&fifo, 8).unwrap_err().kind(),
                 io::ErrorKind::InvalidInput

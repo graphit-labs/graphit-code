@@ -1,5 +1,7 @@
 #![cfg(target_os = "linux")]
 //! Claude one-shot through the real CLI/SDK, authorized corpus and native Process.
+#[path = "support/agent_fixture.rs"]
+mod agent_fixture;
 use graphit_app::{
     native_install_http::NativeInstallPolicy,
     source_server::{SourcePolicy, SourceServer},
@@ -26,7 +28,6 @@ use std::{
     ffi::OsString,
     io,
     num::NonZeroUsize,
-    os::unix::fs::PermissionsExt,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -295,10 +296,11 @@ async fn progress_count(events: &Mutex<Vec<Seen>>, changed: &tokio::sync::Notify
     .unwrap();
 }
 
-fn script(f: &fixture_support::Fixture, body: &str) {
-    let program = f.temp.path().join("claude");
-    std::fs::write(&program, format!("#!/usr/bin/python3\n{body}")).unwrap();
-    std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o700)).unwrap();
+fn scenario(f: &fixture_support::Fixture, body: &str) {
+    let mut data: serde_json::Value = serde_json::from_str(body).unwrap();
+    data["kind"] = json!("wire");
+    data["protocol"] = json!("claude");
+    agent_fixture::install(&f.temp.path().join("claude"), data);
 }
 async fn attach(
     f: &mut fixture_support::Fixture,
@@ -328,18 +330,19 @@ fn fixture() -> fixture_support::Fixture {
     )
 }
 
-const SIMPLE: &str = r#"
-import json,sys,os
-assert sys.argv[1:7] == ['-p','--output-format','stream-json','--verbose','--include-partial-messages','--model']
-assert sys.argv[7] == 'literal model;$(claude)' and len(sys.argv)==8
-assert os.environ['CAPTURED'] == 'startup only;$(literal)'
-assert os.path.basename(os.getcwd()) == 'project'
-prompt=json.loads(sys.stdin.read())
-assert prompt['question'] == '  literal β\n  '
-assert prompt['pages'][0]['slug'] == 'Paris'
-print('{"type":"system","subtype":"init","session_id":"fixture-session","model":"observed-model"}',flush=True)
-print('{"type":"result","subtype":"success","is_error":false,"duration_ms":1,"duration_api_ms":1,"num_turns":1,"session_id":"fixture-session","result":"actual β [[Paris]]"}',flush=True)
-"#;
+const SIMPLE: &str = r#"{
+  "frames": [
+    "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"fixture-session\",\"model\":\"observed-model\"}",
+    "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"session_id\":\"fixture-session\",\"result\":\"actual β [[Paris]]\"}"
+  ],
+  "checks": {
+    "model": "literal model;$(claude)",
+    "captured": "startup only;$(literal)",
+    "cwd_basename": "project",
+    "question": "  literal β\n  ",
+    "slug": "Paris"
+  }
+}"#;
 #[test]
 fn compiled_cli_claude_keeps_captured_launcher_and_literal_model_context() {
     run(async {
@@ -347,7 +350,7 @@ fn compiled_cli_claude_keeps_captured_launcher_and_literal_model_context() {
         let cancel = Cancellation::default();
         let ctx = original(&cancel);
         publish(&f, &ctx).await;
-        script(&f, SIMPLE);
+        scenario(&f, SIMPLE);
         let mut cmd = tokio::process::Command::from(command(&f));
         let mut daemon = cli_daemon::CliDaemon::start(
             f,
@@ -390,23 +393,28 @@ fn compiled_global_stdio_claude_streams_raw_native_events_before_real_exit() {
         let ctx = original(&cancel);
         publish(&f, &ctx).await;
         let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        script(
+        scenario(
             &f,
-            r#"
-import json,sys,os,socket
-assert sys.argv[1:7] == ['-p','--output-format','stream-json','--verbose','--include-partial-messages','--model']
-assert sys.argv[7]=='model fixture' and len(sys.argv)==8
-assert json.loads(sys.stdin.read())['pages'][0]['body'] == 'Paris é a capital.\n'
-print('{"type":"system","subtype":"init","session_id":"fixture-session","model":"observed-model"}',flush=True)
-print('{"type":"assistant","session_id":"fixture-session","parent_tool_use_id":"agent-tool","message":{"model":"observed-model","content":[{"type":"tool_use","id":"native-tool","name":"read_file","input":{"big":9007199254740993,"big":9007199254740995,"ratio":1e-4}}]}}',flush=True)
-print('{"type":"user","session_id":"fixture-session","parent_tool_use_id":"agent-tool","message":{"content":[{"type":"tool_result","tool_use_id":"native-tool","content":"native output"}]}}',flush=True)
-print('{"type":"result","subtype":"success","duration_ms":1,"duration_api_ms":1,"num_turns":1,"session_id":"fixture-session","is_error":false,"result":"injected response","origin":{"kind":"task-notification"}}',flush=True)
-print('{"type":"future","extra":null}',flush=True)
-print('{"type":"stream_event","uuid":"event1","session_id":"fixture-session","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"partial answer β"}}}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
-assert s.recv(1) == b'1'
-print('{"type":"result","subtype":"success","duration_ms":9,"duration_api_ms":8,"num_turns":1,"session_id":"fixture-session","is_error":false,"result":"native answer β","usage":{"input_tokens":5,"output_tokens":3},"total_cost_usd":1e-4}',flush=True)
-"#,
+            r#"{
+  "frames": [
+    "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"fixture-session\",\"model\":\"observed-model\"}",
+    "{\"type\":\"assistant\",\"session_id\":\"fixture-session\",\"parent_tool_use_id\":\"agent-tool\",\"message\":{\"model\":\"observed-model\",\"content\":[{\"type\":\"tool_use\",\"id\":\"native-tool\",\"name\":\"read_file\",\"input\":{\"big\":9007199254740993,\"big\":9007199254740995,\"ratio\":1e-4}}]}}",
+    "{\"type\":\"user\",\"session_id\":\"fixture-session\",\"parent_tool_use_id\":\"agent-tool\",\"message\":{\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"native-tool\",\"content\":\"native output\"}]}}",
+    "{\"type\":\"result\",\"subtype\":\"success\",\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"session_id\":\"fixture-session\",\"is_error\":false,\"result\":\"injected response\",\"origin\":{\"kind\":\"task-notification\"}}",
+    "{\"type\":\"future\",\"extra\":null}",
+    "{\"type\":\"stream_event\",\"uuid\":\"event1\",\"session_id\":\"fixture-session\",\"parent_tool_use_id\":null,\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial answer β\"}}}",
+    "{\"type\":\"result\",\"subtype\":\"success\",\"duration_ms\":9,\"duration_api_ms\":8,\"num_turns\":1,\"session_id\":\"fixture-session\",\"is_error\":false,\"result\":\"native answer β\",\"usage\":{\"input_tokens\":5,\"output_tokens\":3},\"total_cost_usd\":1e-4}"
+  ],
+  "gate": {
+    "before": 6,
+    "send": "",
+    "expect": "1"
+  },
+  "checks": {
+    "model": "model fixture",
+    "body": "Paris é a capital.\n"
+  }
+}"#,
         );
         let mut cmd = tokio::process::Command::from(command(&f));
         // Global transport uses the selection supplied by Source discovery.
@@ -606,23 +614,27 @@ fn claude_http_receipts_use_native_result_and_retain_real_failures() {
             let cancel = Cancellation::default();
             let ctx = original(&cancel);
             publish(&f, &ctx).await;
-            let mut body = String::from(
-                "import sys,json\nprint('{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"fixture\",\"model\":\"observed\"}',flush=True)\n",
-            );
+            let mut frames = vec![String::from(
+                "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"fixture\",\"model\":\"observed\"}",
+            )];
             if mode == "malformed" {
-                body.push_str("print('{bad-json}',flush=True)\n");
+                frames.push(String::from("{bad-json}"));
             } else if mode != "missing" {
                 let mut result = serde_json::json!({"type":"result","subtype":"success","is_error":mode=="native_error","duration_ms":1,"duration_api_ms":1,"num_turns":1,"session_id":"fixture"});
                 if mode != "unavailable" {
                     result["result"] =
                         serde_json::json!(if mode == "empty" { "" } else { "native answer" });
                 }
-                body.push_str(&format!("print({:?},flush=True)\n", result.to_string()));
+                frames.push(result.to_string());
             }
-            if mode == "nonzero" {
-                body.push_str("sys.exit(9)\n");
-            }
-            script(&f, &body);
+            scenario(
+                &f,
+                &json!({
+                    "frames":frames,
+                    "exit":if mode == "nonzero" {9} else {0}
+                })
+                .to_string(),
+            );
             attach(&mut f, &ctx, vec![]).await;
             let (served, record) = serve(&f, &ctx).await;
             let h = SdkHarness::connect(&f, &ctx, record.address(), Duration::from_secs(10)).await;
@@ -694,13 +706,7 @@ fn claude_prechild_validation_denial_empty_and_unavailable_never_execute() {
             }
             let marker = f.temp.path().join("unexpected-child");
             if mode != "unavailable" {
-                script(
-                    &f,
-                    &format!(
-                        "from pathlib import Path\nPath({:?}).write_text('child')\n",
-                        marker.to_str().unwrap()
-                    ),
-                );
+                scenario(&f, &json!({"frames":[],"marker":marker}).to_string());
             }
             attach(&mut f, &ctx, vec![]).await;
             let (served, record) = serve(&f, &ctx).await;
@@ -772,16 +778,20 @@ fn claude_http_cancel_drop_deadline_and_dropped_shutdown_waiter_join_child() {
             let ctx = original(&cancel);
             publish(&f, &ctx).await;
             let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            script(
+            scenario(
                 &f,
-                r#"
-import os,socket
-print('{"type":"system","subtype":"init","session_id":"fixture","model":"observed"}',flush=True)
-print('{"type":"stream_event","uuid":"partial","session_id":"fixture","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"must-not-be-answer"}}}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
-s.sendall(b'w');s.recv(1)
-print('{"type":"result","subtype":"success","is_error":false,"duration_ms":1,"duration_api_ms":1,"num_turns":1,"session_id":"fixture","result":"must-not-be-answer"}',flush=True)
-"#,
+                r#"{
+  "frames": [
+    "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"fixture\",\"model\":\"observed\"}",
+    "{\"type\":\"stream_event\",\"uuid\":\"partial\",\"session_id\":\"fixture\",\"parent_tool_use_id\":null,\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"must-not-be-answer\"}}}",
+    "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"duration_ms\":1,\"duration_api_ms\":1,\"num_turns\":1,\"session_id\":\"fixture\",\"result\":\"must-not-be-answer\"}"
+  ],
+  "gate": {
+    "before": 2,
+    "send": "w",
+    "expect": null
+  }
+}"#,
             );
             attach(
                 &mut f,
@@ -902,17 +912,21 @@ fn claude_project_invalidation_after_native_effect_denies_delivery_keeps_receipt
         let ctx = original(&cancel);
         publish(&f, &ctx).await;
         let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        script(
+        scenario(
             &f,
-            r#"
-import os,socket
-print('{"type":"system","subtype":"init","session_id":"fixture","model":"observed"}',flush=True)
-print('{"type":"stream_event","uuid":"partial","session_id":"fixture","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"native effect before invalidation"}}}',flush=True)
-print('{"type":"stream_event","uuid":"boundary","session_id":"fixture","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"fixture progress boundary"}}}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
-assert s.recv(1)==b'1'
-print('{"type":"result","subtype":"success","is_error":false,"duration_ms":9,"duration_api_ms":8,"num_turns":1,"session_id":"fixture","result":"must-not-be-answer","usage":{"input_tokens":5,"output_tokens":3}}',flush=True)
-"#,
+            r#"{
+  "frames": [
+    "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"fixture\",\"model\":\"observed\"}",
+    "{\"type\":\"stream_event\",\"uuid\":\"partial\",\"session_id\":\"fixture\",\"parent_tool_use_id\":null,\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"native effect before invalidation\"}}}",
+    "{\"type\":\"stream_event\",\"uuid\":\"boundary\",\"session_id\":\"fixture\",\"parent_tool_use_id\":null,\"event\":{\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"fixture progress boundary\"}}}",
+    "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"duration_ms\":9,\"duration_api_ms\":8,\"num_turns\":1,\"session_id\":\"fixture\",\"result\":\"must-not-be-answer\",\"usage\":{\"input_tokens\":5,\"output_tokens\":3}}"
+  ],
+  "gate": {
+    "before": 3,
+    "send": "",
+    "expect": "1"
+  }
+}"#,
         );
         attach(
             &mut f,

@@ -524,6 +524,12 @@ fn compile(
             });
         }
     }
+    let broker = crate::instruction_overrides::BrokerInstructions::load(
+        resources.auth.issuer(),
+        policy.installation.root(),
+        original,
+    )?;
+    candidates.extend(broker.candidates(set.candidates()));
     let description_entry = format!("skills/{}/description.md", module.name());
     if let Some(description) = hub_description.as_deref() {
         candidates.push(CapturedInstruction {

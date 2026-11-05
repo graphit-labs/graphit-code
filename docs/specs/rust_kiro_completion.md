@@ -268,7 +268,13 @@ signal error stays observable even when physical cleanup subsequently succeeds.
 Failed native setup retains its recovered child; unknown birth or tree completion
 stays unconfirmed rather than becoming a successful cleanup receipt.
 
-The descendant fixtures are Linux-specific; the portable byte/frame bounds fixture also belongs to this App transport. Source composition is distinct from native execution: these changes do not qualify Windows/macOS cleanup or a vendor account.
+The descendant fixtures are Linux-specific. They use the Cargo-emitted Rust
+`app-agent-fixture` and its own child, with inherited stderr and process group;
+the child installs its TERM behavior before publishing its PID. The parent
+retains the actual group/EOF assertions and leader exit status, without a shell
+or installed sleep command. The portable byte/frame bounds fixture also belongs
+to this App transport. Source composition is distinct from native execution:
+these changes do not qualify Windows/macOS cleanup or a vendor account.
 
 `answer()` requires observed text, actual `EndTurn`, successful driver completion
 and a valid original. Context/transport/sink/parse/limit failures never expose an

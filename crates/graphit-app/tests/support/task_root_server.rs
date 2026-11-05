@@ -42,7 +42,7 @@ async fn root_task_dispatch_preserves_real_permissions_and_rejects_role_origin()
     let address = listener.address();
     let serving = fixture.server.clone();
     let served = tokio::spawn(async move { SourceServer::serve(&serving, listener).await });
-    let http = reqwest::Client::new();
+    let http = crate::source_server::test_http_client();
     let limits =
         graphit_core::native_document_file::NativeDocumentFileLimits::new(65536, 4096, 32, 4096)
             .unwrap();

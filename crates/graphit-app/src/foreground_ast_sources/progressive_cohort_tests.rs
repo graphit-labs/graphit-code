@@ -8,7 +8,7 @@ use graphit_ast::native_nn_index_locator::{NativeNnIndexPresence, open_local_nat
 use graphit_auth::{ProjectCapture, ScopeCapture};
 use graphit_core::{config::ConfigStore, native_path::NativePath};
 use graphit_daemon::{supervisor::ProjectContext, watcher::ChangeBatch};
-use graphit_data::lance_branch_store::BranchSnapshot;
+use graphit_data::lance_branch_store::{AST_INDEX_BATCH, BranchSnapshot};
 use rmcp::model::CallToolRequestParams;
 use serde_json::{Value, json};
 use std::{
@@ -198,7 +198,38 @@ async fn first_file_is_queryable_before_raw_full_eof_and_delta_preempts_tail() -
         let capture = CapturedPublicationScope::project(&selected.0, selected.1, owner.scope, original.snapshot())?;
         let record = capture.binding()?;
         let project = ProjectCapture { scope: ScopeCapture { live: &capture, record: &record }, version: &selected.2 };
+        // Prepare real obsolete search history before either producer starts.
+        // The corpus is private and empty; Raw must still publish A before B.
+        drop(crate::foreground_ast_sources::progressive::ProgressivePublication::open(
+            owner.auth.installation(), project, owner.native,
+            Arc::clone(original.snapshot()), source.graph_server().live_ast(), &|| original.check(),
+        ).await?);
+        let corpus_path = graphit_ast::corpus::project_directory(owner.auth.installation(), project)?.join("corpus.lance");
+        let corpus_uri = corpus_path.to_str().ok_or("corpus path is not Unicode")?;
+        let mut history = BranchSnapshot::capture_observed(corpus_uri, None, None).await?;
+        let empty = arrow_array::RecordBatch::new_empty(Arc::new(history.schema().clone()));
+        for _ in 0..AST_INDEX_BATCH {
+            history = history.prepare_overwrite(vec![empty.clone()]).await?.commit().await?;
+        }
+        drop((history, empty));
+        let before_cleanup = lance::Dataset::open(corpus_uri).await?.versions().await?
+            .into_iter().map(|version| version.version).collect::<BTreeSet<_>>();
+        assert!(before_cleanup.len() >= AST_INDEX_BATCH);
+        let source_path = corpus_path.parent().ok_or("missing AST directory")?.join("source.lance");
+        let source_uri = source_path.to_str().ok_or("source path is not Unicode")?;
+        let source_schema = graphit_ast::indexed_source::source_schema();
+        drop(graphit_fs::create_private_directory(&source_path)?);
+        graphit_data::lance_module_store::LanceModuleStore::create(source_uri, source_schema.clone(),
+            vec![arrow_array::RecordBatch::new_empty(source_schema.clone())]).await?;
+        let mut source_history = BranchSnapshot::capture_observed(source_uri, None, None).await?;
+        for _ in 0..AST_INDEX_BATCH {
+            source_history = source_history.prepare_overwrite(vec![arrow_array::RecordBatch::new_empty(source_schema.clone())]).await?.commit().await?;
+        }
+        drop(source_history);
+        let source_before_cleanup = lance::Dataset::open(source_uri).await?.versions().await?
+            .into_iter().map(|version| version.version).collect::<BTreeSet<_>>();
         let (first, release) = ast.hold_after_file_publication("a.rs");
+        let (first_nn, release_nn) = ast.hold_after_nn_file("a.rs");
         let producer = Arc::clone(&ast);
         let paths = selected.0.clone();
         let context_copy = context.clone();
@@ -206,10 +237,25 @@ async fn first_file_is_queryable_before_raw_full_eof_and_delta_preempts_tail() -
         let lifetime = cancel.clone();
         let background = Cancellation::default();
         let ingress = background.clone();
-        let job = tokio::spawn(async move { producer.index_productive(&paths, &context_copy,
+        let mut job = tokio::spawn(async move { producer.index_productive(&paths, &context_copy,
             ChangeBatch { rescan: true, ..Default::default() }, Some(execution), Some(BTreeSet::new()), false, &ingress, &ingress, &lifetime).await });
-        tokio::time::timeout(Duration::from_secs(30), first).await??;
+        tokio::select! {
+            first = tokio::time::timeout(Duration::from_secs(30), first) => first??,
+            ended = &mut job => return Err(format!("Raw producer ended before first FILE gate: {ended:?}").into()),
+        }
         assert!(!job.is_finished());
+        tokio::time::timeout(Duration::from_secs(60), first_nn).await??;
+        assert!(!job.is_finished(), "the structural producer is still held before Raw EOF");
+        let after_cleanup = lance::Dataset::open(corpus_uri).await?.versions().await?
+            .into_iter().map(|version| version.version).collect::<BTreeSet<_>>();
+        assert!(after_cleanup.len() < before_cleanup.len(),
+            "NN must prune obsolete history while the structural producer is held: {before_cleanup:?} -> {after_cleanup:?}");
+        assert!(!after_cleanup.contains(before_cleanup.first().unwrap()));
+        let source_after_cleanup = lance::Dataset::open(source_uri).await?.versions().await?
+            .into_iter().map(|version| version.version).collect::<BTreeSet<_>>();
+        assert!(source_after_cleanup.len() < source_before_cleanup.len(),
+            "Source FILE maintenance must prune SDK history before the structural tail: {source_before_cleanup:?} -> {source_after_cleanup:?}");
+        assert!(!source_after_cleanup.contains(source_before_cleanup.first().unwrap()));
         let raw = graphit_ast::source_index_locator::open_local_source_index(owner.auth.installation(), project,
             original.snapshot(), owner.native).await?;
         let graphit_ast::source_index_locator::SourceIndexPresence::Available(raw) = raw else {
@@ -243,6 +289,7 @@ async fn first_file_is_queryable_before_raw_full_eof_and_delta_preempts_tail() -
             }
         }).await??;
         assert_eq!(before.len(), 1, "embedding progresses before Raw EOF");
+        release_nn.send(()).unwrap();
         background.cancel();
         release.send(()).unwrap();
         assert_eq!(job.await?.unwrap_err().kind(), io::ErrorKind::Interrupted);

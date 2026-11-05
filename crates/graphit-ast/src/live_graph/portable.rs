@@ -658,7 +658,6 @@ pub(super) fn mutate(
             .as_ref()
             .ok_or_else(|| invalid("enrichment lacks replacement"))?;
         if current.observation.file_revision != expected
-            || current.observation.raw_version != input.raw_version
             || current.observation.source_sha256 != input.source_sha256
             || current.observation.scip_compiler.as_deref() != input.scip_compiler
         {

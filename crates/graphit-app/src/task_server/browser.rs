@@ -853,6 +853,12 @@ impl TaskServer {
                     transport.progress,
                     &allowed,
                 );
+                let instruction = crate::knowledge_question::capture_question_instruction(
+                    self.0.auth.issuer(),
+                    paths,
+                    original,
+                )
+                .map_err(|_| failure("knowledge_instruction_unavailable"))?;
                 let result = crate::source_server::knowledge_ask::execute_admitted(
                     service,
                     original,
@@ -861,6 +867,7 @@ impl TaskServer {
                     &input,
                     crate::source_server::knowledge_ask::QuestionRetrieval {
                         content: self.0.policy.content,
+                        instruction: &instruction,
                         model: resources.as_deref().zip(embedding_service.as_mut()).map(
                             |(resources, service)| {
                                 crate::foreground_knowledge::search::QuestionModel {

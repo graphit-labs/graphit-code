@@ -509,14 +509,17 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let ready = temp.path().join("descendant");
         let leader_ready = temp.path().join("leader-ready");
-        let end = if cancel { "wait; exit 8" } else { "exit 7" };
-        let script = format!(
-            r#"trap 'exit 7' TERM; /bin/sh -c 'trap "" TERM; echo $$ > "$1"; exec /bin/sleep 30' child "$1" & while ! test -s "$1"; do /bin/sleep 0.01; done; printf "owned fixture stderr\n" >&2; printf ready > "$2"; {end}"#
+        let program = temp.path().join("kiro-cli");
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({
+                "kind":"raw","process":{
+                    "stderr":"owned fixture stderr\n","ready":leader_ready,"hold":cancel,"exit":7,"term_exit":7,
+                    "child":{"pid":ready,"ignore_term":true,"hold":true}
+                }
+            }),
         );
-        let mut child = Command::new("/bin/sh")
-            .args(["-c", &script, "leader"])
-            .arg(&ready)
-            .arg(&leader_ready)
+        let mut child = Command::new(program)
             .process_group(0)
             .kill_on_drop(true)
             .stdin(Stdio::null())
@@ -553,8 +556,9 @@ mod tests {
             Some(child.wait().await)
         };
         let mut signal_error = None;
-        let status = tokio::time::timeout(
-            Duration::from_secs(5),
+        let cleanup_deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let status = tokio::time::timeout_at(
+            cleanup_deadline,
             terminate_group(
                 &mut child,
                 Some(pid),
@@ -566,17 +570,31 @@ mod tests {
         .await
         .unwrap()
         .unwrap();
-        let output = tokio::time::timeout(Duration::from_secs(5), drain)
+        let output = tokio::time::timeout_at(cleanup_deadline, drain)
             .await
             .unwrap()
             .unwrap();
         assert_eq!(status.code(), Some(7));
         assert!(signal_error.is_none(), "{signal_error:?}");
         assert_eq!(output, b"owned fixture stderr\n");
-        match std::fs::read_to_string(format!("/proc/{descendant}/stat")) {
-            Ok(stat) => assert_eq!(stat.rsplit_once(") ").unwrap().1.chars().next(), Some('Z')),
-            Err(error) => assert_eq!(error.kind(), io::ErrorKind::NotFound),
-        }
+        tokio::time::timeout_at(cleanup_deadline, async {
+            loop {
+                match std::fs::read_to_string(format!("/proc/{descendant}/stat")) {
+                    Ok(stat) if stat.rsplit_once(") ").unwrap().1.starts_with('Z') => break,
+                    Ok(_) => tokio::time::sleep(Duration::from_millis(1)).await,
+                    Err(error) => {
+                        assert!(
+                            error.kind() == io::ErrorKind::NotFound
+                                || error.raw_os_error()
+                                    == Some(rustix::io::Errno::SRCH.raw_os_error())
+                        );
+                        break;
+                    }
+                }
+            }
+        })
+        .await
+        .expect("descendant must terminate within the existing cleanup deadline");
         let owner = KiroProcessOwner::new(None);
         *owner.state.lock().await = OwnerState::Joined(ChildObservation {
             status: Some(status),

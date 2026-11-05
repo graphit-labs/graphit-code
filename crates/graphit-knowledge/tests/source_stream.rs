@@ -1,5 +1,5 @@
 //! Metadata-only selection through the real S4 first consumer and Data SDK.
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 use graphit_knowledge as knowledge;
 #[allow(dead_code)] // Shared real fixture also serves lifecycle/denial targets.
 #[path = "support/desired_reconciliation_fixture.rs"]

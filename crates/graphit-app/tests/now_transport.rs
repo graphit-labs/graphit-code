@@ -28,6 +28,14 @@ use std::{
 };
 use tokio_stream::StreamExt;
 
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap()
+}
+
 fn content() -> ContentLimits {
     ContentLimits {
         max_input_bytes: 65536,
@@ -154,7 +162,7 @@ async fn fragmented_unicode_full_and_empty_snapshots_preserve_precision_and_repl
     let cancel = Cancellation::default();
     let original = RequestContext::service(content(), &cancel).unwrap();
     let request = request(&f);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let mut stream = connect_now(
         &f.paths,
         endpoint.address,
@@ -165,14 +173,32 @@ async fn fragmented_unicode_full_and_empty_snapshots_preserve_precision_and_repl
     )
     .await
     .unwrap();
-    let full = stream.next().await.unwrap().unwrap();
+    let full = tokio::time::timeout(Duration::from_secs(8), stream.next())
+        .await
+        .expect("Now stream observation deadline")
+        .unwrap()
+        .unwrap();
     assert_eq!(full.instances()[0].version(), "feature/β");
     assert_eq!(
         serde_json::to_value(full.instances()[0].now()).unwrap()["generated_at"],
         "9007199254740993001"
     );
-    assert!(stream.next().await.unwrap().unwrap().instances().is_empty());
-    assert!(stream.next().await.unwrap().is_none());
+    assert!(
+        tokio::time::timeout(Duration::from_secs(8), stream.next())
+            .await
+            .expect("Now stream observation deadline")
+            .unwrap()
+            .unwrap()
+            .instances()
+            .is_empty()
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(8), stream.next())
+            .await
+            .expect("Now stream observation deadline")
+            .unwrap()
+            .is_none()
+    );
     drop(stream);
     endpoint.shutdown().await;
     f.stop.cancel();
@@ -197,7 +223,7 @@ async fn malformed_utf8_json_envelope_and_oversize_are_terminal_not_skipped() {
         let cancel = Cancellation::default();
         let original = RequestContext::service(content(), &cancel).unwrap();
         let request = request(&f);
-        let client = reqwest::Client::new();
+        let client = http_client();
         let mut stream = connect_now(
             &f.paths,
             endpoint.address,
@@ -208,7 +234,11 @@ async fn malformed_utf8_json_envelope_and_oversize_are_terminal_not_skipped() {
         )
         .await
         .unwrap();
-        let error = stream.next().await.err().unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(8), stream.next())
+            .await
+            .expect("Now stream observation deadline")
+            .err()
+            .unwrap();
         let diagnostic = format!("{error:?}");
         assert!(!diagnostic.contains(f.temp.path().to_str().unwrap()));
         assert!(
@@ -224,7 +254,13 @@ async fn malformed_utf8_json_envelope_and_oversize_are_terminal_not_skipped() {
             )
         );
         assert!(!diagnostic.contains(&f.raw));
-        assert!(stream.next().await.unwrap().is_none());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(8), stream.next())
+                .await
+                .expect("Now stream observation deadline")
+                .unwrap()
+                .is_none()
+        );
         drop(stream);
         endpoint.shutdown().await;
         f.stop.cancel();
@@ -250,7 +286,7 @@ async fn service_cancel_and_finite_deadline_drop_the_pending_http_body() {
             .unwrap()
         };
         let request = request(&f);
-        let client = reqwest::Client::new();
+        let client = http_client();
         let mut stream = connect_now(
             &f.paths,
             endpoint.address,
@@ -261,11 +297,23 @@ async fn service_cancel_and_finite_deadline_drop_the_pending_http_body() {
         )
         .await
         .unwrap();
-        assert!(stream.next().await.unwrap().unwrap().instances().is_empty());
+        assert!(
+            tokio::time::timeout(Duration::from_secs(8), stream.next())
+                .await
+                .expect("Now stream observation deadline")
+                .unwrap()
+                .unwrap()
+                .instances()
+                .is_empty()
+        );
         if service {
             cancel.cancel();
         }
-        let error = stream.next().await.err().unwrap();
+        let error = tokio::time::timeout(Duration::from_secs(8), stream.next())
+            .await
+            .expect("Now stream observation deadline")
+            .err()
+            .unwrap();
         assert!(matches!(error, NowTransportError::Request(_)));
         drop(stream);
         endpoint.shutdown().await;
@@ -283,7 +331,7 @@ async fn a_snapshot_for_another_project_fails_before_delivery() {
     let cancel = Cancellation::default();
     let original = RequestContext::service(content(), &cancel).unwrap();
     let request = request(&f);
-    let client = reqwest::Client::new();
+    let client = http_client();
     let mut stream = connect_now(
         &f.paths,
         endpoint.address,
@@ -295,10 +343,18 @@ async fn a_snapshot_for_another_project_fails_before_delivery() {
     .await
     .unwrap();
     assert!(matches!(
-        stream.next().await,
+        tokio::time::timeout(Duration::from_secs(8), stream.next())
+            .await
+            .expect("Now stream observation deadline"),
         Err(NowTransportError::Snapshot(_))
     ));
-    assert!(stream.next().await.unwrap().is_none());
+    assert!(
+        tokio::time::timeout(Duration::from_secs(8), stream.next())
+            .await
+            .expect("Now stream observation deadline")
+            .unwrap()
+            .is_none()
+    );
     drop(stream);
     endpoint.shutdown().await;
     f.stop.cancel();

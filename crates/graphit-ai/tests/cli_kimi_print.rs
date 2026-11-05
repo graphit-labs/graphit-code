@@ -1,3 +1,5 @@
+#[path = "support/cli_control.rs"]
+mod control;
 use graphit_ai::cli_kimi_print::{
     KimiPrintEvent, KimiPrintEventData, KimiPrintFailure, KimiPrintLimits, KimiPrintReason,
     KimiPrintReceipt, KimiPrintSink, run_kimi_print,
@@ -9,8 +11,8 @@ use graphit_process::{
 };
 use std::{
     ffi::OsString,
-    io::{self, Read, Write},
-    net::{TcpListener, TcpStream},
+    io,
+    net::TcpListener,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -19,7 +21,8 @@ use std::{
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
-use tokio::{sync::Notify, time::sleep};
+use tokio::net::TcpStream;
+use tokio::sync::Notify;
 #[path = "support/kimi_cleanup.rs"]
 mod cleanup;
 
@@ -171,45 +174,13 @@ fn request(
     }
 }
 async fn peer(l: &TcpListener, c: &SnapshotContext) -> TcpStream {
-    loop {
-        c.check().unwrap();
-        match l.accept() {
-            Ok((p, _)) => {
-                p.set_nonblocking(true).unwrap();
-                return p;
-            }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            Err(e) => panic!("accept {:?}", e.kind()),
-        }
-    }
+    control::peer(l, c).await.unwrap()
 }
 async fn byte(p: &mut TcpStream, c: &SnapshotContext) -> Option<u8> {
-    let mut b = [0];
-    loop {
-        c.check().unwrap();
-        match p.read(&mut b) {
-            Ok(0) => return None,
-            Ok(_) => return Some(b[0]),
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            Err(e) => panic!("read {:?}", e.kind()),
-        }
-    }
+    control::byte(p, c).await.unwrap()
 }
 async fn ack(p: &mut TcpStream, c: &SnapshotContext) {
-    loop {
-        c.check().unwrap();
-        match p.write(b"A") {
-            Ok(1) => return,
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            _ => panic!("ack"),
-        }
-    }
+    control::acknowledge(p, c).await.unwrap();
 }
 struct Sink<'a> {
     original: &'a SnapshotContext,
@@ -312,7 +283,7 @@ async fn official_print_messages_stream_over_existing_process_without_retention(
         assert_eq!(byte(&mut p, &c).await, Some(b'L'));
         started.notified().await;
         // Native is still awaiting this ACK: the callback occurred before exit/EOF.
-        assert!(matches!(p.read(&mut [0]),Err(e) if e.kind()==io::ErrorKind::WouldBlock));
+        assert!(matches!(p.try_read(&mut [0]),Err(e) if e.kind()==io::ErrorKind::WouldBlock));
         ack(&mut p, &c).await;
         for _ in 0..2 {
             assert_eq!(byte(&mut p, &c).await, Some(b'L'));

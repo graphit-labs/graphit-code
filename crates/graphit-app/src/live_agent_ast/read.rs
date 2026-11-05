@@ -8,9 +8,9 @@ use crate::{
     },
 };
 use graphit_ast::{
-    indexed_source::read_indexed_source,
+    indexed_source::{MissingSourceReason, read_indexed_source},
     source_inspection::{
-        IndexedSource, PhysicalSource, SourceInspection, SourceOrigin,
+        IndexedSource, PhysicalSource, SourceInspection, SourceInspectionError, SourceOrigin,
         inspect_project_entity_source, inspect_source,
     },
 };
@@ -236,27 +236,21 @@ impl CapturedAstContext<'_> {
                 } else {
                     None
                 };
-                if let (Some(entity), Some(raw)) = (&entity, &raw)
-                    && !entity.matches_index(entity.raw_version(), raw.branch_observation())
-                {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "AST Source association changed",
-                    ));
-                }
                 let indexed = match &raw {
                     Some(raw) => Some(
-                        match &entity {
-                            Some(entity) => {
-                                raw.read_version(&input.path, entity.raw_version(), &self.original)
-                                    .await
-                            }
-                            None => raw.read(&input.path, &self.original).await,
-                        }
-                        .map_err(io::Error::other)?,
+                        raw.read(&input.path, &self.original)
+                            .await
+                            .map_err(io::Error::other)?,
                     ),
                     None => None,
                 };
+                if entity.is_some()
+                    && indexed.as_ref().is_none_or(|indexed| {
+                        indexed.missing_reason() == Some(MissingSourceReason::FileAbsent)
+                    })
+                {
+                    return Err(io::Error::other(SourceInspectionError::Association));
+                }
                 let source = match &indexed {
                     Some(indexed) => indexed.source(&self.original).map_err(io::Error::other)?,
                     None => IndexedSource::Missing,

@@ -1,4 +1,7 @@
+#[path = "../../tests/support/finite_cli.rs"]
+mod finite_cli;
 use super::*;
+use finite_cli::FiniteOutput;
 use graphit_auth::{
     AdminSessionPolicy, IssuerAuthorityPolicy, IssuerLimits, ServiceAdmissionLimits,
     ServiceAuthorityInput, SourceAuthorityPolicy, TtlPolicy,
@@ -274,20 +277,33 @@ fn physical_admission_io_readmits_without_reusing_authority() {
     if std::env::var_os(CHILD).is_none() {
         // Reproduce the actual OS failure only in this child, never by lowering
         // the developer's daemon or the shared test process descriptor limit.
-        let status = std::process::Command::new("/bin/sh")
+        let inherited = rustix::process::getrlimit(rustix::process::Resource::Nofile);
+        let directory = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .env_clear()
+            .env("HOME", directory.path())
+            .current_dir(directory.path())
             .args([
-                "-c",
-                "ulimit -n 128; exec \"$1\" --exact \"$2\" --nocapture",
-                "graphit-now-fd-test",
+                "--exact",
+                "foreground_now::tests::physical_admission_io_readmits_without_reusing_authority",
+                "--nocapture",
             ])
-            .arg(std::env::current_exe().unwrap())
-            .arg("foreground_now::tests::physical_admission_io_readmits_without_reusing_authority")
             .env(CHILD, "1")
-            .status()
+            .finite_output()
             .unwrap();
-        assert!(status.success());
+        assert!(
+            output.status.success(),
+            "isolated descriptor qualification failed: {output:?}"
+        );
+        assert_eq!(
+            rustix::process::getrlimit(rustix::process::Resource::Nofile),
+            inherited
+        );
         return;
     }
+    let mut limit = rustix::process::getrlimit(rustix::process::Resource::Nofile);
+    limit.current = Some(limit.maximum.unwrap_or(128).min(128));
+    rustix::process::setrlimit(rustix::process::Resource::Nofile, limit).unwrap();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

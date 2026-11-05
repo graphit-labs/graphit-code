@@ -426,6 +426,175 @@ async fn ast_case(
                         assert_eq!(result["status"], "available");
                     }
                 }
+                // A new entity read uses current Source; a snapshot explicitly
+                // captured before a commit retains its own admitted bytes.
+                {
+                    use graphit_ast::{
+                        indexed_source::{read_branch_source, source_schema},
+                        source_index_locator::{SourceIndexPresence, open_local_source_index},
+                    };
+                    use graphit_data::lance_branch_store::{col, lit};
+                    let SourceIndexPresence::Available(source_index) = open_local_source_index(
+                        resources.auth.installation(),
+                        ProjectCapture {
+                            scope: ScopeCapture {
+                                live: &project_scope,
+                                record: &project_binding,
+                            },
+                            version: &project.2,
+                        },
+                        original.snapshot(),
+                        sources.policy().index,
+                    )
+                    .await
+                    .unwrap() else {
+                        panic!("productive Source fixture missing")
+                    };
+                    let retained = source_index.snapshot(original.snapshot()).unwrap().clone();
+                    let captured_source = source_index
+                        .read("browser_search.rs", original.snapshot())
+                        .await
+                        .unwrap();
+                    let graphit_ast::source_inspection::IndexedSource::Available(text) =
+                        captured_source.source(original.snapshot()).unwrap()
+                    else {
+                        panic!("fixture Source text missing")
+                    };
+                    let text = text.to_owned();
+                    let row = |path: &str, text: Option<&str>| {
+                        arrow_array::RecordBatch::try_new(
+                            source_schema(),
+                            vec![
+                                Arc::new(arrow_array::StringArray::from(vec![path])),
+                                Arc::new(arrow_array::StringArray::from(vec![text])),
+                            ],
+                        )
+                        .unwrap()
+                    };
+                    let entity_request = || {
+                        call(
+                            "graphit_ast_source",
+                            json!({
+                                "context":selected, "path":"browser_search.rs", "entity":"browser_search_sum", "entity_type":"Function",
+                            }),
+                        )
+                    };
+                    let mut current = retained
+                        .prepare_merge(
+                            vec![row("unrelated.fixture", Some("other FILE"))],
+                            vec!["path".into()],
+                        )
+                        .await
+                        .unwrap()
+                        .commit()
+                        .await
+                        .unwrap();
+                    assert_ne!(
+                        native
+                            .peer()
+                            .call_tool(entity_request())
+                            .await
+                            .unwrap()
+                            .is_error,
+                        Some(true),
+                        "an unrelated Source commit cannot invalidate this FILE"
+                    );
+                    current = current
+                        .prepare_merge(
+                            vec![row(
+                                "browser_search.rs",
+                                Some(&format!("{text}\n// changed Source")),
+                            )],
+                            vec!["path".into()],
+                        )
+                        .await
+                        .unwrap()
+                        .commit()
+                        .await
+                        .unwrap();
+                    let stale = native.peer().call_tool(entity_request()).await.unwrap();
+                    assert_eq!(
+                        stale.is_error,
+                        Some(true),
+                        "changed Source must reject stale entity extents"
+                    );
+                    assert_eq!(
+                        stale.structured_content.unwrap()["error"]["code"],
+                        "native_capture_or_registry_failure"
+                    );
+                    let entity_options: crate::ast_source::SourceParameters = serde_json::from_value(json!({
+                        "path":"browser_search.rs", "entity":"browser_search_sum", "entity_type":"Function",
+                    })).unwrap();
+                    let mismatch = prepared.source(&entity_options).await.unwrap_err();
+                    assert!(matches!(mismatch.get_ref().and_then(|error| error.downcast_ref::<graphit_ast::source_inspection::SourceInspectionError>()),
+                        Some(graphit_ast::source_inspection::SourceInspectionError::Association)));
+                    current = current
+                        .prepare_merge(vec![row("browser_search.rs", None)], vec!["path".into()])
+                        .await
+                        .unwrap()
+                        .commit()
+                        .await
+                        .unwrap();
+                    assert_ne!(
+                        native
+                            .peer()
+                            .call_tool(entity_request())
+                            .await
+                            .unwrap()
+                            .is_error,
+                        Some(true),
+                        "admitted TextNotStored retains authorized physical fallback and SHA validation"
+                    );
+                    current = current
+                        .prepare_delete_expr(col("path").eq(lit("browser_search.rs")))
+                        .await
+                        .unwrap()
+                        .commit()
+                        .await
+                        .unwrap();
+                    let absent = native.peer().call_tool(entity_request()).await.unwrap();
+                    assert_eq!(
+                        absent.is_error,
+                        Some(true),
+                        "FileAbsent cannot use the still-existing physical file"
+                    );
+                    assert_eq!(
+                        absent.structured_content.unwrap()["error"]["code"],
+                        "native_capture_or_registry_failure"
+                    );
+                    let missing = prepared.source(&entity_options).await.unwrap_err();
+                    assert!(matches!(missing.get_ref().and_then(|error| error.downcast_ref::<graphit_ast::source_inspection::SourceInspectionError>()),
+                        Some(graphit_ast::source_inspection::SourceInspectionError::Association)));
+                    drop(
+                        current
+                            .prepare_merge(
+                                vec![row("browser_search.rs", Some(&text))],
+                                vec!["path".into()],
+                            )
+                            .await
+                            .unwrap()
+                            .commit()
+                            .await
+                            .unwrap(),
+                    );
+                    assert_ne!(
+                        native
+                            .peer()
+                            .call_tool(entity_request())
+                            .await
+                            .unwrap()
+                            .is_error,
+                        Some(true)
+                    );
+                    let still_captured =
+                        read_branch_source(&retained, "browser_search.rs", original.snapshot())
+                            .await
+                            .unwrap();
+                    assert!(
+                        matches!(still_captured.source(original.snapshot()).unwrap(),
+                        graphit_ast::source_inspection::IndexedSource::Available(captured) if captured == text)
+                    );
+                }
                 for (tool, input) in [
                     ("graphit_ast_schema", json!({"context":imported})),
                     (

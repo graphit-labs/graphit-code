@@ -1,5 +1,8 @@
 //! Real Linux startup composition; public Broker journeys require its native fixture.
 #![cfg(target_os = "linux")]
+#[path = "support/finite_cli.rs"]
+mod finite_cli;
+use finite_cli::FiniteOutput;
 use graphit_app::foreground_source::{ForegroundFailure, ForegroundSource};
 use graphit_auth::{
     ServiceUseError,
@@ -115,16 +118,12 @@ impl Fixture {
             ],
             vec!["branch", "feature"],
         ] {
-            let mut command = Command::new("git");
-            for (key, _) in std::env::vars_os() {
-                if key
-                    .to_string_lossy()
-                    .to_ascii_uppercase()
-                    .starts_with("GIT_")
-                {
-                    command.env_remove(key);
-                }
-            }
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            let mut command = Command::new(which::which_in("git", Some(&path), &root).unwrap());
+            command
+                .env_clear()
+                .env("PATH", &path)
+                .env("HOME", directory.path());
             let result = command
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
                 .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -139,9 +138,10 @@ impl Fixture {
                     "gc.auto=0",
                 ])
                 .args(args)
-                .current_dir(&root)
-                .output()
-                .unwrap();
+                .current_dir(&root);
+            let result =
+                std::thread::scope(|scope| scope.spawn(|| result.finite_output()).join().unwrap())
+                    .unwrap();
             assert!(result.status.success(), "temporary Git setup failed");
         }
         let config = config(&paths, &[("broker.allow_loopback_http", json!(true))]);

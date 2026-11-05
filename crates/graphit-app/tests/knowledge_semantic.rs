@@ -1,6 +1,9 @@
 //! Authorized Source → provider embeddings → Knowledge NN publication and reindex.
 use graphit_app::embedding_service::EmbeddingMetadata;
 use graphit_app::knowledge_semantic::*;
+use graphit_daemon::model_service as model_api;
+#[path = "../../graphit-daemon/tests/support/model_fixture.rs"]
+pub mod descriptor_fixture;
 use graphit_auth::*;
 use graphit_auth::{profile::*, store::AuthStore};
 use graphit_core::{
@@ -1696,7 +1699,6 @@ index_limits(),
 }
 
 #[test]
-#[ignore = "requires pinned BF16 descriptor in GRAPHIT_EMBEDDINGGEMMA2_MODEL"]
 fn semantic_identifier_limit_preserves_data_cause_before_transport() {
     std::thread::Builder::new()
         .name("knowledge-semantic-preflight".into())
@@ -1709,11 +1711,11 @@ fn semantic_identifier_limit_preserves_data_cause_before_transport() {
                 .block_on(async {
                     let cancel = Cancellation::default();
                     let ctx = request(&cancel);
-                    let pinned = PathBuf::from(
-                        std::env::var_os("GRAPHIT_EMBEDDINGGEMMA2_MODEL")
-                            .expect("pinned BF16 descriptor fixture"),
-                    );
-                    let f = Fixture::new(&ctx, pinned.parent().unwrap());
+                    // Only metadata/integrity reaches this scenario: the real
+                    // client fails to connect before any inference is possible.
+                    let descriptor = descriptor_fixture::Fixture::metadata(TaskKind::Embedding);
+                    let workspace = tempfile::tempdir().unwrap();
+                    let f = Fixture::new(&ctx, workspace.path());
                     let issuer = f.issuer(&ctx);
                     let caller = issuer.authenticate_runtime(&f.secret(), &ctx).unwrap();
                     let admin = issuer.bootstrap_admin(&caller).unwrap();
@@ -1733,10 +1735,7 @@ fn semantic_identifier_limit_preserves_data_cause_before_transport() {
                         .capture_service(&caller, ServicePurpose::Embedding)
                         .unwrap();
                     let lease = selection.local().unwrap();
-                    let bundle = f.installation.owner_root().join("models/gemma α");
-                    std::fs::create_dir_all(&bundle).unwrap();
-                    std::fs::hard_link(pinned, bundle.join("model.gguf")).unwrap();
-                    let config = model_config(&bundle, 768, 8192, &ctx);
+                    let config = descriptor.config_with_original(&["embedding"], ctx.snapshot());
                     let expected = ExpectedModel::new(&config, "embedding", "service").unwrap();
                     let client =
                         ModelServiceClient::new(ChildOptions::standard().unwrap().rpc).unwrap();
@@ -2503,4 +2502,191 @@ index_limits(),
         assert!(request.head.contains("Bearer fixture-remote-embedding-key"));
         assert_eq!(request.body["model"], "fixture-embedding");
     }
+}
+
+#[test]
+fn null_vector_with_retained_identity_is_embedded_once_and_then_reused() {
+    std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    use arrow_array::{FixedSizeListArray, Float32Array};
+                    use graphit_core::artifact_store::ArtifactStore;
+                    use graphit_data::lance_branch_store::BranchSnapshot;
+
+                    let cancel = Cancellation::default();
+                    let ctx = request(&cancel);
+                    let directory = tempfile::tempdir().unwrap();
+                    let f = Fixture::new(&ctx, directory.path());
+                    let issuer = f.issuer(&ctx);
+                    let caller = issuer.authenticate_runtime(&f.secret(), &ctx).unwrap();
+                    let admin = issuer.bootstrap_admin(&caller).unwrap();
+                    let parent = issuer.admin_parent(&caller, &admin).unwrap();
+                    let (bearer, reference) = f.issue(&issuer, &parent, &permissions());
+                    let grant = issuer
+                        .verify(bearer.expose_for_transport(), &reference, f.scope(), &ctx)
+                        .unwrap();
+                    let authority = ProjectRecordAuthority::new(&issuer);
+                    let read = authority
+                        .admit_read(&grant, &ctx, ProjectReadModule::Knowledge)
+                        .unwrap();
+                    let write = authority
+                        .admit_write(&grant, &ctx, ProjectWriteOperation::Knowledge)
+                        .unwrap();
+                    publish_pages(&ctx, &write, &[page("a", &[])]).await;
+                    let metadata = EmbeddingMetadata::remote(
+                        [7; 32],
+                        2,
+                        "fixture-model".into(),
+                        "weights-r1".into(),
+                    )
+                    .unwrap();
+                    let model = KnowledgeSemanticModel {
+                        metadata: &metadata,
+                        batch_limits: RpcLimits::new(65536, 2, 32768, 4).unwrap(),
+                        rpc_timeout: Duration::from_secs(10),
+                    };
+                    let calls = AtomicUsize::new(0);
+                    let selected = std::collections::BTreeSet::from(["a".to_owned()]);
+                    index_knowledge_semantics_selection(
+                        ctx.snapshot(),
+                        &read,
+                        &write,
+                        &model,
+                        index_limits(),
+                        |operation| {
+                            assert!(matches!(operation.input, EmbedInput::Document));
+                            assert_eq!(operation.texts.len(), 1);
+                            calls.fetch_add(1, Ordering::SeqCst);
+                            std::future::ready(Ok::<_, io::Error>(vec![vec![1., 0.]]))
+                        },
+                        &selected,
+                    )
+                    .await
+                    .unwrap();
+                    assert_eq!(calls.load(Ordering::SeqCst), 1);
+                    let before = capture(&ctx, &read).await;
+                    let identity = before.stored_inputs().next().unwrap().1.clone();
+                    let input_fingerprint =
+                        before.stored_inputs().next().unwrap().0.input_fingerprint;
+                    let documents = before
+                        .read_selected_documents(ctx.snapshot(), &read, &["a"])
+                        .await
+                        .unwrap()
+                        .documents;
+                    let uri = &before.source_generation().corpus_uri;
+                    let store = ArtifactStore::new(f.project.clone(), write_limits().artifacts);
+                    let writer = store.writer_with_context(ctx.snapshot()).unwrap();
+                    let current = BranchSnapshot::capture_observed(uri, None, None)
+                        .await
+                        .unwrap();
+                    let vector_field = current.schema().project(&[22]).unwrap();
+                    let restored = current
+                        .drop_vector("vector", ctx.snapshot())
+                        .await
+                        .unwrap()
+                        .add_nullable_columns(Arc::new(vector_field), ctx.snapshot())
+                        .await
+                        .unwrap();
+                    drop(writer);
+                    let pending = capture(&ctx, &read).await;
+                    assert_eq!(pending.source_generation().version, restored.version());
+                    assert_eq!(
+                        pending.stored_inputs().count(),
+                        0,
+                        "NULL is pending even when identity fields remain"
+                    );
+                    assert_eq!(
+                        pending
+                            .read_selected_documents(ctx.snapshot(), &read, &["a"])
+                            .await
+                            .unwrap()
+                            .documents,
+                        documents
+                    );
+
+                    calls.store(0, Ordering::SeqCst);
+                    let filled = index_knowledge_semantics_selection(
+                        ctx.snapshot(),
+                        &read,
+                        &write,
+                        &model,
+                        index_limits(),
+                        |operation| {
+                            assert!(matches!(operation.input, EmbedInput::Document));
+                            assert_eq!(operation.texts.len(), 1);
+                            calls.fetch_add(1, Ordering::SeqCst);
+                            std::future::ready(Ok::<_, io::Error>(vec![vec![0., 1.]]))
+                        },
+                        &selected,
+                    )
+                    .await
+                    .expect("an absent vector must accept one inferred value, not AlreadyEmbedded");
+                    assert!(matches!(
+                        filled,
+                        KnowledgeSemanticIndexResult::Published(
+                            KnowledgeEmbeddingPublication::Committed { .. }
+                        )
+                    ));
+                    assert_eq!(calls.load(Ordering::SeqCst), 1);
+                    let filled = capture(&ctx, &read).await;
+                    assert_eq!(filled.stored_inputs().count(), 1);
+                    let inputs = [KnowledgeEmbeddingInput {
+                        slug: "a",
+                        input_fingerprint,
+                    }];
+                    let vectors = filled
+                        .read_reusable_embedding_batch(ctx.snapshot(), &read, &identity, &inputs)
+                        .await
+                        .unwrap();
+                    let vector = vectors
+                        .column(5)
+                        .as_any()
+                        .downcast_ref::<FixedSizeListArray>()
+                        .unwrap()
+                        .value(0);
+                    assert_eq!(
+                        vector
+                            .as_any()
+                            .downcast_ref::<Float32Array>()
+                            .unwrap()
+                            .values()
+                            .as_ref(),
+                        &[0., 1.]
+                    );
+                    let generation = filled.semantic_generation();
+                    calls.store(0, Ordering::SeqCst);
+                    let repeated = index_knowledge_semantics_selection(
+                        ctx.snapshot(),
+                        &read,
+                        &write,
+                        &model,
+                        index_limits(),
+                        |_| {
+                            calls.fetch_add(1, Ordering::SeqCst);
+                            std::future::ready(Err::<Vec<Vec<f32>>, _>(io::Error::other(
+                                "intact vector was reinferred",
+                            )))
+                        },
+                        &selected,
+                    )
+                    .await
+                    .unwrap();
+                    assert!(matches!(
+                        repeated,
+                        KnowledgeSemanticIndexResult::Published(
+                            KnowledgeEmbeddingPublication::Unchanged
+                        )
+                    ));
+                    assert_eq!(calls.load(Ordering::SeqCst), 0);
+                    assert_eq!(capture(&ctx, &read).await.semantic_generation(), generation);
+                });
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 }

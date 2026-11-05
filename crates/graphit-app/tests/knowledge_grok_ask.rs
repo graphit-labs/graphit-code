@@ -1,5 +1,7 @@
 #![cfg(target_os = "linux")]
 //! Grok one-shot through the real CLI/SDK, authorized corpus and native Process.
+#[path = "support/agent_fixture.rs"]
+mod agent_fixture;
 use graphit_app::{
     native_install_http::NativeInstallPolicy,
     source_server::{SourcePolicy, SourceServer},
@@ -26,7 +28,6 @@ use std::{
     ffi::OsString,
     io,
     num::NonZeroUsize,
-    os::unix::fs::PermissionsExt,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -295,25 +296,11 @@ async fn progress_count(events: &Mutex<Vec<Seen>>, changed: &tokio::sync::Notify
     .unwrap();
 }
 
-fn script(f: &fixture_support::Fixture, body: &str) {
-    let program = f.temp.path().join("grok");
-    let record = f.temp.path().join("prompt-path");
-    let prelude = format!(
-        r#"import sys,os,json,stat
-from pathlib import Path
-assert sys.argv[1] == '--prompt-file'
-assert sys.argv[3:5] == ['--output-format','streaming-json']
-assert sys.argv[5] == '--model' and sys.argv[7:] == ['--verbatim','--deny','*']
-assert sys.stdin.read() == ''
-prompt_path=sys.argv[2]
-assert stat.S_IMODE(os.stat(prompt_path).st_mode) == 0o600
-prompt=json.loads(Path(prompt_path).read_text(encoding='utf-8'))
-Path({:?}).write_text(prompt_path)
-"#,
-        record.to_str().unwrap()
-    );
-    std::fs::write(&program, format!("#!/usr/bin/python3\n{prelude}\n{body}")).unwrap();
-    std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o700)).unwrap();
+fn scenario(f: &fixture_support::Fixture, body: &str) {
+    let mut data: serde_json::Value = serde_json::from_str(body).unwrap();
+    data["kind"] = json!("wire");
+    data["protocol"] = json!("grok");
+    agent_fixture::install(&f.temp.path().join("grok"), data);
 }
 fn assert_prompt_removed(record: &std::path::Path) {
     let path = std::fs::read_to_string(record).unwrap();
@@ -359,17 +346,20 @@ fn fixture() -> fixture_support::Fixture {
     )
 }
 
-const SIMPLE: &str = r#"
-import json,sys,os
-assert sys.argv[6] == 'literal model;$(grok)'
-assert os.environ['CAPTURED'] == 'startup only;$(literal)'
-assert os.path.basename(os.getcwd()) == 'project'
-assert prompt['question'] == '  literal β\n  '
-assert prompt['pages'][0]['slug'] == 'Paris'
-print('{"type":"thought","data":"native thought"}',flush=True)
-print('{"type":"text","data":"actual β [[Paris]]"}',flush=True)
-print('{"type":"end","stopReason":"end_turn","sessionId":"native-session","requestId":"","usage":{"input_tokens":0,"output_tokens":0}}',flush=True)
-"#;
+const SIMPLE: &str = r#"{
+  "frames": [
+    "{\"type\":\"thought\",\"data\":\"native thought\"}",
+    "{\"type\":\"text\",\"data\":\"actual β [[Paris]]\"}",
+    "{\"type\":\"end\",\"stopReason\":\"end_turn\",\"sessionId\":\"native-session\",\"requestId\":\"\",\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}"
+  ],
+  "checks": {
+    "model": "literal model;$(grok)",
+    "captured": "startup only;$(literal)",
+    "cwd_basename": "project",
+    "question": "  literal β\n  ",
+    "slug": "Paris"
+  }
+}"#;
 #[test]
 fn compiled_cli_grok_keeps_captured_launcher_and_literal_model_context() {
     run(async {
@@ -377,7 +367,7 @@ fn compiled_cli_grok_keeps_captured_launcher_and_literal_model_context() {
         let cancel = Cancellation::default();
         let ctx = original(&cancel);
         publish(&f, &ctx).await;
-        script(&f, SIMPLE);
+        scenario(&f, SIMPLE);
         let mut cmd = tokio::process::Command::from(command(&f));
         let prompt_record = f.temp.path().join("prompt-path");
         let selected_cli = (
@@ -432,22 +422,28 @@ fn compiled_global_stdio_grok_streams_raw_native_events_before_real_exit() {
         let ctx = original(&cancel);
         publish(&f, &ctx).await;
         let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        script(
+        scenario(
             &f,
-            r#"
-import json,sys,os,socket
-assert sys.argv[6]=='model fixture'
-assert prompt['pages'][0]['body'] == 'Paris é a capital.\n'
-print('{"type":"thought","data":"native thought"}',flush=True)
-print('{"type":"tool_call","toolCallId":"native-tool","toolName":"read_file","title":"Read","kind":"read","status":"in_progress","rawInput":{"big":9007199254740993,"big":9007199254740995,"ratio":1e-4},"content":[],"locations":[]}',flush=True)
-print('{"type":"tool_call_update","toolCallId":"native-tool","status":"completed","rawOutput":{"output":"native output"},"content":[],"locations":[]}',flush=True)
-print('{"type":"plan","entries":[{"content":"injected response","priority":"medium","status":"completed"}]}',flush=True)
-print('{"type":"future","extra":null}',flush=True)
-print('{"type":"text","data":"native answer β"}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
-assert s.recv(1) == b'1'
-print('{"type":"end","stopReason":"end_turn","sessionId":"native-session","requestId":"","usage":{"input_tokens":5,"output_tokens":3}}',flush=True)
-"#,
+            r#"{
+  "frames": [
+    "{\"type\":\"thought\",\"data\":\"native thought\"}",
+    "{\"type\":\"tool_call\",\"toolCallId\":\"native-tool\",\"toolName\":\"read_file\",\"title\":\"Read\",\"kind\":\"read\",\"status\":\"in_progress\",\"rawInput\":{\"big\":9007199254740993,\"big\":9007199254740995,\"ratio\":1e-4},\"content\":[],\"locations\":[]}",
+    "{\"type\":\"tool_call_update\",\"toolCallId\":\"native-tool\",\"status\":\"completed\",\"rawOutput\":{\"output\":\"native output\"},\"content\":[],\"locations\":[]}",
+    "{\"type\":\"plan\",\"entries\":[{\"content\":\"injected response\",\"priority\":\"medium\",\"status\":\"completed\"}]}",
+    "{\"type\":\"future\",\"extra\":null}",
+    "{\"type\":\"text\",\"data\":\"native answer β\"}",
+    "{\"type\":\"end\",\"stopReason\":\"end_turn\",\"sessionId\":\"native-session\",\"requestId\":\"\",\"usage\":{\"input_tokens\":5,\"output_tokens\":3}}"
+  ],
+  "gate": {
+    "before": 6,
+    "send": "",
+    "expect": "1"
+  },
+  "checks": {
+    "model": "model fixture",
+    "body": "Paris é a capital.\n"
+  }
+}"#,
         );
         let mut cmd = tokio::process::Command::from(command(&f));
         cmd.current_dir(f.paths.root());
@@ -658,19 +654,21 @@ fn grok_http_receipts_use_native_result_and_retain_real_failures() {
             let cancel = Cancellation::default();
             let ctx = original(&cancel);
             publish(&f, &ctx).await;
-            let mut body = String::from(
-                "print('{\"type\":\"thought\",\"data\":\"native thought\"}',flush=True)\n",
-            );
+            let mut frames = vec![String::from(
+                "{\"type\":\"thought\",\"data\":\"native thought\"}",
+            )];
             if mode == "malformed" {
-                body.push_str("print('{bad-json}',flush=True)\n");
+                frames.push(String::from("{bad-json}"));
             } else if mode == "native_error" {
-                body.push_str("print('{\"type\":\"error\",\"message\":\"private native failure\"}',flush=True)\n");
+                frames.push(String::from(
+                    "{\"type\":\"error\",\"message\":\"private native failure\"}",
+                ));
             } else if mode == "malformed_text" {
-                body.push_str("print('{\"type\":\"text\",\"data\":null}',flush=True)\n");
+                frames.push(String::from("{\"type\":\"text\",\"data\":null}"));
             } else {
                 if mode != "empty" {
                     let text = json!({"type":"text","data":"native answer"});
-                    body.push_str(&format!("print({:?},flush=True)\n", text.to_string()));
+                    frames.push(text.to_string());
                 }
                 if mode != "missing" {
                     let mut end = json!({"type":"end","stopReason":"end_turn","sessionId":"native-session","requestId":"","usage":{"input_tokens":2,"output_tokens":1}});
@@ -680,17 +678,21 @@ fn grok_http_receipts_use_native_result_and_retain_real_failures() {
                     if mode == "cancelled_stop" {
                         end["stopReason"] = json!("cancelled");
                     }
-                    body.push_str(&format!("print({:?},flush=True)\n", end.to_string()));
+                    frames.push(end.to_string());
                 }
             }
             if mode == "late_error" {
                 let error = json!({"type":"error","message":"failure after terminal"});
-                body.push_str(&format!("print({:?},flush=True)\n", error.to_string()));
+                frames.push(error.to_string());
             }
-            if mode == "nonzero" {
-                body.push_str("sys.exit(9)\n");
-            }
-            script(&f, &body);
+            scenario(
+                &f,
+                &json!({
+                    "frames":frames,
+                    "exit":if mode == "nonzero" {9} else {0}
+                })
+                .to_string(),
+            );
             attach(&mut f, &ctx, vec![]).await;
             let (served, record) = serve(&f, &ctx).await;
             let h = SdkHarness::connect(&f, &ctx, record.address(), Duration::from_secs(10)).await;
@@ -771,13 +773,7 @@ fn grok_prechild_validation_denial_empty_and_unavailable_never_execute() {
             }
             let marker = f.temp.path().join("unexpected-child");
             if mode != "unavailable" {
-                script(
-                    &f,
-                    &format!(
-                        "from pathlib import Path\nPath({:?}).write_text('child')\n",
-                        marker.to_str().unwrap()
-                    ),
-                );
+                scenario(&f, &json!({"frames":[],"marker":marker}).to_string());
             }
             attach(&mut f, &ctx, vec![]).await;
             let (served, record) = serve(&f, &ctx).await;
@@ -849,16 +845,20 @@ fn grok_http_cancel_drop_deadline_and_dropped_shutdown_waiter_join_child() {
             let ctx = original(&cancel);
             publish(&f, &ctx).await;
             let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            script(
+            scenario(
                 &f,
-                r#"
-import os,socket,json,sys
-print('{"type":"thought","data":"native thought"}',flush=True)
-print('{"type":"text","data":"must-not-be-answer"}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
-s.sendall(b'w');s.recv(1)
-print('{"type":"end","stopReason":"end_turn","sessionId":"native-session","requestId":"","usage":{"input_tokens":0,"output_tokens":0}}',flush=True)
-"#,
+                r#"{
+  "frames": [
+    "{\"type\":\"thought\",\"data\":\"native thought\"}",
+    "{\"type\":\"text\",\"data\":\"must-not-be-answer\"}",
+    "{\"type\":\"end\",\"stopReason\":\"end_turn\",\"sessionId\":\"native-session\",\"requestId\":\"\",\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}"
+  ],
+  "gate": {
+    "before": 2,
+    "send": "w",
+    "expect": null
+  }
+}"#,
             );
             attach(
                 &mut f,
@@ -980,17 +980,21 @@ fn grok_project_invalidation_after_native_effect_denies_delivery_keeps_receipt()
         let ctx = original(&cancel);
         publish(&f, &ctx).await;
         let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        script(
+        scenario(
             &f,
-            r#"
-import os,socket,json,sys
-print('{"type":"thought","data":"native thought"}',flush=True)
-print('{"type":"text","data":"native effect before invalidation"}',flush=True)
-print('{"type":"text","data":"fixture progress boundary"}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
-assert s.recv(1)==b'1'
-print('{"type":"end","stopReason":"end_turn","sessionId":"native-session","requestId":"","usage":{"input_tokens":5,"output_tokens":3}}',flush=True)
-"#,
+            r#"{
+  "frames": [
+    "{\"type\":\"thought\",\"data\":\"native thought\"}",
+    "{\"type\":\"text\",\"data\":\"native effect before invalidation\"}",
+    "{\"type\":\"text\",\"data\":\"fixture progress boundary\"}",
+    "{\"type\":\"end\",\"stopReason\":\"end_turn\",\"sessionId\":\"native-session\",\"requestId\":\"\",\"usage\":{\"input_tokens\":5,\"output_tokens\":3}}"
+  ],
+  "gate": {
+    "before": 3,
+    "send": "",
+    "expect": "1"
+  }
+}"#,
         );
         attach(
             &mut f,

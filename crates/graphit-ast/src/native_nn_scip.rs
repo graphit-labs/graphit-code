@@ -46,11 +46,23 @@ pub fn prepare_native_nn_scip(
             original,
         )
         .map_err(graph_error)?;
-        if associated.association() != &graph.parts.association {
+        let captured = associated.association();
+        let file = &graph.parts.association;
+        if captured.path() != file.path()
+            || captured.relative_components() != file.relative_components()
+            || captured.source_sha256() != file.source_sha256()
+            || captured.source_observation() != file.source_observation()
+        {
             return Err(NativeNnError::InvalidInput);
         }
-        let canonical = apply_scip_document(associated.into_parts(), document, text, original)
-            .map_err(graph_error)?;
+        // The official producer validated this captured Source's text and ranges.
+        // Canonical identities still belong to the original FILE publication;
+        // an unrelated Source commit cannot replace that provenance.
+        let mut canonical_parts = associated.into_parts();
+        canonical_parts.association = file.clone();
+        canonical_parts.file_observation = graph.parts.file_observation.clone();
+        let canonical =
+            apply_scip_document(canonical_parts, document, text, original).map_err(graph_error)?;
         let canonical = canonical
             .parts
             .nodes
@@ -141,7 +153,7 @@ pub fn prepare_native_nn_scip(
             push_range(&mut columns.names, name)?;
             push_extent(&mut columns.extents, &extent)?;
             columns.owners.append(true);
-            columns.raw_versions.append_value(raw.version());
+            columns.raw_versions.append_value(file.raw_version());
             columns
                 .source_sha
                 .append_value(graph.parts.association.source_sha256())
@@ -265,6 +277,61 @@ mod tests {
         assert_eq!(
             node_text(&applied.parts.nodes[0], "uid")?,
             column::<StringArray>(&completed, "uid")?.value(0)
+        );
+        let mut current = graphit_data::lance_branch_store::BranchSnapshot::capture_observed(
+            directory.path().join("raw.lance").to_str().unwrap(),
+            None,
+            None,
+        )
+        .await?;
+        current = current
+            .prepare_merge(
+                vec![RecordBatch::try_new(
+                    crate::indexed_source::source_schema(),
+                    vec![
+                        Arc::new(StringArray::from(vec!["unrelated.custom"])),
+                        Arc::new(StringArray::from(vec!["unrelated FILE"])),
+                    ],
+                )?],
+                vec!["path".into()],
+            )
+            .await?
+            .commit()
+            .await?;
+        let current_source =
+            crate::indexed_source::read_branch_source(&current, "source.custom", &original).await?;
+        assert!(current_source.version() > raw.version());
+        let replayed = prepare_native_nn_scip(
+            &applied,
+            &document,
+            NativeNnSource::Indexed(&current_source),
+            limits,
+            &original,
+        )?;
+        assert_eq!(
+            column::<StringArray>(&prepared, "uid")?,
+            column::<StringArray>(&replayed, "uid")?
+        );
+        assert_eq!(
+            column::<StringArray>(&prepared, "projection")?,
+            column::<StringArray>(&replayed, "projection")?
+        );
+        assert_eq!(
+            column::<UInt64Array>(&prepared, "raw_version")?,
+            column::<UInt64Array>(&replayed, "raw_version")?
+        );
+        let lexical = crate::entity_search::encode_file(&applied.parts, text, &original)?;
+        let replayed_corpus = crate::corpus::encode_file(
+            crate::corpus::schema(),
+            lexical,
+            replayed,
+            None,
+            &original,
+        )?;
+        assert_eq!(
+            replayed_corpus.num_rows(),
+            1,
+            "replay must preserve one consistent FILE provenance through corpus encoding"
         );
         let mut invalid = document.clone();
         invalid.text = "different".into();

@@ -31,11 +31,12 @@ use serde_json::json;
 use std::{
     fs,
     num::{NonZeroU32, NonZeroUsize},
-    os::unix::fs::PermissionsExt,
     path::Path,
 };
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
+use crate::test_dream_peer as dream_peer;
+
 struct Fixture {
     temp: tempfile::TempDir,
     installation: InstallationPaths,
@@ -44,6 +45,7 @@ struct Fixture {
     config: ConfigSnapshot,
     policy: HubResourcePolicy,
     program: std::path::PathBuf,
+    ready: tokio::net::UnixListener,
     duration: u64,
     retries: u32,
     records: usize,
@@ -72,8 +74,8 @@ impl Fixture {
         let config = ConfigSnapshot::new(&brand, [])?;
         let policy = HubResourcePolicy::resolve(&config)?;
         let program = temp.path().join("codex-dream-fixture");
-        fs::write(&program, NATIVE_FIXTURE)?;
-        fs::set_permissions(&program, fs::Permissions::from_mode(0o700))?;
+        dream_peer::install(&program)?;
+        let ready = tokio::net::UnixListener::bind(temp.path().join("project-ready.sock"))?;
         fs::create_dir(root.join(".codex"))?;
         fs::write(
             root.join(".codex/config.toml"),
@@ -87,6 +89,7 @@ impl Fixture {
             config,
             policy,
             program,
+            ready,
             duration: 30,
             retries: 0,
             records: 4,
@@ -179,8 +182,6 @@ impl Fixture {
         let config = self.dream_config()?;
         let stop = Cancellation::default();
         let original = self.policy.request_context(Instant::now(), &stop)?;
-        let path =
-            std::env::var_os("PATH").ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;
         let started = ForegroundSource::start_and_publish(
             &self.installation,
             inputs,
@@ -188,7 +189,10 @@ impl Fixture {
             &config,
             NativeBinding::Codex,
             vec![
-                ("PATH".into(), path),
+                (
+                    "DREAM_PROJECT_READY".into(),
+                    self.temp.path().join("project-ready.sock").into_os_string(),
+                ),
                 ("DREAM_FIXTURE_MODE".into(), mode.into()),
                 ("DREAM_FIXTURE_PROJECT".into(), self.project.root().into()),
                 (
@@ -522,6 +526,26 @@ async fn read_records(
         MemoryListRead::NoCorpus => Ok(vec![]),
     }
 }
+async fn native_ready(f: &Fixture, owner: &mut ForegroundSource) -> Result<tokio::net::UnixStream> {
+    use tokio::io::AsyncReadExt;
+    tokio::time::timeout(Duration::from_secs(15), async {
+        tokio::select! {
+            accepted = f.ready.accept() => {
+                let (mut stream, _) = accepted?;
+                let mut started = [0];
+                stream.read_exact(&mut started).await?;
+                assert_eq!(started, [1]);
+                Ok(stream)
+            },
+            result = owner.dream.as_mut().unwrap().next() => {
+                result?;
+                Err(io::Error::other("Dream ended before the native peer became ready").into())
+            }
+        }
+    })
+    .await?
+}
+
 async fn wait_attempt(f: &Fixture, owner: &mut ForegroundSource, count: usize) -> Result {
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
@@ -857,7 +881,10 @@ async fn foreground_dream_retry_budget_and_activity_during_native_are_real() -> 
         let before = read(&owner).await?;
         wait_attempt(&f, &mut owner, 1).await?;
         if matches!(mode, "slow_first" | "failed_old") {
+            use tokio::io::AsyncWriteExt;
+            let mut peer = native_ready(&f, &mut owner).await?;
             human_prompt(&f, &owner).await?;
+            peer.write_all(&[1]).await?;
         }
         if mode == "exit_failure" {
             assert!(owner.dream.as_mut().unwrap().next().await.is_err());
@@ -1304,8 +1331,6 @@ async fn foreground_dream_two_projects_memory_cli_cancel_and_join() -> Result {
     }
     Ok(())
 }
-
-const NATIVE_FIXTURE: &str = include_str!("../tests/fixtures/dream_codex.py");
 
 #[path = "foreground_user_dream_tests.rs"]
 mod user;

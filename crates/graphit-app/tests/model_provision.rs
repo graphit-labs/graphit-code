@@ -23,9 +23,13 @@ use serde_json::{Value, json};
 use std::{
     fs,
     io::{self, Read, Write},
-    net::TcpListener,
+    net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
-    sync::{Arc, mpsc},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -48,16 +52,24 @@ fn allowed() -> Result<(), io::Error> {
 }
 struct Server {
     origin: String,
+    address: SocketAddr,
+    stopped: Arc<AtomicBool>,
     release: Option<mpsc::Sender<()>>,
     worker: Option<thread::JoinHandle<()>>,
 }
 impl Server {
     fn new(response: Vec<u8>, wait: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let address = listener.local_addr().unwrap();
+        let origin = format!("http://{address}");
+        let stopped = Arc::new(AtomicBool::new(false));
+        let worker_stopped = Arc::clone(&stopped);
         let (release, released) = mpsc::channel();
         let worker = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
+            if worker_stopped.load(Ordering::Acquire) {
+                return;
+            }
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
                 .unwrap();
@@ -73,11 +85,13 @@ impl Server {
             assert!(!request.contains("cookie:"));
             stream.write_all(&response).unwrap();
             if wait {
-                let _ = released.recv_timeout(Duration::from_secs(5));
+                let _ = released.recv();
             }
         });
         Self {
             origin,
+            address,
+            stopped,
             release: Some(release),
             worker: Some(worker),
         }
@@ -97,9 +111,13 @@ impl Server {
 }
 impl Drop for Server {
     fn drop(&mut self) {
+        self.stopped.store(true, Ordering::Release);
         if let Some(release) = self.release.take() {
             let _ = release.send(());
         }
+        // Wake an accept that never received the expected client; a failing
+        // zero-send regression must not leave teardown blocked forever.
+        let _ = TcpStream::connect_timeout(&self.address, Duration::from_secs(1));
         self.worker.take().unwrap().join().unwrap();
     }
 }

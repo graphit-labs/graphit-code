@@ -180,39 +180,42 @@ async fn native_rescan_with_file_delta_publishes_before_full_tail_and_resumes_fu
         fs::write(project.root().join("b.rs"), "pub fn beta_tail() {}\n")?;
         fs::write(project.root().join("c.rs"), "pub fn gamma_tail() {}\n")?;
         let (first, release_first) = ast.hold_after_file_publication("a.rs");
+        let first_background = ast.observe_next_background();
         let yielded = ast.observe_next_raw_error();
         let mut completed = full_completion(&owner);
         owner.attach_jobs(&installation, &config, NativeBinding::Codex, &environment, &original).await?;
         tokio::time::timeout(Duration::from_secs(30), first).await??;
+        let first_background = tokio::time::timeout(Duration::from_secs(30), first_background).await??;
+        assert!(!first_background.is_cancelled());
         let alpha_query = "MATCH(n:Function) WHERE n.name='alpha' RETURN n.uid,n.raw_version,n.source_sha256";
         let alpha = read(&source, &selected, &credential, alpha_query, false).await;
         assert_eq!(alpha["rows"].as_array().unwrap().len(), 1);
         let handle = owner.supervisors.rescan_handle(&context.key()).unwrap();
         let (delta, release_delta) = ast.hold_after_file_publication("z_probe.lua");
-        let batch = ast.observe_next_raw_batch();
         fs::write(project.root().join("z_probe.lua"), "function delta_probe() end\n")?;
+        tokio::time::timeout(Duration::from_secs(30), first_background.cancelled()).await?;
         fs::remove_dir_all(project.root().join("gone"))?;
         assert!(handle.request_rescan());
-        // Keep the current FILE held while the real native debouncer delivers
-        // its FILE/subtree events and the rescan hint is coalesced in the queue.
-        tokio::time::sleep(SOURCE_WATCH_DEBOUNCE * 3).await;
+        // A real watcher event has preempted the held job. Publication below
+        // proves the FILE outcomes across however many batches are admitted.
         release_first.send(()).unwrap();
         assert_eq!(tokio::time::timeout(Duration::from_secs(30), yielded).await??, io::ErrorKind::Interrupted);
-        let (rescan, paths) = tokio::time::timeout(Duration::from_secs(30), batch).await??;
-        assert!(rescan);
-        assert!(paths.contains(&project.root().join("z_probe.lua")), "the queued full hint must retain the FILE delta");
         tokio::time::timeout(Duration::from_secs(30), delta).await??;
         let delta_observation = observation(&owner, &selected, &original, "z_probe.lua").await?;
         assert!(matches!(completed.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
         let rows = read(&source, &selected, &credential,
-            "MATCH(n:Function) WHERE n.name='beta_tail' OR n.name='gamma_tail' OR n.name='removed_nested' RETURN n.name", false).await;
-        assert!(rows["rows"].as_array().unwrap().is_empty(), "delta/tombstone publication precedes the unprocessed full tail");
+            "MATCH(n:Function) WHERE n.name='beta_tail' OR n.name='gamma_tail' RETURN n.name", false).await;
+        assert!(rows["rows"].as_array().unwrap().is_empty(), "the FILE delta precedes the unprocessed full tail: {rows}");
         let hits = read(&source, &selected, &credential, "delta_probe", true).await;
         assert!(hits["results"].as_array().unwrap().iter().any(|hit| hit["path"] == "z_probe.lua" && hit["name"] == "delta_probe"));
-        let removed = read(&source, &selected, &credential, "removed_nested", true).await;
-        assert!(!removed["results"].as_array().unwrap().iter().any(|hit| hit["path"] == "gone/item.lua"));
         release_delta.send(()).unwrap();
         tokio::time::timeout(Duration::from_secs(30), &mut completed).await??;
+        let tombstones = read(&source, &selected, &credential,
+            "MATCH(n:Function) WHERE n.name='removed_nested' OR n.name='kept_sibling' RETURN n.name", false).await;
+        assert_eq!(tombstones["rows"], json!([[{"type":"STRING","value":"kept_sibling"}]]),
+            "completed rescan removes gone while preserving its similarly named sibling");
+        let removed = read(&source, &selected, &credential, "removed_nested", true).await;
+        assert!(!removed["results"].as_array().unwrap().iter().any(|hit| hit["path"] == "gone/item.lua"));
         assert_eq!(delta_observation, observation(&owner, &selected, &original, "z_probe.lua").await?,
             "the delta's completed syntax must not be reparsed by its semantic phase or the full resume");
         assert_eq!(alpha["rows"], read(&source, &selected, &credential, alpha_query, false).await["rows"]);
@@ -223,19 +226,18 @@ async fn native_rescan_with_file_delta_publishes_before_full_tail_and_resumes_fu
         // The full obligation is now clear. A NEW topology/rescan request with
         // an explicit delta must create and finish another full obligation.
         let (acknowledged, release_acknowledged) = ast.hold_after_file_publication("m_ack.lua");
+        let acknowledged_background = ast.observe_next_background();
         fs::write(project.root().join("m_ack.lua"), "function acknowledged_delta() end\n")?;
         tokio::time::timeout(Duration::from_secs(30), acknowledged).await??;
+        let acknowledged_background = tokio::time::timeout(Duration::from_secs(30), acknowledged_background).await??;
+        assert!(!acknowledged_background.is_cancelled());
         let (second, release_second) = ast.hold_after_file_publication("z_second.lua");
-        let batch = ast.observe_next_raw_batch();
         let mut completed = full_completion(&owner);
         fs::write(project.root().join("z_second.lua"), "function second_delta() end\n")?;
+        tokio::time::timeout(Duration::from_secs(30), acknowledged_background.cancelled()).await?;
         fs::remove_dir_all(project.root().join("gone2"))?;
         assert!(handle.request_rescan());
-        tokio::time::sleep(SOURCE_WATCH_DEBOUNCE * 3).await;
         release_acknowledged.send(()).unwrap();
-        let (rescan, paths) = tokio::time::timeout(Duration::from_secs(30), batch).await??;
-        assert!(rescan);
-        assert!(paths.contains(&project.root().join("z_second.lua")));
         tokio::time::timeout(Duration::from_secs(30), second).await??;
         assert!(matches!(completed.try_recv(), Err(oneshot::error::TryRecvError::Empty)));
         let hits = read(&source, &selected, &credential, "second_delta", true).await;

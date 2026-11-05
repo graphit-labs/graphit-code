@@ -194,7 +194,7 @@ const run = (command, args, env = environment) => {
 run("patchelf", ["--version"]);
 const host = new Set(["libc.so.6", "libm.so.6", "libdl.so.2", "libpthread.so.0", "librt.so.1", "ld-linux-x86-64.so.2"]);
 const engineNames = new Set(["libllama.so", "libggml.so", "libggml-base.so", "libggml-cpu.so", "libggml-cuda.so"]);
-const nvidiaNames = new Set(["libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12"]);
+const nvidiaNames = new Set(["libcudart.so.12", "libcublas.so.12", "libcublasLt.so.12", "libcudart.so.13", "libcublas.so.13", "libcublasLt.so.13"]);
 const redistributable = new Set(["libstdc++.so.6", "libgcc_s.so.1", "libssl.so.3", "libcrypto.so.3", "libz.so.1", "libzstd.so.1"]);
 const resolved = new Map();
 const hash = (file) => {

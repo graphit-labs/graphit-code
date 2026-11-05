@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 //! Real Auth/Data/Core composition; no replacement admissions, corpus DTOs or journals.
 use graphit_app::knowledge_export::*;
 use graphit_auth::*;

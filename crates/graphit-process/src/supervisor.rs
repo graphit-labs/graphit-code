@@ -384,8 +384,9 @@ async fn run_command<S: IncrementalSink>(
         _ if state.cleanup_expired => Cleanup::TimedOut,
         cleanup => cleanup,
     };
-    let snapshot = lease.slot.observe();
-    let remaining = if !snapshot.finished() {
+    // Keep the terminal observation available when this caller stopped before
+    // consuming it, even if the same driver has finished in the meantime.
+    let remaining = if !state.supervision_done {
         Some(RemainingProcess::for_slot(Arc::clone(&lease.slot)))
     } else {
         None
@@ -1720,7 +1721,7 @@ mod tests {
         let mut peer = TcpStream::connect(address).expect("native fixture connects");
         peer.write_all(b"R").expect("native fixture readiness");
         let mode = std::env::var("GRAPHIT_PROCESS_RECOVERY_MODE").unwrap();
-        if mode == "held" {
+        if mode == "held" || mode == "control-finite" || mode == "control-alive" {
             peer.set_read_timeout(Some(Duration::from_secs(4))).unwrap();
             let mut ack = [0];
             peer.read_exact(&mut ack).unwrap();
@@ -1769,13 +1770,9 @@ mod tests {
     fn inherited_ignored_sigchld_is_handled_in_a_fresh_process() -> Result<(), NativeProbeFailure> {
         let executable = std::env::current_exe()
             .map_err(|error| NativeProbeFailure::Unobserved(error.into()))?;
-        let mut child = std::process::Command::new("/usr/bin/python3")
+        let mut child = std::process::Command::new(env!("GRAPHIT_TEST_SIGCHLD_FIXTURE"))
             .env_clear()
             .env("GRAPHIT_SIGCHLD_FIRST_INSTALL", "1")
-            .args([
-                "-I", "-S", "-c",
-                "import os, signal, sys; signal.signal(signal.SIGCHLD, signal.SIG_IGN); os.execv(sys.argv[1], sys.argv[1:])",
-            ])
             .arg(executable)
             .args([
                 "--exact",
@@ -1906,6 +1903,8 @@ mod tests {
         fault: SetupFault,
         listener: std::net::TcpListener,
         endpoint: std::time::Instant,
+        release: Arc<Mutex<Option<std::net::TcpStream>>>,
+        release_on_kill: bool,
     }
     impl CommandWrapper for SetupFaultWrapper {
         fn pre_spawn(
@@ -1952,10 +1951,15 @@ mod tests {
             match self.fault {
                 SetupFault::AfterError => Err(io::ErrorKind::PermissionDenied.into()),
                 SetupFault::AfterPanic => panic!("static post-birth fixture panic"),
-                SetupFault::ControlError | SetupFault::WaitPanic => Ok(Box::new(FaultChild {
-                    child,
-                    fault: self.fault,
-                })),
+                SetupFault::ControlError | SetupFault::WaitPanic => {
+                    *self.release.lock().unwrap() = Some(peer);
+                    Ok(Box::new(FaultChild {
+                        child,
+                        fault: self.fault,
+                        release: Arc::clone(&self.release),
+                        release_on_kill: self.release_on_kill,
+                    }))
+                }
                 SetupFault::BeforeError | SetupFault::BeforePanic => {
                     unreachable!("pre-spawn failed")
                 }
@@ -1965,6 +1969,8 @@ mod tests {
     struct FaultChild {
         child: Box<dyn ChildWrapper>,
         fault: SetupFault,
+        release: Arc<Mutex<Option<std::net::TcpStream>>>,
+        release_on_kill: bool,
     }
     impl std::fmt::Debug for FaultChild {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1987,6 +1993,9 @@ mod tests {
         }
         fn start_kill(&mut self) -> io::Result<()> {
             if matches!(self.fault, SetupFault::ControlError) {
+                if self.release_on_kill {
+                    release_native_fixture(&self.release)?;
+                }
                 Err(io::ErrorKind::PermissionDenied.into())
             } else {
                 self.child.start_kill()
@@ -2051,15 +2060,27 @@ mod tests {
         fault: SetupFault,
         original: &SnapshotContext,
         listener: std::net::TcpListener,
-    ) -> CommandWrap {
+    ) -> (CommandWrap, Arc<Mutex<Option<std::net::TcpStream>>>) {
         listener.set_nonblocking(true).unwrap();
         let mut command = command_for(request);
+        let release = Arc::new(Mutex::new(None));
         command.wrap(SetupFaultWrapper {
             fault,
             listener,
             endpoint: original.required_deadline().unwrap(),
+            release: Arc::clone(&release),
+            release_on_kill: request.environment.iter().any(|(key, value)| {
+                key == "GRAPHIT_PROCESS_RECOVERY_MODE" && value == "control-finite"
+            }),
         });
-        command
+        (command, release)
+    }
+    fn release_native_fixture(release: &Mutex<Option<std::net::TcpStream>>) -> io::Result<()> {
+        use std::io::Write;
+        if let Some(mut peer) = release.lock().unwrap().take() {
+            peer.write_all(b"A")?;
+        }
+        Ok(())
     }
     #[tokio::test(flavor = "current_thread")]
     async fn sdk_wait_panic_preserves_terminal_cause_and_releases_host_slot() {
@@ -2071,7 +2092,8 @@ mod tests {
             std::time::Instant::now() + Duration::from_secs(5),
             Cancellation::default(),
         ));
-        let command = fault_command(&request, SetupFault::WaitPanic, &original, listener);
+        let (command, _release) =
+            fault_command(&request, SetupFault::WaitPanic, &original, listener);
         let (stop, receiver) = operation(&original, &host).unwrap();
         let failure = tokio::time::timeout(
             Duration::from_secs(5),
@@ -2136,7 +2158,7 @@ mod tests {
                 std::time::Instant::now() + Duration::from_secs(5),
                 Cancellation::default(),
             ));
-            let command = fault_command(&request, fault, &original, listener);
+            let (command, _release) = fault_command(&request, fault, &original, listener);
 
             let (_stop, operation) = operation(&original, &host).unwrap();
             let mut result = run_command(
@@ -2243,7 +2265,7 @@ mod tests {
     #[cfg(unix)]
     struct Companion {
         _peer: Option<std::net::TcpStream>,
-        child: Box<dyn process_wrap::std::ChildWrapper>,
+        _child: Box<dyn process_wrap::std::ChildWrapper>,
     }
     #[cfg(unix)]
     impl fmt::Debug for Companion {
@@ -2337,7 +2359,7 @@ mod tests {
             let companion = command.spawn()?.into_inner();
             *self.owned.lock().unwrap() = Some(Companion {
                 _peer: None,
-                child: companion,
+                _child: companion,
             });
             let peer = ready(&self.companion, self.endpoint)?;
             self.owned
@@ -2551,40 +2573,21 @@ mod tests {
                 ..
             })
         ) || (terminal.is_none() && cleanup == Cleanup::Complete);
-        let mut companion = owned.lock().unwrap().take();
-        let mut teardown_unknown = false;
-        if !joined && let Some(child) = companion.as_mut() {
-            // Only after the Group job is terminal may this actual remaining
-            // child be observed. Never signal its numeric id or wait twice after
-            // a completed Group join. Failure keeps the same resources and
-            // runtime in this live scope until an actual terminal observation.
-            let endpoint = std::time::Instant::now() + Duration::from_secs(4);
-            loop {
-                match child.child.try_wait() {
-                    Ok(Some(_)) => break,
-                    Ok(None) => {
-                        if !teardown_unknown && std::time::Instant::now() >= endpoint {
-                            teardown_unknown = true;
-                            fixture_unknown();
-                        }
-                    }
-                    Err(_) => {
-                        if !teardown_unknown {
-                            teardown_unknown = true;
-                            fixture_unknown();
-                        }
-                    }
-                }
-                tokio::time::sleep(Duration::from_millis(10)).await;
-            }
-        }
-        drop(companion); // Std Drop never re-observes the externally consumed PID.
+        let companion = owned.lock().unwrap().take();
+        let final_cleanup = match terminal.as_ref() {
+            Some(RepairObservation::Observed { cleanup, .. }) => *cleanup,
+            _ => cleanup,
+        };
+        // Join the same host before assertions, including on a late observation.
+        // Its Group driver alone waits for the companion; a second Child wait
+        // could race it or report ECHILD after the actual group was consumed.
+        let report = host_fixture::joined(host).await;
+        drop(companion);
         // Assertions occur only after the actual join/teardown observation.
         assert!(
             !late,
             "probe deadline expired before the actual driver join"
         );
-        assert!(!teardown_unknown, "native teardown observation failed");
         assert_eq!(status.unwrap().code(), Some(7));
         if terminal.is_none() {
             assert!(result.is_ok());
@@ -2606,10 +2609,9 @@ mod tests {
                 matches!(terminal,Some(RepairObservation::Observed {cleanup:Cleanup::Complete,status:Some(status)}) if status.code()==Some(7))
             );
         }
-        assert!(joined);
+        assert!(joined, "same group wait returned {final_cleanup:?}");
         drop(result);
         assert!(original.check().is_ok());
-        let report = host_fixture::joined(host).await;
         assert!(report.failure().is_none());
     }
 
@@ -2631,13 +2633,19 @@ mod tests {
         use graphit_core::file_lock::Cancellation;
         for mode in ["finite", "alive"] {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            let mut request = native_setup_request(&listener, mode);
+            let native_mode = if mode == "finite" {
+                "control-finite"
+            } else {
+                "control-alive"
+            };
+            let mut request = native_setup_request(&listener, native_mode);
             request.limits.cleanup = Duration::from_millis(30);
             let original = Arc::new(SnapshotContext::new(
                 std::time::Instant::now() + Duration::from_secs(5),
                 Cancellation::default(),
             ));
-            let command = fault_command(&request, SetupFault::ControlError, &original, listener);
+            let (command, release) =
+                fault_command(&request, SetupFault::ControlError, &original, listener);
 
             let (stop, receiver) = operation(&original, &host).unwrap();
             let mut sink = StopSink { stop: Some(stop) };
@@ -2664,6 +2672,7 @@ mod tests {
                             .repair(std::time::Instant::now() + Duration::from_millis(5))
                             .await,
                     );
+                    release_native_fixture(&release).unwrap();
                 }
                 let (terminal, expired) =
                     fixture_terminal(owner, std::time::Instant::now() + Duration::from_secs(3))

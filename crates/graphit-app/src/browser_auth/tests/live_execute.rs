@@ -368,20 +368,16 @@ pub(super) fn attach_peer_with_mode(
     mode: &str,
     ast_context: Option<&Value>,
 ) -> (Arc<AskAvailability>, PathBuf) {
-    let executable = std::env::current_exe().unwrap();
-    let binary = executable
-        .parent()
-        .unwrap()
-        .parent()
-        .unwrap()
-        .join("kiro-knowledge-fixture");
+    let binary = std::env::var_os("GRAPHIT_TEST_KIRO_KNOWLEDGE_FIXTURE")
+        .map(PathBuf::from)
+        .expect("run cargo xtask cargo test to prepare the Kiro protocol peer");
     assert!(
-        binary.is_file(),
-        "build the existing controlled ACP fixture target"
+        binary.is_absolute() && binary.is_file(),
+        "GRAPHIT_TEST_KIRO_KNOWLEDGE_FIXTURE must name the Cargo artifact"
     );
     let bin = temp.join("peer-bin");
     std::fs::create_dir(&bin).unwrap();
-    std::os::unix::fs::symlink(binary, bin.join("kiro-cli")).unwrap();
+    std::fs::copy(binary, bin.join("kiro-cli")).unwrap();
     let journal = temp.join("live-peer.log");
     let mut environment = vec![
         ("PATH".into(), bin.as_os_str().to_owned()),
@@ -562,24 +558,16 @@ async fn web_live_create_prepare_run_retry_busy_load_cancel_and_logout() {
             ))),
             None,
         )
-        .merge(
-            f.service.live_execution_router(
-                tasks.clone(),
-                Arc::new(task::backend(&format!(
-                    "{}/v1/project/access/authorize",
-                    f.issuer.origin
-                ))),
-                address,
-                std::env::current_exe()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .join("graphit"),
-                None,
-            ),
-        );
+        .merge(f.service.live_execution_router(
+            tasks.clone(),
+            Arc::new(task::backend(&format!(
+                "{}/v1/project/access/authorize",
+                f.issuer.origin
+            ))),
+            address,
+            graphit_executable(),
+            None,
+        ));
     let stop = f.stop.clone();
     f.servers.push(tokio::spawn(async move {
         axum::serve(listener, router)
@@ -969,24 +957,16 @@ async fn web_live_project_hub_denial_precedes_missing_source_and_native_launch()
             ))),
             None,
         )
-        .merge(
-            f.service.live_execution_router(
-                tasks.clone(),
-                Arc::new(task::backend(&format!(
-                    "{}/v1/project/access/authorize",
-                    f.issuer.origin
-                ))),
-                address,
-                std::env::current_exe()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .join("graphit"),
-                None,
-            ),
-        );
+        .merge(f.service.live_execution_router(
+            tasks.clone(),
+            Arc::new(task::backend(&format!(
+                "{}/v1/project/access/authorize",
+                f.issuer.origin
+            ))),
+            address,
+            graphit_executable(),
+            None,
+        ));
     let stop = f.stop.clone();
     f.servers.push(tokio::spawn(async move {
         axum::serve(listener, router)
@@ -1274,21 +1254,13 @@ async fn web_live_ast_catalog_prepare_ready_send_uses_actual_main_mcp_eight_tool
     let router = f
         .service
         .task_router(tasks.clone(), Arc::clone(&backend), Some(sources.clone()))
-        .merge(
-            f.service.live_execution_router(
-                tasks.clone(),
-                backend,
-                address,
-                std::env::current_exe()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .join("graphit"),
-                Some(sources.clone()),
-            ),
-        );
+        .merge(f.service.live_execution_router(
+            tasks.clone(),
+            backend,
+            address,
+            graphit_executable(),
+            Some(sources.clone()),
+        ));
     let stop = f.stop.clone();
     f.servers.push(tokio::spawn(async move {
         axum::serve(listener, router)
@@ -1454,10 +1426,14 @@ async fn web_live_ast_catalog_prepare_ready_send_uses_actual_main_mcp_eight_tool
             event["turn_id"] == "http-live-ast-send" && event["data"]["type"] == "turn_done"
         })
         .unwrap();
-    assert_eq!(done["data"]["outcome"], "completed");
+    let observed = log(&journal);
+    assert_eq!(
+        done["data"]["outcome"], "completed",
+        "AST Send terminal: {}; peer observations: {observed}",
+        done["data"]
+    );
     assert_eq!(done["data"]["joined"], true);
     assert_eq!(done["data"]["clean"], true);
-    let observed = log(&journal);
     assert_eq!(
         observed
             .lines()

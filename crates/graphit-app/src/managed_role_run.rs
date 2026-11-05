@@ -146,6 +146,7 @@ pub(crate) async fn execute_with_program(
             &captured_install,
             resources.policy,
             &parent,
+            issuer,
             original,
         )?;
         let reference = issuer

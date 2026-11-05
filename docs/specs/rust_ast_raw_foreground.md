@@ -193,6 +193,24 @@ cancellation. The earlier `tsk-393d`/SDK evidence below is retained without repl
 
 ## Qualification status
 
+The standard parser suite runs with
+`cargo xtask cargo test --locked --offline -p graphit-ast` after the locked Cargo
+sources and native build toolchain are prepared. ANTLR recognizers and runtime
+are compiled from the maintained official sources. The tests consume shipped
+profiles and independent fixtures, including CRLF byte ranges, preprocessing,
+recovery, typed captures, symbols, declarations, relationships and projections.
+Their Lance and Ladybug stores belong to private temporary directories.
+Controlled vectors exercise NN encoding and querying without model inference.
+
+The captured-path fixture rejects non-Unicode input before filesystem access.
+On Unix hosts that accept opaque filenames it also exercises an existing
+non-Unicode directory. On macOS, where APFS rejects that filename at creation,
+the invalid input is passed directly to the reader. Both paths finish by
+capturing the actual Unicode parent and executing the relationship query.
+Cancellation and expiry assertions exercise the original context and its
+actual deadline. None of these parser tests requires Docker, provider
+accounts or separately installed indexer executables.
+
 The Core selection focal passed 32 cases, including actual profile basename
 selection, zero body retention, per-FILE validation, request mismatch and changed
 content. Both explicit PROJECT watcher controls and control-read exclusion passed.

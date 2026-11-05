@@ -24,7 +24,7 @@ use graphit_hub::{
 };
 use graphit_runtime::instructions::{
     CapturedInstruction, InstructionLimits, InstructionOrigin, InstructionValue,
-    InstructionVariable, render_instruction,
+    InstructionVariable,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -310,6 +310,10 @@ pub fn execute(
         }
         let variables = [
             InstructionVariable {
+                name: "brand",
+                value: InstructionValue::Text(server_name),
+            },
+            InstructionVariable {
                 name: "agent_name",
                 value: InstructionValue::Text(&name),
             },
@@ -318,7 +322,7 @@ pub fn execute(
                 value: InstructionValue::Text(server_name),
             },
         ];
-        let templates = [
+        let defaults = [
             CapturedInstruction {
                 name: "coordinator/AGENT.md",
                 origin: InstructionOrigin::CompiledDefault,
@@ -335,30 +339,37 @@ pub fn execute(
                 markdown: PERSISTENCE,
             },
         ];
+        let sources = crate::instruction_overrides::InstructionSources::capture(
+            resources.auth.issuer(),
+            resources.policy,
+            Some(paths),
+            original,
+        )?;
         let content = hub.content();
         let nz = |n| NonZeroUsize::new(n).ok_or(io::ErrorKind::InvalidInput);
-        let instruction = render_instruction(
-            "coordinator/AGENT.md",
-            &templates,
-            &variables,
-            InstructionLimits {
-                max_templates: nz(content.max_collection_entries)?,
-                max_template_bytes: nz(content.max_input_bytes)?,
-                max_values: nz(content.max_nodes)?,
-                max_variable_bytes: nz(content.max_input_bytes)?,
-                max_output_bytes: nz(content.max_output_bytes)?,
-                fuel: NonZeroU64::new(
-                    u64::try_from(content.max_nodes)
-                        .map_err(io::Error::other)?
-                        .checked_mul(16)
-                        .ok_or(io::ErrorKind::InvalidInput)?,
-                )
-                .ok_or(io::ErrorKind::InvalidInput)?,
-                recursion: nz(content.max_depth.min(500))?,
-            },
-            original.snapshot(),
-        )
-        .map_err(io::Error::other)?;
+        let instruction = sources
+            .render(
+                "coordinator/AGENT.md",
+                &defaults,
+                &variables,
+                InstructionLimits {
+                    max_templates: nz(content.max_collection_entries)?,
+                    max_template_bytes: nz(content.max_input_bytes)?,
+                    max_values: nz(content.max_nodes)?,
+                    max_variable_bytes: nz(content.max_input_bytes)?,
+                    max_output_bytes: nz(content.max_output_bytes)?,
+                    fuel: NonZeroU64::new(
+                        u64::try_from(content.max_nodes)
+                            .map_err(io::Error::other)?
+                            .checked_mul(16)
+                            .ok_or(io::ErrorKind::InvalidInput)?,
+                    )
+                    .ok_or(io::ErrorKind::InvalidInput)?,
+                    recursion: nz(content.max_depth.min(500))?,
+                },
+                original,
+            )
+            .map_err(io::Error::other)?;
         let mut renderer = RenderContext::new(
             content,
             original.cancellation(),

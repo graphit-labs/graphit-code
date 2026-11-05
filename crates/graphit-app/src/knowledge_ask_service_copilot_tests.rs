@@ -46,7 +46,6 @@ async fn copilot_abandoned_or_cancelled_cli_retains_user_writer_until_actual_pro
     };
     use graphit_hub::{native::ContentLimits, policy::RequestContext};
     use graphit_process::{HostLimits, HostReadiness, HostShutdown};
-    use std::os::unix::fs::PermissionsExt;
 
     for action in ["abandon", "cancel"] {
         let fixture = copilot_authority_fixture::fixture(
@@ -108,17 +107,14 @@ async fn copilot_abandoned_or_cancelled_cli_retains_user_writer_until_actual_pro
             )
             .unwrap();
         let program = fixture.temp.path().join("copilot-before-output");
-        // This child deliberately waits before any protocol output. No SDK or fake JSONL ACK.
-        std::fs::write(
-            &program,
-            r#"#!/bin/sh
-printf '%s\n' "$$" > "$COPILOT_STARTED"
-exec /bin/sleep 30
-"#,
-        )
-        .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // This native child waits before any protocol output. No fabricated SDK ACK.
         let started_path = fixture.temp.path().join("copilot-started");
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({
+                "kind":"raw", "process":{"pid":started_path,"hold":true}
+            }),
+        );
         let (_user, scope, turn) = conversation_fixture_engine(
             context.snapshot(),
             &program,

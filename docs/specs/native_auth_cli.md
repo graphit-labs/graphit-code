@@ -255,4 +255,9 @@ polling.
 
 ## Device access-only profile
 
-The [Native Broker Device login contract](native_broker_device_login.md) defines the separate `--device` journey, typed `broker_device` profile, optional metadata, actual-expiry service use and local logout. Its implementation is under qualification under tsk-5fb0. Existing Local username and Code ID/refresh requirements apply to their complete `ProfileData` body; `ProfileRecord::data()` returns that optional body, while `name()`/`provider()` select either body. No Device username, ID token or refresh token is fabricated.
+The [Native Broker Device login contract](native_broker_device_login.md) defines the implemented separate `--device` journey, typed `broker_device` profile, optional metadata, actual-expiry service use and local logout. Default App coverage uses its own signed loopback Broker at the command, standalone CLI and active-daemon boundaries; external Broker qualification remains separate. Existing Local username and Code ID/refresh requirements apply to their complete `ProfileData` body; `ProfileRecord::data()` returns that optional body, while `name()`/`provider()` select either body. No Device username, ID token or refresh token is fabricated.
+
+The captured-Original cancellation/deadline test waits for that Original's actual
+monotonic deadline and checks the cancellation or timeout cause before the
+attempted mutation. It preserves the original authority and Auth bytes instead
+of using a fixed delay to assume expiration.

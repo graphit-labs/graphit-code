@@ -612,8 +612,22 @@ fn cancellation_and_deadline_preserve_the_captured_original() {
         if canceled {
             cancel.cancel();
         } else {
-            std::thread::sleep(Duration::from_millis(120));
+            std::thread::sleep(
+                original
+                    .snapshot()
+                    .required_deadline()
+                    .unwrap()
+                    .saturating_duration_since(Instant::now()),
+            );
         }
+        assert_eq!(
+            original.snapshot().check().unwrap_err().kind(),
+            if canceled {
+                std::io::ErrorKind::Interrupted
+            } else {
+                std::io::ErrorKind::TimedOut
+            }
+        );
         let before = f.bytes();
         assert!(matches!(
             execute(

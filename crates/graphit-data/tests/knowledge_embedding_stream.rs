@@ -1410,10 +1410,7 @@ async fn stream_pending_producer_observes_original_cancel_before_birth() {
     publish_source(&ctx, &write, &["a"]).await;
     let captured = capture(&ctx, &read).await;
     let id = identity(7, 2);
-    let input = Box::pin(RecordBatchStreamAdapter::new(
-        native_knowledge_embedding_schema(&id),
-        futures::stream::pending(),
-    ));
+    let (input, _sender, waiting) = pending_input(&id, Vec::new());
     let (result, ()) = tokio::join!(
         publish_knowledge_embeddings_stream(
             ctx.snapshot(),
@@ -1425,7 +1422,9 @@ async fn stream_pending_producer_observes_original_cancel_before_birth() {
             write_limits()
         ),
         async {
-            tokio::time::sleep(Duration::from_millis(30)).await;
+            waiting
+                .await
+                .expect("producer must be polled before cancellation");
             cancel.cancel();
         },
     );

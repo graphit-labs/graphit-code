@@ -1480,23 +1480,16 @@ async fn verify_hosted_record_references(probe: Option<std::path::PathBuf>) {
     let mut project_inputs = vec![&fixture.project, &other, &mirror, &unprojected];
     project_inputs.extend(additional_projects.iter());
     let owner = if records_browser {
-        use std::os::unix::fs::PermissionsExt;
         let program = fixture.temp.path().join("codex");
-        fs::write(&program, r#"#!/usr/bin/python3
-import json,sys,time
-query=sys.stdin.read()
-print(json.dumps({"type":"turn.started"}),flush=True)
-if "hold-browser-question" in query:
-    time.sleep(30)
-print(json.dumps({"type":"item.completed","item":{"id":"answer","type":"agent_message","text":"Observed browser fixture answer"}}),flush=True)
-print(json.dumps({"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}),flush=True)
-"#).unwrap();
-        fs::set_permissions(&program, fs::Permissions::from_mode(0o700)).unwrap();
+        dream_peer::install(&program).unwrap();
         fixture
             .start_browser_records(
                 config(&broker.issuer),
                 &project_inputs,
-                vec![("PATH".into(), fixture.temp.path().as_os_str().to_owned())],
+                vec![
+                    ("PATH".into(), fixture.temp.path().as_os_str().to_owned()),
+                    ("DREAM_FIXTURE_MODE".into(), "browser_question".into()),
+                ],
             )
             .await
             .unwrap()

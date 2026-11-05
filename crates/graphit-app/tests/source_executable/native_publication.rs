@@ -187,6 +187,7 @@ impl BrokerFixture {
     ) -> Result<Arc<dyn ObjectStore>> {
         let response = reqwest::Client::builder()
             .no_proxy()
+            .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
             .build()?
             .post(format!(

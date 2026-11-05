@@ -1,5 +1,5 @@
 //! Actual signed Web authority, imported captures and SDK reference continuations.
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 #[path = "support/imported_knowledge_fixture.rs"]
 mod fixture;
 #[path = "imported_reference_query/sdk.rs"]

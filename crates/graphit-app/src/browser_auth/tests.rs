@@ -87,6 +87,33 @@ impl Issuer {
         )
     }
 }
+
+async fn wait_until_access_expiration(fixture: &Fixture) {
+    let expiration = {
+        let issued = fixture.issuer.issued.lock().unwrap();
+        let payload = issued.last().unwrap().split('.').nth(1).unwrap();
+        let claims: Value =
+            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).unwrap()).unwrap();
+        UNIX_EPOCH + Duration::from_secs(claims["exp"].as_u64().unwrap())
+    };
+    tokio::time::sleep(
+        expiration
+            .duration_since(SystemTime::now())
+            .unwrap_or_default(),
+    )
+    .await;
+    assert!(SystemTime::now() >= expiration);
+}
+
+#[cfg(target_os = "linux")]
+fn graphit_executable() -> std::path::PathBuf {
+    let executable = std::env::var_os("GRAPHIT_TEST_GRAPHIT")
+        .map(std::path::PathBuf::from)
+        .expect("run cargo xtask cargo test to prepare the normal Graphit CLI artifact");
+    assert!(executable.is_absolute() && executable.is_file());
+    executable
+}
+
 pub(super) struct Fixture {
     issuer: Arc<Issuer>,
     pub(super) service: BrowserAuth,
@@ -407,11 +434,24 @@ impl Fixture {
         let second = tokio::spawn(async move {
             axum::serve(listener, router).await.unwrap();
         });
+        let server_timeout = tasks
+            .as_ref()
+            .map_or(policy.request_timeout, |(server, _)| {
+                server.browser_policy().1
+            })
+            .max(policy.request_timeout);
+        #[cfg(target_os = "linux")]
+        let server_timeout = graphs.as_ref().map_or(server_timeout, |(server, _)| {
+            server_timeout.max(server.policy().timeout)
+        });
+        let client_timeout = server_timeout.checked_add(Duration::from_secs(5)).unwrap();
         Self {
             issuer,
             service,
             origin,
             client: reqwest::Client::builder()
+                .no_proxy()
+                .timeout(client_timeout)
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .unwrap(),
@@ -782,7 +822,14 @@ async fn expiry_shutdown_and_remote_logout_failure_leave_no_session() {
     p.session_lifetime = Duration::from_secs(1);
     let fixture = Fixture::new(p).await;
     let cookie = fixture.login().await;
-    tokio::time::sleep(Duration::from_millis(1050)).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let mut jobs = fixture.service.0.jobs.lock().await;
+        while let Some(completed) = jobs.join_next().await {
+            completed.unwrap();
+        }
+    })
+    .await
+    .expect("the actual session expiry job must finish");
     assert!(fixture.service.0.sessions.lock().await.is_empty());
     assert_eq!(
         fixture.identity(&cookie).await.status(),
@@ -828,7 +875,15 @@ async fn flow_timeout_and_configuration_cookie_contract() {
     p.login_timeout = Duration::from_secs(1);
     let fixture = Fixture::new(p).await;
     let (cookie, callback) = fixture.start().await;
-    tokio::time::sleep(Duration::from_millis(1050)).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let mut jobs = fixture.service.0.jobs.lock().await;
+        while let Some(completed) = jobs.join_next().await {
+            completed.unwrap();
+        }
+    })
+    .await
+    .expect("the actual login expiry job must finish");
+    assert!(fixture.service.0.flows.lock().await.is_empty());
     assert_eq!(
         fixture
             .client
@@ -1017,7 +1072,7 @@ async fn missing_signed_profile_is_null_and_access_expiry_denies_without_refresh
     assert_eq!(value["subject"], "web-subject");
     assert!(value["username"].is_null());
     assert_eq!(fixture.issuer.userinfo.load(Ordering::SeqCst), 0);
-    tokio::time::sleep(Duration::from_millis(2100)).await;
+    wait_until_access_expiration(&fixture).await;
     assert_eq!(
         fixture.identity(&cookie).await.status(),
         StatusCode::UNAUTHORIZED

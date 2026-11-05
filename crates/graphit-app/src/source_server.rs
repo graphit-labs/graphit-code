@@ -1741,6 +1741,15 @@ impl SourceServer {
 }
 
 #[cfg(test)]
+pub(crate) fn test_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .expect("loopback fixture HTTP client")
+}
+
+#[cfg(test)]
 #[path = "../tests/support/knowledge_ask_server.rs"]
 pub(crate) mod test_fixture;
 #[cfg(test)]
@@ -2036,7 +2045,7 @@ mod tests {
         let client = ()
             .serve_with_lifecycle(
                 StreamableHttpClientTransport::with_client(
-                    reqwest::Client::new(),
+                    crate::source_server::test_http_client(),
                     StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(headers),
                 ),
                 ClientLifecycleMode::Discover {
@@ -2105,21 +2114,21 @@ mod tests {
         .await
         .unwrap();
         let owner = Arc::downgrade(&server.0.auth);
-        let closing = server.clone();
-        let shutdown = tokio::spawn(async move { closing.shutdown().await });
-        tokio::task::yield_now().await;
-        assert!(!shutdown.is_finished());
-        assert!(owner.upgrade().is_some());
-        // Cancelling a waiter keeps the native JoinSet owned by the service.
-        shutdown.abort();
-        assert!(shutdown.await.unwrap_err().is_cancelled());
-        let second = server.clone();
-        let concurrent_shutdown = tokio::spawn(async move { second.shutdown().await });
-        tokio::task::yield_now().await;
-        assert!(!concurrent_shutdown.is_finished());
-        release.send(()).unwrap();
-        disconnect_release.send(()).unwrap();
-        concurrent_shutdown.await.unwrap().unwrap();
+        {
+            let shutdown = server.shutdown();
+            tokio::pin!(shutdown);
+            assert!(futures_util::poll!(&mut shutdown).is_pending());
+            assert!(owner.upgrade().is_some());
+            // Leaving this scope cancels a polled waiter, preserving the owned JoinSet.
+        }
+        {
+            let shutdown = server.shutdown();
+            tokio::pin!(shutdown);
+            assert!(futures_util::poll!(&mut shutdown).is_pending());
+            release.send(()).unwrap();
+            disconnect_release.send(()).unwrap();
+            shutdown.await.unwrap();
+        }
         served.await.unwrap().unwrap();
         assert!(server.0.jobs.lock().await.tasks.is_empty());
         drop(server);
@@ -2154,13 +2163,9 @@ mod tests {
         release.send(()).unwrap();
         server.shutdown().await.unwrap();
         let cancel = Cancellation::default();
-        let request = RequestContext::new(
-            server.0.policy.content,
-            &cancel,
-            Instant::now() + Duration::from_millis(20),
-        )
-        .unwrap();
-        tokio::time::sleep(Duration::from_millis(25)).await;
+        let deadline = Instant::now() + Duration::from_millis(20);
+        let request = RequestContext::new(server.0.policy.content, &cancel, deadline).unwrap();
+        tokio::time::sleep_until(deadline.into()).await;
         let result = read(
             &server.0,
             &server.0.live_projects.snapshot().unwrap().projects,

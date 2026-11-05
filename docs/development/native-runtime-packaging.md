@@ -283,12 +283,13 @@ packages the executables.
 bash scripts/package-release.sh linux-amd64 target/release-artifacts.jsonl .build/dist
 ```
 
-Release keeps Cargo's optimized code generation, Thin LTO and one codegen unit,
-and uses `strip = "symbols"` to remove static symbol/name tables as well as debug
+Release uses optimized code generation and Thin LTO. The application crate uses
+16 codegen units so LLVM can compile it in parallel; other packages retain one.
+It uses `strip = "symbols"` to remove static symbol/name tables as well as debug
 information from the final executables. This preserves dynamic exports, unwind
 handling and the existing Ladybug/ANTLR native link configuration. Native SDK
-archives must retain their linkable symbols. The optional Ladybug SDK used for
-production release builds must itself be a Release build.
+archives must retain their linkable symbols. The Ladybug engine prepared from
+the locked official Cargo sources uses the matching Release configuration.
 
 Removing symbol tables does not remove statically linked library code or make
 the executables fully static. Keep `graphit-runtime` beside them. Linux packages

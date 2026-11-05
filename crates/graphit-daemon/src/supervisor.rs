@@ -91,6 +91,11 @@ pub struct ProjectSupervisor {
     task: Option<JoinHandle<io::Result<()>>>,
 }
 
+enum SupervisorEvent {
+    Hint(ChangeBatch),
+    Native(Option<ChangeBatch>),
+}
+
 impl ProjectSupervisor {
     pub async fn start<F, Fut>(
         context: ProjectContext,
@@ -200,20 +205,27 @@ impl ProjectSupervisor {
                             },
                             event = async {
                                 tokio::select! {
-                                    () = wake.notified() => Some(ChangeBatch { rescan: true, ..Default::default() }),
-                                    () = records_wake.notified() => Some(ChangeBatch { records_changed: true, ..Default::default() }),
-                                    batch = watcher.next() => batch,
+                                    () = wake.notified() => SupervisorEvent::Hint(ChangeBatch { rescan: true, ..Default::default() }),
+                                    () = records_wake.notified() => SupervisorEvent::Hint(ChangeBatch { records_changed: true, ..Default::default() }),
+                                    batch = watcher.next() => SupervisorEvent::Native(batch),
                                 }
                             }, if !stopping && !watcher_closed => {
                                 background.cancel();
-                                match event {
-                                    Some(batch) => {
-                                        // Record hints cannot interrupt a full source pass:
-                                        // they carry no FILE delta to resume its remaining tail.
-                                        if batch.rescan || batch.controls_changed
-                                            || !batch.paths.is_empty() || batch.error.is_some() {
+                                let batch = match event {
+                                    // Administrative hints wait for source completion. Native
+                                    // rescan/overflow remains preemptive even without FILE paths.
+                                    SupervisorEvent::Hint(batch) => Some(batch),
+                                    SupervisorEvent::Native(batch) => {
+                                        if batch.as_ref().is_some_and(|batch|
+                                            batch.rescan || batch.controls_changed
+                                                || !batch.paths.is_empty() || batch.error.is_some()) {
                                             source_preemption.cancel();
                                         }
+                                        batch
+                                    },
+                                };
+                                match batch {
+                                    Some(batch) => {
                                         match &mut queued {
                                             Some(queued) => queued.merge(batch),
                                             None => queued = Some(batch),
@@ -671,6 +683,82 @@ mod tests {
             received.recv().await.is_none(),
             "no redundant record batch remains after the retained hint"
         );
+    }
+
+    #[tokio::test]
+    async fn administrative_rescan_preserves_full_until_native_delta() {
+        let dir = TempDir::new().unwrap();
+        let changed = dir.path().join("changed.rs");
+        let (entered_tx, mut entered) = mpsc::channel(8);
+        let (hint_observed, hint) = oneshot::channel();
+        let (delta_observed, delta) = oneshot::channel();
+        let (release_full, full_wait) = oneshot::channel();
+        let mut first = Some((hint_observed, delta_observed, full_wait));
+        let owner = ProjectSupervisor::start_controlled(
+            context(dir.path(), "feature"),
+            config(dir.path()),
+            crate::watcher::ExternalControls::default(),
+            move |_, batch, lifetime, _, background, source_preemption| {
+                let entered = entered_tx.clone();
+                let first = first.take();
+                async move {
+                    assert!(!source_preemption.is_cancelled());
+                    entered.send(batch).await.unwrap();
+                    if let Some((hint_observed, delta_observed, full_wait)) = first {
+                        // The background signal acknowledges consumption of the
+                        // administrative hint, without a timer or scheduling guess.
+                        background.cancelled().await;
+                        hint_observed
+                            .send(source_preemption.is_cancelled())
+                            .unwrap();
+                        source_preemption.cancelled().await;
+                        assert!(!lifetime.is_cancelled());
+                        delta_observed.send(()).unwrap();
+                        full_wait.await.unwrap();
+                    }
+                    Ok(())
+                }
+            },
+        )
+        .await
+        .unwrap();
+        let initial = timeout(Duration::from_secs(8), entered.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(initial.rescan);
+        let handle = owner.rescan_handle();
+        for _ in 0..1000 {
+            assert!(handle.request_rescan());
+        }
+        assert!(
+            !timeout(Duration::from_secs(8), hint)
+                .await
+                .unwrap()
+                .unwrap(),
+            "administrative hints must let the full source pass finish"
+        );
+        assert!(entered.try_recv().is_err());
+        fs::write(&changed, "fn changed() {}\n").unwrap();
+        timeout(Duration::from_secs(8), delta)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            entered.try_recv().is_err(),
+            "native delta awaits owned cleanup"
+        );
+        release_full.send(()).unwrap();
+        let next = timeout(Duration::from_secs(8), entered.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(next.rescan, "the administrative hint remains queued");
+        assert!(
+            next.paths.contains(&changed),
+            "the native FILE delta is retained"
+        );
+        owner.stop().await.unwrap();
     }
 
     #[tokio::test]

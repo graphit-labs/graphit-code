@@ -11,7 +11,7 @@ use graphit_core::{
     native_document_file::CapturedDocumentDirectory,
 };
 use graphit_daemon::{supervisor::ProjectContext, watcher::ChangeBatch};
-use graphit_data::lance_branch_store::{BranchSnapshot, col, lit};
+use graphit_data::lance_branch_store::{AST_INDEX_BATCH, BranchSnapshot, col, lit};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -148,6 +148,7 @@ async fn full_and_nn_backlog_release_native_owner_between_files() -> TestResult 
             graph_root.parent().unwrap().parent().unwrap().join("corpus.lance").to_str().unwrap(), None, None,
         ).await?;
         assert!(file_rows(&search, "a.lua").await?.iter().any(|batch| batch.num_rows() > 0));
+        drop(search);
         // A live FILE batch retains its disk locator index for the next FILE.
         // Read access still works during publication; it owns no Ladybug pool.
         drop((index, directory));
@@ -161,7 +162,24 @@ async fn full_and_nn_backlog_release_native_owner_between_files() -> TestResult 
         for path in ["a.lua", "b.lua"] {
             assert!(file_rows(&pending, path).await?.iter().any(|batch| batch.num_rows() > 0));
         }
+        drop(pending);
         assert_last_native_owner(index, directory);
+
+        // Give the idle, private corpus real obsolete SDK versions without
+        // changing any row, Source association or pending projection.
+        let corpus_path = graph_root.parent().unwrap().parent().unwrap().join("corpus.lance");
+        let corpus_uri = corpus_path.to_str().ok_or("corpus path is not Unicode")?;
+        let mut history = pending_snapshot(&graph_root).await?;
+        let batches = history.scan().try_into_stream().await?.try_collect::<Vec<_>>().await?;
+        assert!(batches.iter().any(|batch| batch.num_rows() > 0));
+        for _ in 0..AST_INDEX_BATCH {
+            history = history.prepare_overwrite(batches.clone()).await?.commit().await?;
+        }
+        drop(batches);
+        drop(history);
+        let before_cleanup = lance::Dataset::open(corpus_uri).await?.versions().await?
+            .into_iter().map(|version| version.version).collect::<BTreeSet<_>>();
+        assert!(before_cleanup.len() >= AST_INDEX_BATCH);
 
         // The real NN consumer starts with both durable FILEs ready. Its next
         // FILE is already known while the first operation's owners are gone.
@@ -185,6 +203,12 @@ async fn full_and_nn_backlog_release_native_owner_between_files() -> TestResult 
         let pending = pending_snapshot(&graph_root).await?;
         assert!(file_rows(&pending, "a.lua").await?.iter().all(|batch| batch.num_rows() == 0));
         assert!(file_rows(&pending, "b.lua").await?.iter().any(|batch| batch.num_rows() > 0));
+        let after_cleanup = lance::Dataset::open(corpus_uri).await?.versions().await?
+            .into_iter().map(|version| version.version).collect::<BTreeSet<_>>();
+        assert!(after_cleanup.len() < before_cleanup.len(),
+            "NN FILE cleanup must prune real SDK history before its ready tail completes: {before_cleanup:?} -> {after_cleanup:?}");
+        assert!(!after_cleanup.contains(before_cleanup.first().unwrap()),
+            "an obsolete version must be gone while b.lua remains pending");
         assert_last_native_owner(index, directory);
         // Both skip paths must release their capture and leave the valid tail
         // ready: an acknowledged FILE has no pending rows, and a stale notice

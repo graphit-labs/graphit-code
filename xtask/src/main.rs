@@ -1,10 +1,12 @@
 use std::{
     env,
+    io::{BufRead, Write},
     path::{Path, PathBuf},
-    process::{Command, ExitCode},
+    process::{Command, ExitCode, Stdio},
 };
 mod ladybug;
 mod safety;
+mod test_fixtures;
 mod test_selection;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -522,7 +524,6 @@ fn execute(root: &Path, arguments: &[&str]) -> Result<(), String> {
     eprintln!("Rust guardrail: cargo {}", arguments.join(" "));
     let mut command = Command::new(cargo);
     command
-        .args(arguments)
         .current_dir(root)
         // Cargo supplies these for each package. Inheriting xtask metadata
         // invalidates dependency build scripts that watch the same variables.
@@ -532,7 +533,7 @@ fn execute(root: &Path, arguments: &[&str]) -> Result<(), String> {
         .env_remove("CARGO_PKG_VERSION_MINOR")
         .env_remove("CARGO_PKG_VERSION_PATCH")
         .env_remove("CARGO_PKG_VERSION_PRE");
-    let _prepared = if matches!(
+    let mut prepared = if matches!(
         arguments.first(),
         Some(&"build" | &"check" | &"clippy" | &"test" | &"rustc")
     ) {
@@ -543,8 +544,10 @@ fn execute(root: &Path, arguments: &[&str]) -> Result<(), String> {
                 .map(|s| (*s).to_owned())
                 .collect::<Vec<_>>(),
         )?;
-        prepared.apply(&mut command);
-        Some(prepared)
+        if let Some(prepared) = &prepared {
+            prepared.apply(&mut command);
+        }
+        prepared
     } else {
         None
     };
@@ -553,7 +556,75 @@ fn execute(root: &Path, arguments: &[&str]) -> Result<(), String> {
         // This applies to test children only; production runtime is unchanged.
         command.env("RUST_MIN_STACK", "8388608");
     }
-    let status = command.status().map_err(|error| error.to_string())?;
+    test_fixtures::prepare(root, arguments, &mut command)?;
+    let mut forwarded: Vec<_> = arguments.iter().map(|arg| (*arg).to_owned()).collect();
+    let cargo_args = arguments
+        .iter()
+        .copied()
+        .take_while(|arg| *arg != "--")
+        .collect::<Vec<_>>();
+    let format = cargo_args.iter().enumerate().find_map(|(i, arg)| {
+        arg.strip_prefix("--message-format=").or_else(|| {
+            (*arg == "--message-format")
+                .then(|| cargo_args.get(i + 1).copied())
+                .flatten()
+        })
+    });
+    let stream_build = arguments.first() == Some(&"test")
+        && prepared.is_some()
+        && format.is_none_or(|format| format.starts_with("json"));
+    if stream_build && format.is_none() {
+        let separator = forwarded
+            .iter()
+            .position(|arg| arg == "--")
+            .unwrap_or(forwarded.len());
+        forwarded.insert(separator, "--message-format=json-render-diagnostics".into());
+    }
+    command.args(forwarded);
+    let status = if stream_build {
+        let mut child = command
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        let stdout = child.stdout.take().ok_or("Cargo stdout missing")?;
+        let mut reader = std::io::BufReader::new(stdout);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error.to_string());
+                }
+            }
+            let message = serde_json::from_slice::<cargo_metadata::Message>(&line).ok();
+            if matches!(message, Some(cargo_metadata::Message::BuildFinished(_))) {
+                // Static engine/bridge linking is complete. Test execution must
+                // not keep unrelated consumers behind the native build lock.
+                drop(prepared.take());
+            }
+            if format.is_some()
+                || message.is_none()
+                || matches!(message, Some(cargo_metadata::Message::TextLine(_)))
+            {
+                if let Err(error) = std::io::stdout().write_all(&line) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error.to_string());
+                }
+            } else if let Some(cargo_metadata::Message::CompilerMessage(message)) = message
+                && let Some(rendered) = message.message.rendered
+            {
+                eprint!("{rendered}");
+            }
+        }
+        child.wait().map_err(|e| e.to_string())?
+    } else {
+        command.status().map_err(|error| error.to_string())?
+    };
     if status.success() {
         Ok(())
     } else {

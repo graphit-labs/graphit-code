@@ -204,15 +204,8 @@ impl Watcher for CheckoutWatcher {
         let old = self.backend.mode(path);
         let previous = lock(&self.subscription.paths).insert(path.to_owned(), mode);
         let aggregate = self.backend.mode(path).expect("registered native path");
-        // FSEvents keeps registrations by path and restarts its shared stream
-        // on every SDK watch call. Keep an unchanged canonical registration.
-        if RecommendedWatcher::kind() == notify::WatcherKind::Fsevent
-            && old == Some(aggregate)
-            && fs::canonicalize(path).is_ok_and(|current| current == path)
-        {
-            return Ok(());
-        }
-        // Other backends may need to reattach after a path is recreated.
+        // Let the SDK preserve unchanged native registrations and reattach
+        // recreated paths according to the backend's actual ownership.
         let result =
             if old == Some(RecursiveMode::Recursive) && aggregate == RecursiveMode::NonRecursive {
                 self.backend
@@ -1551,6 +1544,10 @@ mod tests {
             notify::Config::default(),
         )
         .unwrap();
+        // Root removal is observed through its surviving parent on FSEvents.
+        native
+            .watch(dir.path(), RecursiveMode::NonRecursive)
+            .unwrap();
         for index in 0..4 {
             let child = dir.path().join(format!("retired-{index}"));
             fs::create_dir(&child).unwrap();

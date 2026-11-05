@@ -577,6 +577,42 @@ async fn publish(
                 };
                 io::Error::new(kind, cause)
             })?;
+            let refresh = match &request {
+                PublicationRequest::Roles(_) => true,
+                PublicationRequest::Hooks(request) => request.operation == crate::project_hook_install::HookOperation::Install,
+                PublicationRequest::Coordinator(request) => request.operation == crate::project_hook_install::HookOperation::Install,
+            };
+            if refresh {
+                let refreshed = runtime.block_on(async {
+                    let issuer = worker.auth.issuer();
+                    let caller = issuer.authenticate_runtime(&credential, &original).map_err(io::Error::other)?;
+                    let session = issuer.bootstrap_admin(&caller).map_err(io::Error::other)?;
+                    issuer.admin_parent(&caller, &session).map_err(io::Error::other)?
+                        .authorize(graphit_auth::Permission::Configure).map_err(io::Error::other)?;
+                    crate::instruction_overrides::sync(
+                        issuer,
+                        &caller,
+                        &worker.policy.installation,
+                        worker.hub_transport.as_ref().is_some_and(|transport| transport.allow_loopback_http),
+                        &original,
+                    ).await
+                });
+                if let Err(error) = refreshed {
+                    let failure = Some(format!("Broker instruction sync failed: {error}"));
+                    let bytes = match request {
+                        PublicationRequest::Roles(_) => serde_json::to_vec(&super::InstallOutcome {
+                            failure, ..Default::default()
+                        }),
+                        PublicationRequest::Hooks(_) => serde_json::to_vec(&crate::project_hook_install::HookOutcome {
+                            failure, ..Default::default()
+                        }),
+                        PublicationRequest::Coordinator(_) => serde_json::to_vec(&crate::project_coordinator_install::CoordinatorOutcome {
+                            failure, ..Default::default()
+                        }),
+                    }.map_err(io::Error::other)?;
+                    return Ok((bytes, false));
+                }
+            }
             let docs_project = match &request {
                 PublicationRequest::Roles(request) => request.project_dir.as_deref(),
                 _ => None,

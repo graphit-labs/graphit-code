@@ -11,6 +11,8 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+#[path = "support/agent_fixture.rs"]
+mod agent_fixture;
 use graphit_ai::knowledge_conversation::ConversationLimits;
 use graphit_app::{
     foreground_source::ForegroundSource,
@@ -263,8 +265,24 @@ struct BrokerState {
     key: Ed25519KeyPair,
     allowed: AtomicBool,
     calls: AtomicUsize,
+    calls_changed: tokio::sync::Notify,
 }
 impl BrokerState {
+    async fn wait_for_calls(&self, count: usize) {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let changed = self.calls_changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if self.calls.load(Ordering::SeqCst) >= count {
+                    return;
+                }
+                changed.await;
+            }
+        })
+        .await
+        .unwrap();
+    }
     fn token(&self, subject: &str, audience: &str, expiry: u64) -> String {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -301,6 +319,7 @@ impl Broker {
             .unwrap(),
             allowed: AtomicBool::new(true),
             calls: AtomicUsize::new(0),
+            calls_changed: tokio::sync::Notify::new(),
         });
         let router = Router::new()
             .route("/.well-known/graphit-broker", get(metadata))
@@ -357,6 +376,7 @@ async fn access(
     )
     .unwrap();
     s.calls.fetch_add(1, Ordering::SeqCst);
+    s.calls_changed.notify_waiters();
     if !s.allowed.load(Ordering::SeqCst) {
         return (StatusCode::FORBIDDEN, Json(json!({})));
     }
@@ -602,35 +622,7 @@ impl Fixture {
         drop(auth);
         let program = temp.path().join("codex");
         let launches = temp.path().join("launches.jsonl");
-        let script = format!(
-            r#"#!/usr/bin/python3
-import sys,json,os,time,signal
-prompt=json.load(sys.stdin)
-query=prompt['question']
-if query=='cancel-http':
- def term_received(_signal,_frame):
-  with open({term:?},'w') as marker:marker.write('actual SIGTERM')
- signal.signal(signal.SIGTERM,term_received)
-with open({log:?},'a') as f:f.write(json.dumps({{'args':sys.argv[1:],'query':prompt['question']}})+'\n')
-native='private-fixture-native'
-if 'mismatch' in query:native='different-private-native'
-if 'missing' not in query:print(json.dumps({{'type':'thread.started','thread_id':native}}),flush=True)
-print(json.dumps({{'type':'turn.started'}}),flush=True)
-if 'malformed' in query:print('{{',flush=True);sys.exit(3)
-if query=='cancel-http':
- while not os.path.exists({release:?}):time.sleep(0.005)
-if 'wait' in query:time.sleep(5)
-text=json.dumps({{'type':'item.completed','item':{{'id':'answer','type':'agent_message','text':'Paris β [[Paris]]'}}}},ensure_ascii=False)+'\n'
-for b in text.encode():os.write(1,bytes([b]))
-print(json.dumps({{'type':'turn.completed','usage':{{'input_tokens':7,'cached_input_tokens':0,'output_tokens':3,'reasoning_output_tokens':0}}}}),flush=True)
-sys.exit(7 if 'nonzero' in query else 0)
-"#,
-            log = launches,
-            term = temp.path().join("http-cancel-term"),
-            release = temp.path().join("http-cancel-release"),
-        );
-        std::fs::write(&program, script).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        agent_fixture::install(&program, json!({"kind":"conversation","protocol":"codex"}));
         Self {
             temp,
             paths,
@@ -871,19 +863,7 @@ sys.exit(7 if 'nonzero' in query else 0)
     ) -> ForegroundSource {
         let program = self.temp.path().join("kiro-cli");
         if !program.exists() {
-            if mode == "cancel_delay_exit" {
-                let executable =
-                    env!("CARGO_BIN_EXE_kiro-knowledge-fixture").replace('\'', "'\\''");
-                std::fs::write(
-                    &program,
-                    format!("#!/bin/sh\ntrap '' TERM\nexec '{executable}' \"$@\"\n"),
-                )
-                .unwrap();
-                std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
-            } else {
-                std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_kiro-knowledge-fixture"), &program)
-                    .unwrap();
-            }
+            std::fs::copy(env!("CARGO_BIN_EXE_kiro-knowledge-fixture"), &program).unwrap();
         }
         self.start_native(
             broker,
@@ -920,6 +900,27 @@ sys.exit(7 if 'nonzero' in query else 0)
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
             Err(e) => panic!("fixture launch read {:?}", e.kind()),
         }
+    }
+    fn turn_gate(&self, query: &str, suffix: &str) -> PathBuf {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(query.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        self.temp.path().join(format!("{digest}.{suffix}"))
+    }
+    async fn wait_for_blocked_turn(&self, query: &str) {
+        let ready = self.turn_gate(query, "ready");
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while !ready.exists() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+    }
+    fn release_turn(&self, query: &str) {
+        std::fs::write(self.turn_gate(query, "release"), b"release native turn").unwrap();
     }
 }
 fn native_test(test: impl std::future::Future<Output = ()> + Send + 'static) {
@@ -1857,10 +1858,20 @@ fn actual_post_effect_authorization_changes_withhold_delivery_and_keep_receipt()
                 .unwrap()
             });
             wait_for_launches(&f, 1).await;
+            f.wait_for_blocked_turn("wait delivery denial").await;
             let moved = f.temp.path().join("moved-project");
             if physical {
                 std::fs::rename(f.project.root(), &moved).unwrap();
+            } else {
+                let expiration = UNIX_EPOCH + Duration::from_secs(expires);
+                tokio::time::sleep(
+                    expiration
+                        .duration_since(SystemTime::now())
+                        .unwrap_or_default(),
+                )
+                .await;
             }
+            f.release_turn("wait delivery denial");
             let result = call.await.unwrap();
             if physical {
                 std::fs::rename(&moved, f.project.root()).unwrap();
@@ -1903,30 +1914,51 @@ fn actual_original_deadline_during_execution_denies_and_joins_before_unlock() {
         let broker = Broker::new().await;
         let f = Fixture::new(&broker).await;
         let owner = f
-            .start_with_options(&broker, Some(json!(true)), f.temp.path(), Some(1500))
+            .start_with_options(
+                &broker,
+                Some(json!(true)),
+                f.temp.path(),
+                Some(BLOCKED_TURN_DEADLINE_MS),
+            )
             .await;
         let uri = format!("http://{}/mcp", owner.address().unwrap());
         let cancel = Cancellation::default();
         let stopped = cancel.clone();
         let running = tokio::spawn(async move { owner.run(&stopped).await });
-        let client = rpc_client(&uri, &broker.state.token("caller-A", RESOURCE, expiry())).await;
-        let response = client
-            .call_tool(
-                CallToolRequestParams::new("graphit_knowledge_conversation").with_arguments(
-                    args("create", "deadline", "wait original deadline")
-                        .as_object()
-                        .unwrap()
-                        .clone(),
-                ),
+        let progress = ProgressWitness::new(&["turn.started"]);
+        let client = rpc_client_with_handler(
+            &uri,
+            &broker.state.token("caller-A", RESOURCE, expiry()),
+            progress.clone(),
+        )
+        .await;
+        let mut params = CallToolRequestParams::new("graphit_knowledge_conversation")
+            .with_arguments(
+                args("create", "deadline", "wait original deadline")
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+            );
+        params.meta =
+            Some(serde_json::from_value(json!({"progressToken":"codex-deadline"})).unwrap());
+        let handle = client
+            .peer()
+            .send_cancellable_request(
+                rmcp::model::ClientRequest::CallToolRequest(rmcp::model::CallToolRequest::new(
+                    params,
+                )),
+                rmcp::service::PeerRequestOptions::no_options(),
             )
             .await
             .unwrap();
-        assert_eq!(response.is_error, Some(true));
-        assert!(
-            serde_json::to_string(&response)
-                .unwrap()
-                .contains("deadline")
-        );
+        progress.wait("Codex deadline").await;
+        f.wait_for_blocked_turn("wait original deadline").await;
+        let rmcp::model::ServerResult::CallToolResult(response) =
+            handle.await_response().await.unwrap()
+        else {
+            panic!("deadline tool result")
+        };
+        assert_blocked_turn_expired(&response);
         assert_eq!(f.launches().len(), 1);
         client.cancel().await.unwrap();
         cancel.cancel();
@@ -2037,6 +2069,7 @@ fn actual_progress_is_private_and_post_effect_store_failure_keeps_receipt_and_wr
         let target = user_root.join(format!("graphit-ai-conversation-{digest}.json"));
         std::fs::write(&target, b"foreign-owned-destination").unwrap();
         std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600)).unwrap();
+        f.release_turn("wait for store fault");
         let result = fault.await.unwrap();
         assert_eq!(result.is_error, Some(true));
         let payload = result.structured_content.unwrap();
@@ -2084,6 +2117,8 @@ fn actual_progress_is_private_and_post_effect_store_failure_keeps_receipt_and_wr
             .unwrap()
         });
         wait_for_launches(&f, before + 1).await;
+        f.wait_for_blocked_turn("wait first").await;
+        let authorized = broker.state.calls.load(Ordering::SeqCst);
         let peer = client.peer().clone();
         let second = tokio::spawn(async move {
             peer.call_tool(
@@ -2097,12 +2132,14 @@ fn actual_progress_is_private_and_post_effect_store_failure_keeps_receipt_and_wr
             .await
             .unwrap()
         });
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        broker.state.wait_for_calls(authorized + 1).await;
+        assert!(!first.is_finished());
         assert_eq!(
             f.launches().len(),
             before + 1,
             "same USER writer forbids simultaneous child"
         );
+        f.release_turn("wait first");
         assert_eq!(first.await.unwrap().is_error, Some(false));
         assert_eq!(second.await.unwrap().is_error, Some(false));
         assert_eq!(f.launches().len(), before + 2);
@@ -2333,14 +2370,7 @@ fn actual_http_request_cancel_keeps_worker_and_user_writer_until_process_finishe
             .await
             .unwrap()
         });
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while broker.state.calls.load(Ordering::SeqCst) == calls {
-                tokio::time::sleep(Duration::from_millis(5)).await;
-            }
-        })
-        .await
-        .unwrap();
-        tokio::time::sleep(Duration::from_millis(50)).await;
+        broker.state.wait_for_calls(calls + 1).await;
         assert!(graphit_core::file_lock::FileLock::is_locked(&writer_path).unwrap());
         assert_eq!(
             f.launches().len(),
@@ -3350,14 +3380,11 @@ fn kiro_clear_http_cancel_retains_user_writer_until_delayed_native_child_wait() 
     native_test(async {
         let broker = Broker::new().await;
         let f = Fixture::new(&broker).await;
-        let executable = env!("CARGO_BIN_EXE_kiro-knowledge-fixture").replace('\'', "'\\''");
-        let program = f.temp.path().join("kiro-cli");
-        std::fs::write(
-            &program,
-            format!("#!/bin/sh\ntrap '' TERM\nexec '{executable}' \"$@\"\n"),
+        std::fs::copy(
+            env!("CARGO_BIN_EXE_kiro-knowledge-fixture"),
+            f.temp.path().join("kiro-cli"),
         )
         .unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
         kiro_clear_seed(&f, &broker, NativeBinding::KiroV3).await;
         let closed = f
             .kiro_events()
@@ -3492,33 +3519,7 @@ fn missing_completion_program_rejects_incoming_conversation_before_locator_or_ch
 impl Fixture {
     async fn start_claude(&self, broker: &Broker, deadline_ms: Option<u64>) -> ForegroundSource {
         let program = self.temp.path().join("claude");
-        std::fs::write(&program, r#"#!/usr/bin/python3
-import json, os, sys, time, signal
-signal.signal(signal.SIGTERM, lambda *_: open(os.environ["CLAUDE_RELEASE"] + ".term", "w").write("term"))
-args = sys.argv[1:]
-prompt = json.load(sys.stdin)
-query = prompt['question']
-session = '00000000-0000-4000-8000-000000000001'
-if '--resume' in args:
-    assert args[args.index('--resume') + 1] == session
-with open(os.environ['CLAUDE_JOURNAL'], 'a') as journal:
-    journal.write(json.dumps({'args': args, 'query': query, 'cwd': os.getcwd(), 'captured': os.environ.get('CLAUDE_CAPTURED'), 'pid': os.getpid()}) + '\n')
-if query == 'mismatch':
-    session = '00000000-0000-4000-8000-000000000002'
-print(json.dumps({'type':'system','subtype':'init','session_id':session,'model':'observed-native'}), flush=True)
-if query == 'wait for release':
-    while not os.path.exists(os.environ['CLAUDE_RELEASE']):
-        time.sleep(0.01)
-if query == 'malformed':
-    print('{bad native frame', flush=True)
-    sys.exit(0)
-if query == 'missing result':
-    sys.exit(0)
-print(json.dumps({'type':'result','subtype':'error' if query == 'native error' else 'success','duration_ms':1,'duration_api_ms':1,'is_error':query == 'native error','num_turns':1,'session_id':session,'result':'Paris answer','usage':{'input_tokens':7,'output_tokens':3}}), flush=True)
-if query == 'nonzero':
-    sys.exit(7)
-"#).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        agent_fixture::install(&program, json!({"kind":"conversation","protocol":"claude"}));
         self.start_native(
             broker,
             Some(json!(true)),

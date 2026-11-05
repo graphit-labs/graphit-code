@@ -903,7 +903,14 @@ mod tests {
             (1, None),
             (2, Some(DeliveryError::Gap)),
         ] {
-            let h = Harness::new(Duration::from_millis(100), false);
+            let h = Harness::new(
+                if expected == Some(DeliveryError::Gap) {
+                    Duration::from_millis(100)
+                } else {
+                    Duration::from_secs(5)
+                },
+                false,
+            );
             h.gate
                 .bind(ProgressToken(rmcp::model::NumberOrString::Number(99)));
             h.event(1.0, 99).await;
@@ -1408,7 +1415,14 @@ mod tests {
             (1, None),
             (2, Some(DeliveryError::Gap)),
         ] {
-            let h = Harness::new(Duration::from_millis(100), false);
+            let h = Harness::new(
+                if expected == Some(DeliveryError::Gap) {
+                    Duration::from_millis(100)
+                } else {
+                    Duration::from_secs(5)
+                },
+                false,
+            );
             h.gate
                 .bind(ProgressToken(rmcp::model::NumberOrString::Number(99)));
             h.event(1.0, 99).await;
@@ -1471,7 +1485,14 @@ mod tests {
             (1, None),
             (2, Some(DeliveryError::Gap)),
         ] {
-            let h = Harness::new(Duration::from_millis(100), false);
+            let h = Harness::new(
+                if expected == Some(DeliveryError::Gap) {
+                    Duration::from_millis(100)
+                } else {
+                    Duration::from_secs(5)
+                },
+                false,
+            );
             h.gate
                 .bind(ProgressToken(rmcp::model::NumberOrString::Number(99)));
             h.event(1.0, 99).await;
@@ -1530,7 +1551,14 @@ mod tests {
             (1, None),
             (2, Some(DeliveryError::Gap)),
         ] {
-            let h = Harness::new(Duration::from_millis(100), false);
+            let h = Harness::new(
+                if expected == Some(DeliveryError::Gap) {
+                    Duration::from_millis(100)
+                } else {
+                    Duration::from_secs(5)
+                },
+                false,
+            );
             h.gate
                 .bind(ProgressToken(rmcp::model::NumberOrString::Number(99)));
             h.event(1.0, 99).await;
@@ -1584,7 +1612,14 @@ mod tests {
             (1, None),
             (2, Some(DeliveryError::Gap)),
         ] {
-            let h = Harness::new(Duration::from_millis(100), false);
+            let h = Harness::new(
+                if expected == Some(DeliveryError::Gap) {
+                    Duration::from_millis(100)
+                } else {
+                    Duration::from_secs(5)
+                },
+                false,
+            );
             h.gate
                 .bind(ProgressToken(rmcp::model::NumberOrString::Number(99)));
             h.event(1.0, 99).await;

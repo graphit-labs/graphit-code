@@ -3,7 +3,6 @@
 use crate::{
     icebug_query::{QueryOptions, execute},
     imported_graph::EntitySourceError,
-    indexed_source::BranchSourceObservation,
 };
 use graphit_core::file_io::SnapshotContext;
 use graphit_data::CapturedLocalGraph;
@@ -17,23 +16,10 @@ pub struct ProjectEntitySource {
     pub(crate) start: usize,
     pub(crate) end: usize,
     hash: [u8; 32],
-    version: u64,
-    physical_branch: Option<String>,
-    inherited_target: Option<String>,
 }
 impl ProjectEntitySource {
-    pub fn raw_version(&self) -> u64 {
-        self.version
-    }
     pub(crate) fn matches_text(&self, text: &str) -> bool {
         Sha256::digest(text.as_bytes()).as_slice() == self.hash
-    }
-    /// Compare this observed entity association with the actual retained Raw branch.
-    /// This is data validation and confers no read authority.
-    pub fn matches_index(&self, version: u64, branch: BranchSourceObservation<'_>) -> bool {
-        self.version == version
-            && self.physical_branch.as_deref() == branch.physical_branch
-            && self.inherited_target.as_deref() == branch.inherited_target
     }
 }
 fn scalar<'a>(cell: &'a Value, kind: &str) -> Result<&'a str, EntitySourceError> {
@@ -46,19 +32,8 @@ fn scalar<'a>(cell: &'a Value, kind: &str) -> Result<&'a str, EntitySourceError>
         .and_then(Value::as_str)
         .ok_or(EntitySourceError::InvalidExtent)
 }
-fn branch(cell: &Value) -> Result<Option<String>, EntitySourceError> {
-    if matches!(
-        cell.get("type").and_then(Value::as_str),
-        Some("NULL" | "ANY" | "STRING")
-    ) && cell.get("value") == Some(&Value::Null)
-    {
-        Ok(None)
-    } else {
-        scalar(cell, "STRING").map(|s| Some(s.to_owned()))
-    }
-}
 fn binding(row: &[Value]) -> Result<ProjectEntitySource, EntitySourceError> {
-    if row.len() != 6 {
+    if row.len() != 3 {
         return Err(EntitySourceError::InvalidExtent);
     }
     let start = scalar(&row[0], "INT64")?
@@ -87,19 +62,7 @@ fn binding(row: &[Value]) -> Result<ProjectEntitySource, EntitySourceError> {
         )
         .map_err(|_| EntitySourceError::InvalidExtent)?;
     }
-    let version = scalar(&row[3], "STRING")?
-        .parse::<u64>()
-        .ok()
-        .filter(|v| *v > 0)
-        .ok_or(EntitySourceError::InvalidExtent)?;
-    Ok(ProjectEntitySource {
-        start,
-        end,
-        hash,
-        version,
-        physical_branch: branch(&row[4])?,
-        inherited_target: branch(&row[5])?,
-    })
+    Ok(ProjectEntitySource { start, end, hash })
 }
 
 /// Resolve a real exact entity extent using the supplied captured PROJECT graph.
@@ -195,23 +158,13 @@ fn resolve_observed_entity(
             ("start_line", "INT64"),
             ("end_line", "INT64"),
             ("source_sha256", "STRING"),
-            ("raw_version", "STRING"),
             ("available", "BOOL"),
             ("extent_status", "STRING"),
         ]
         .iter()
         .all(|(name, kind)| fields.get(*name).map(String::as_str) == Some(*kind))
         {
-            for name in ["physical_branch", "inherited_target"] {
-                if fields.get(name).is_some_and(|kind| kind != "STRING") {
-                    return Err(EntitySourceError::InvalidExtent);
-                }
-            }
-            tables.push((
-                label,
-                fields.contains_key("physical_branch"),
-                fields.contains_key("inherited_target"),
-            ));
+            tables.push(label);
         } else if entity_type.is_some() {
             return Err(EntitySourceError::InvalidExtent);
         }
@@ -225,7 +178,7 @@ fn resolve_observed_entity(
     ]);
     for folded in [false, true] {
         let mut found = None;
-        for (label, physical, inherited) in &tables {
+        for label in &tables {
             original.check()?;
             let label = label.replace('`', "``");
             let name = if folded {
@@ -233,29 +186,11 @@ fn resolve_observed_entity(
             } else {
                 "n.name = $entity"
             };
-            let physical = if *physical {
-                "n.physical_branch"
-            } else {
-                "NULL"
-            };
-            let inherited = if *inherited {
-                "n.inherited_target"
-            } else {
-                "NULL"
-            };
             let query = format!(
-                "MATCH (n:`{label}`) WHERE n.path = $path AND {name} AND n.available = true AND n.extent_status = 'Exact' RETURN n.start_line AS source_start, n.end_line AS source_end, n.source_sha256 AS source_hash, n.raw_version AS raw_version, {physical} AS physical_branch, {inherited} AS inherited_target LIMIT 2"
+                "MATCH (n:`{label}`) WHERE n.path = $path AND {name} AND n.available = true AND n.extent_status = 'Exact' RETURN n.start_line AS source_start, n.end_line AS source_end, n.source_sha256 AS source_hash LIMIT 2"
             );
             let result = run(&query, &parameters)?;
-            if result.columns
-                != [
-                    "source_start",
-                    "source_end",
-                    "source_hash",
-                    "raw_version",
-                    "physical_branch",
-                    "inherited_target",
-                ]
+            if result.columns != ["source_start", "source_end", "source_hash"]
                 || result.rows.len() > 2
             {
                 return Err(EntitySourceError::InvalidExtent);

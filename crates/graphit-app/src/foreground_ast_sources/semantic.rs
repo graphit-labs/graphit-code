@@ -578,7 +578,6 @@ impl ForegroundAstSources {
                             };
                             let Some((observed, payload)) = pending else { continue; };
                             if observed.file_revision != expected.file_revision
-                                || observed.raw_version != expected.raw_version
                                 || observed.source_sha256 != expected.source_sha256
                                 || observed.scip_compiler != expected.scip_compiler {
                                 continue;
@@ -592,10 +591,12 @@ impl ForegroundAstSources {
                             if background_cancellation.is_cancelled() { continue; }
                             let compiler_enriched = scip_index.compiler_document(&graph, &path, original)?.is_some();
                             if !compiler_enriched { continue; }
-                            let indexed = match restored_files.get(&path) {
-                                Some(observation) => raw.read_version(&path, observation.raw_version, original).await,
-                                None => raw.read(&path, original).await,
-                            }.map_err(err)?;
+                            let indexed = raw.read(&path, original).await.map_err(err)?;
+                            if restored_files.contains_key(&path)
+                                && indexed.missing_reason() == Some(MissingSourceReason::FileAbsent) {
+                                pending_files.borrow_mut().insert(path.clone());
+                                continue;
+                            }
                             let components = path.split('/').collect::<Vec<_>>();
                             let physical = match indexed.source(original).map_err(err)? {
                                 IndexedSource::Available(_) => None,
@@ -612,11 +613,21 @@ impl ForegroundAstSources {
                                 },
                             };
                             let source_sha256: [u8;32] = Sha256::digest(text.as_bytes()).into();
-                            let mut file = super::progressive::FilePublication::new(path.clone(), source_sha256, indexed.version());
+                            if restored_files.get(&path).is_some_and(|observation| observation.source_sha256 != source_sha256) {
+                                // Only this obsolete parser enrichment is abandoned. The
+                                // current FILE remains eligible for normal Source processing.
+                                pending_files.borrow_mut().insert(path.clone());
+                                continue;
+                            }
+
+                            let staged = scip_index.staged_file(&graph, &path, original)?;
+                            let file_origin = staged.first().ok_or(io::ErrorKind::InvalidData)?.0.association().raw_version();
+                            let mut file = super::progressive::FilePublication::new(path.clone(), source_sha256, file_origin);
                             file.scip_compiler = compiler_images.get(&path).cloned();
-                            for (batch, oracle_rows) in scip_index.staged_file(&graph, &path, original)? {
+                            for (batch, oracle_rows) in staged {
                                 if batch.association().path() != path
-                                    || batch.association().source_sha256() != &source_sha256 {
+                                    || batch.association().source_sha256() != &source_sha256
+                                    || batch.association().raw_version() != file_origin {
                                     return Err(io::ErrorKind::InvalidData.into());
                                 }
                                 graph = super::graph::materialize(graph, batch, oracle_rows,
@@ -644,6 +655,10 @@ impl ForegroundAstSources {
                         profiles.revalidate(original)?;
                         recheck()?;
                         for (_, inputs, _) in &scip_outputs { inputs.recheck(original)?; }
+                        if !background_cancellation.is_cancelled() {
+                            progressive.maintain_indices(&recheck).await?;
+                            progressive.clean_history(&recheck).await?;
+                        }
                         Ok::<_, io::Error>(())
                     }).await;
                     drop(pending_sender);

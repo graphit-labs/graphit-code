@@ -652,16 +652,17 @@ async fn shared_cancellation_stalled_body_and_original_interbatch_deadline() {
         trigger.await.unwrap();
     }
     let mut first = reply(rows(1));
-    first.delay = Duration::from_millis(60);
+    first.delay = Duration::from_millis(600);
     let mut second = reply(rows(1));
-    second.delay = Duration::from_millis(60);
+    // 600 + 600 ms crosses the original 1 s budget but stays before a
+    // renewed second HTTP budget. Only Network(Deadline) is correct.
+    second.delay = Duration::from_millis(600);
     let fixture = fixture(vec![first, second]).await;
     let client = client(&fixture.origin);
     let endpoints = endpoints(&fixture.origin);
     let cancel = Cancellation::default();
     let policy = EmbeddingLimits::new(3, 100, 2, 6, 1, 1000, 1000).unwrap();
-    let context = InferenceContext::new(&cancel, Instant::now() + Duration::from_millis(100));
-    // Total120 is after original100 but before renewedHTTP160; aftercheck alone would be Context(Deadline).
+    let context = InferenceContext::new(&cancel, Instant::now() + Duration::from_secs(1));
     assert_eq!(
         error(
             adapter(&client, &endpoints, policy, GoogleFamily::Gemini1)

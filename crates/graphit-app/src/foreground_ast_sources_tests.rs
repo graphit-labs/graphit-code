@@ -23,6 +23,15 @@ mod recipe_tests;
 #[path = "foreground_ast_scheduling_tests.rs"]
 mod scheduling;
 
+fn source_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(5))
+        .read_timeout(Duration::from_secs(30))
+        .build()
+        .unwrap()
+}
+
 fn original_error_source<'a>(
     error: &'a (dyn std::error::Error + 'static),
 ) -> Option<&'a (dyn std::error::Error + 'static)> {
@@ -654,7 +663,7 @@ async fn ast_only_real_foreground_initial_raw_and_source_http()
     let service = Cancellation::default();
     let stop = service.clone();
     let running = tokio::spawn(async move { owner.run(&service).await });
-    let client = reqwest::Client::new();
+    let client = source_http_client();
     let mut output = Vec::new();
     crate::source_entry::call_source(
         &installation,

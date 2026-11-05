@@ -3,36 +3,7 @@ use super::*;
 impl Fixture {
     async fn start_cursor(&self, broker: &Broker, deadline_ms: Option<u64>) -> ForegroundSource {
         let program = self.temp.path().join("cursor-agent");
-        std::fs::write(&program, r#"#!/usr/bin/python3
-import json, os, sys, time, signal
-signal.signal(signal.SIGTERM, lambda *_: open(os.environ["CURSOR_RELEASE"] + ".term", "w").write("term"))
-args = sys.argv[1:]
-assert len(args) in (8, 10)
-prompt = json.loads(args[-1])
-args = args[:-1]
-query = prompt['question']
-session = 'cursor-native-observed'
-base = ['--print','--output-format','stream-json','--model','fixture-model','--mode','ask']
-assert args == base or args == base + ['--resume',session]
-with open(os.environ['CURSOR_JOURNAL'], 'a') as journal:
-    journal.write(json.dumps({'args': args, 'query': query, 'cwd': os.getcwd(), 'captured': os.environ.get('CURSOR_CAPTURED'), 'pid': os.getpid()}) + '\n')
-if query == 'mismatch':
-    session = 'cursor-native-mismatch'
-if query != 'missing init':
-    print(json.dumps({'type':'system','subtype':'init','session_id':session,'model':'observed-native'}), flush=True)
-if query == 'wait for release':
-    while not os.path.exists(os.environ['CURSOR_RELEASE']):
-        time.sleep(0.01)
-if query == 'malformed':
-    print('{bad native frame', flush=True)
-    sys.exit(0)
-if query == 'missing result':
-    sys.exit(0)
-print(json.dumps({'type':'result','subtype':'error' if query == 'native error' else 'success','duration_ms':1,'duration_api_ms':1,'is_error':query == 'native error','session_id':session,'result':'Paris answer'}), flush=True)
-if query == 'nonzero':
-    sys.exit(7)
-"#).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        agent_fixture::install(&program, json!({"kind":"conversation","protocol":"cursor"}));
         self.start_native(
             broker,
             Some(json!(true)),

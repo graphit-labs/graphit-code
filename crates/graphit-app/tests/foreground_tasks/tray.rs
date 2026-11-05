@@ -12,6 +12,12 @@ struct Watcher {
     announce: tokio::sync::mpsc::UnboundedSender<String>,
 }
 
+fn terminate_tray(pid: u32) -> std::io::Result<()> {
+    let pid = rustix::process::Pid::from_raw(i32::try_from(pid).map_err(std::io::Error::other)?)
+        .ok_or_else(|| std::io::Error::other("invalid owned tray PID"))?;
+    rustix::process::kill_process(pid, rustix::process::Signal::TERM).map_err(std::io::Error::from)
+}
+
 #[zbus::interface(name = "org.kde.StatusNotifierWatcher")]
 impl Watcher {
     async fn register_status_notifier_item(&self, service: String) {
@@ -276,11 +282,7 @@ async fn late_watcher_registers_the_existing_tray_and_signal_preserves_the_headl
     .catch_unwind()
     .await;
     let was_running = tray.try_wait().unwrap().is_none();
-    let terminated = was_running.then(|| {
-        Command::new("/bin/kill")
-            .args(["-TERM", &tray_pid.to_string()])
-            .status()
-    });
+    let terminated = was_running.then(|| terminate_tray(tray_pid));
     let joined = tokio::time::timeout(Duration::from_secs(20), tray.wait()).await;
     if joined.is_err() {
         tray.kill().await.unwrap();
@@ -298,7 +300,7 @@ async fn late_watcher_registers_the_existing_tray_and_signal_preserves_the_headl
         std::panic::resume_unwind(panic);
     }
     assert!(was_running);
-    assert!(terminated.unwrap().unwrap().success());
+    terminated.unwrap().unwrap();
     assert!(joined.is_ok(), "tray did not join after SIGTERM");
     let output = output.unwrap();
     assert_eq!(
@@ -352,36 +354,19 @@ async fn desktop_alive(peer: &mut tokio::net::UnixStream) {
 }
 
 fn controlled_opener(fixture: &Prepared) -> (std::path::PathBuf, tokio::net::UnixListener) {
-    use std::os::unix::fs::PermissionsExt;
     let directory = fixture.temp.path().join("desktop-programs");
     fs::create_dir(&directory).unwrap();
     let socket = fixture.temp.path().join("desktop.sock");
     let listener = tokio::net::UnixListener::bind(&socket).unwrap();
-    let python = Command::new(which::which("python3").unwrap())
-        .args(["-c", "import sys; print(sys.executable)"])
-        .output()
-        .unwrap();
-    assert!(
-        python.status.success(),
-        "Python interpreter discovery failed"
-    );
-    // A PATH lookup may return a pyenv shim whose own shell is absent from the private PATH.
-    let python = std::path::PathBuf::from(String::from_utf8(python.stdout).unwrap().trim());
-    assert!(python.is_absolute());
     // Model a desktop helper that exits after spawning an application. Closing
     // the test's connection ends the application, including during panic cleanup.
-    let application = format!(
-        "import socket,sys\ns=socket.socket(socket.AF_UNIX)\ns.connect({:?})\ns.sendall((sys.argv[1]+'\\n').encode())\nwhile True:\n b=s.recv(1)\n if not b: break\n s.sendall(b)\ns.close()\n",
-        socket.to_str().unwrap(),
-    );
-    let script = format!(
-        "#!{}\nimport subprocess,sys\nsubprocess.Popen([sys.executable,'-c',{:?},sys.argv[1]],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\n",
-        python.display(),
-        application,
-    );
     let file = directory.join("xdg-open");
-    fs::write(&file, script).unwrap();
-    fs::set_permissions(&file, fs::Permissions::from_mode(0o700)).unwrap();
+    dream_peer::install(&file).unwrap();
+    fs::write(
+        file.with_extension("json"),
+        serde_json::to_vec(&socket).unwrap(),
+    )
+    .unwrap();
     (directory, listener)
 }
 
@@ -731,13 +716,7 @@ async fn native_menu_login_quit_failure_recovery_and_signal_join_use_real_consum
         })
         .await;
         let before = status(&fixture).await;
-        assert!(
-            Command::new("/bin/kill")
-                .args(["-TERM", &signalled.id().unwrap().to_string()])
-                .status()
-                .unwrap()
-                .success()
-        );
+        terminate_tray(signalled.id().unwrap()).unwrap();
         let exit = tokio::time::timeout(Duration::from_secs(20), signalled.wait())
             .await
             .unwrap()

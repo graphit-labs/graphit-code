@@ -1,8 +1,12 @@
 use arrow_array::{ArrayRef, RecordBatch, StringArray};
 use graphit_ast::{
+    icebug_query::QueryOptions,
     indexed_source::{IndexedSourceError, source_schema},
+    live_graph::{LiveFileInput, LiveGraph},
+    project_entity_source::{ProjectEntitySource, resolve_live_project_entity_source},
     source_handler::{
-        SourceHandlerError, inspect_source_local, inspect_source_role, inspect_source_runtime,
+        CapturedSourceInput, SourceHandlerError, inspect_captured_source, inspect_source_local,
+        inspect_source_role, inspect_source_runtime,
     },
     source_index_locator::SourceIndexError,
     source_inspection::{SourceInspection, SourceInspectionError, SourceOrigin},
@@ -38,7 +42,11 @@ use graphit_core::{
     text_slice::Request,
     version_context::VersionContext,
 };
-use graphit_data::{lance_branch_store::LanceBranchStore, lance_module_store::LanceModuleStore};
+use graphit_data::{
+    graph_writer::{GraphNode, GraphValue},
+    lance_branch_store::{LanceBranchStore, cleanup_ast_corpus},
+    lance_module_store::LanceModuleStore,
+};
 use graphit_fs::NodeKind;
 use graphit_hub::{
     ArtifactId, ArtifactType, ConcreteVersion, NativeBinding, ProjectionLimits, SourceRef,
@@ -47,6 +55,7 @@ use graphit_hub::{
 };
 use sha2::{Digest, Sha256};
 use std::{
+    collections::BTreeMap,
     error::Error,
     fs, io,
     path::{Path, PathBuf},
@@ -412,6 +421,233 @@ async fn publish(
         LanceModuleStore::create(path.to_str().unwrap(), source_schema(), vec![batch(rows)])
             .await?,
     )
+}
+
+fn entity_fixture(
+    f: &Fixture,
+    ctx: &RequestContext<'_>,
+    text: &str,
+) -> Result<(LiveGraph, ProjectEntitySource), Box<dyn Error>> {
+    let hash: [u8; 32] = Sha256::digest(text.as_bytes()).into();
+    let hash_text = hash
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    let graph = LiveGraph::open_path_owned(
+        f._temp.path().join("entity-graph"),
+        ctx.snapshot(),
+        [31; 32],
+        true,
+    )?;
+    // The entity carries its exact extent and bytes, not a historical SDK locator.
+    let node = GraphNode {
+        label: "Function".into(),
+        key: "target".into(),
+        properties: BTreeMap::from([
+            ("name".into(), GraphValue::String("target".into())),
+            ("path".into(), GraphValue::String("entity.rs".into())),
+            ("start_line".into(), GraphValue::Int64(2)),
+            ("end_line".into(), GraphValue::Int64(2)),
+            ("source_sha256".into(), GraphValue::String(hash_text)),
+            ("available".into(), GraphValue::Bool(true)),
+            ("extent_status".into(), GraphValue::String("Exact".into())),
+        ]),
+    };
+    graph.replace_file(
+        LiveFileInput {
+            path: "entity.rs",
+            source_sha256: hash,
+            raw_version: 1,
+            nodes: &[node],
+            edges: &[],
+            definitions: &[],
+            references: &[],
+            scip_document: None,
+            oracle: &[],
+            oracle_file: None,
+            pending_compiler: None,
+            scip_compiler: None,
+        },
+        ctx.snapshot(),
+    )?;
+    let entity = resolve_live_project_entity_source(
+        &graph,
+        ctx.snapshot(),
+        "entity.rs",
+        "target",
+        Some("Function"),
+        QueryOptions {
+            buffer_pool_bytes: 67_108_864,
+            query_threads: 2,
+            max_rows: 100,
+            max_bytes: 65_536,
+            max_depth: 32,
+        },
+    )?;
+    Ok((graph, entity))
+}
+
+async fn inspect_entity(
+    f: &Fixture,
+    ctx: &RequestContext<'_>,
+    named: bool,
+    entity: &ProjectEntitySource,
+) -> Result<SourceInspection, SourceHandlerError> {
+    let caller = f
+        .issuer
+        .authenticate_runtime(&f.raw, ctx)
+        .map_err(SourceHandlerError::Authentication)?;
+    caller
+        .authorize(Permission::Read(Module::Ast))
+        .map_err(SourceHandlerError::Authentication)?;
+    let result = inspect_captured_source(CapturedSourceInput {
+        scope: f.scope(0, named),
+        requested_relative: Path::new("entity.rs"),
+        selection: &Request::default(),
+        file_policy: &file_policy(),
+        read_limits: read_limits(),
+        path_limits: path_limits(),
+        index_limits: index_limits(),
+        original: ctx.snapshot(),
+        entity: Some(entity),
+    })
+    .await;
+    caller
+        .authorize(Permission::Read(Module::Ast))
+        .map_err(SourceHandlerError::Authentication)?;
+    result
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn entity_source_matches_current_file_after_other_file_advance_and_history_cleanup()
+-> TestResult {
+    let cancel = Cancellation::default();
+    let ctx = request(&cancel);
+    let f = Fixture::new(&ctx, true, false)?;
+    let text = "before\nfn target() {}\nafter\n";
+    let (_graph, entity) = entity_fixture(&f, &ctx, text)?;
+    let base = publish(&f, 0, &[("entity.rs", Some(text))]).await?;
+    let changed = base
+        .snapshot()
+        .prepare_replace(vec![batch(&[
+            ("entity.rs", Some(text)),
+            ("other.rs", Some("fn other() {}")),
+        ])])
+        .await?
+        .commit()
+        .await?;
+    assert!(changed.snapshot().version() > base.snapshot().version());
+    drop((base, changed));
+    let cleaned = cleanup_ast_corpus(&f.corpus(0), ctx.snapshot())
+        .await?
+        .unwrap();
+    assert!(
+        cleaned
+            .iter()
+            .any(|(before, after)| before.manifests > after.manifests)
+    );
+    let selected = inspect_entity(&f, &ctx, false, &entity).await?;
+    assert_eq!(selected.origin, SourceOrigin::Indexed);
+    assert_eq!(selected.selection.source, "fn target() {}");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn entity_source_rejects_changed_and_absent_rows_but_checks_unstored_physical_bytes()
+-> TestResult {
+    let cancel = Cancellation::default();
+    let ctx = request(&cancel);
+    let f = Fixture::new(&ctx, true, false)?;
+    let text = "before\nfn target() {}\nafter\n";
+    let (_graph, entity) = entity_fixture(&f, &ctx, text)?;
+    let base = publish(&f, 0, &[("entity.rs", Some(text))]).await?;
+    let path = f.projects[0].root.join("entity.rs");
+    fs::write(&path, text)?;
+    let changed = base
+        .snapshot()
+        .prepare_replace(vec![batch(&[(
+            "entity.rs",
+            Some("changed\nfn target() {}\nafter\n"),
+        )])])
+        .await?
+        .commit()
+        .await?;
+    assert!(matches!(
+        inspect_entity(&f, &ctx, false, &entity).await,
+        Err(SourceHandlerError::Inspection(
+            SourceInspectionError::Association
+        ))
+    ));
+    let store =
+        LanceBranchStore::open(f.corpus(0).to_str().unwrap(), source_schema(), None).await?;
+    let encoded = f.projects[0].named.lance_branch();
+    let named = store
+        .capture_target(Some(&encoded))
+        .await?
+        .materialize()
+        .await?;
+    named
+        .prepare_merge(
+            vec![batch(&[("entity.rs", Some(text))])],
+            vec!["path".into()],
+        )
+        .await?
+        .commit()
+        .await?;
+    assert_eq!(
+        inspect_entity(&f, &ctx, true, &entity).await?.origin,
+        SourceOrigin::Indexed
+    );
+    let pending = changed
+        .snapshot()
+        .prepare_replace(vec![batch(&[("entity.rs", None)])])
+        .await?
+        .commit()
+        .await?;
+    let physical = inspect_entity(&f, &ctx, false, &entity).await?;
+    assert_eq!(physical.origin, SourceOrigin::Physical);
+    assert_eq!(physical.selection.source, "fn target() {}");
+    fs::write(&path, "changed\nfn target() {}\nafter\n")?;
+    assert!(matches!(
+        inspect_entity(&f, &ctx, false, &entity).await,
+        Err(SourceHandlerError::Inspection(
+            SourceInspectionError::Association
+        ))
+    ));
+    fs::write(&path, text)?;
+    pending
+        .snapshot()
+        .prepare_replace(vec![batch(&[])])
+        .await?
+        .commit()
+        .await?;
+    assert!(matches!(
+        inspect_entity(&f, &ctx, false, &entity).await,
+        Err(SourceHandlerError::Inspection(
+            SourceInspectionError::Association
+        ))
+    ));
+    assert_eq!(
+        f.runtime(&ctx, 0, false, Path::new("entity.rs"), &Request::default())
+            .await?
+            .origin,
+        SourceOrigin::Physical
+    );
+    drop((base, changed, pending, named, store));
+    fs::rename(f.corpus(0), f._temp.path().join("retired-source.lance"))?;
+    assert!(matches!(
+        inspect_entity(&f, &ctx, false, &entity).await,
+        Err(SourceHandlerError::Inspection(
+            SourceInspectionError::Association
+        ))
+    ));
+    assert_eq!(
+        f.runtime(&ctx, 0, false, Path::new("entity.rs"), &Request::default())
+            .await?
+            .origin,
+        SourceOrigin::Physical
+    );
+    Ok(())
 }
 
 #[tokio::test]

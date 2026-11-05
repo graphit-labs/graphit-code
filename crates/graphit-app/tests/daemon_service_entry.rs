@@ -1,5 +1,8 @@
 #![cfg(target_os = "linux")]
 
+#[path = "support/runtime_peer.rs"]
+mod runtime_peer;
+
 use graphit_app::service_entry::{ServiceCommand, ServiceResult, execute};
 use graphit_core::{file_io::SnapshotContext, file_lock::Cancellation};
 use graphit_daemon::{
@@ -275,10 +278,15 @@ fn original() -> Arc<SnapshotContext> {
 }
 
 fn private_service<'a>(host: &'a ProcessHost, root: &std::path::Path) -> UserService<'a> {
-    // Use the real manager utility, but never connect to the user's session bus.
-    let mut environment: Vec<_> = std::env::vars_os()
-        .filter(|(key, _)| key != "DBUS_SESSION_BUS_ADDRESS" && key != "XDG_RUNTIME_DIR")
-        .collect();
+    let bin = root.join("bin");
+    fs::create_dir(&bin).unwrap();
+    runtime_peer::install(
+        &bin,
+        Some(serde_json::json!({"fixture":"service-manager"})),
+        &["systemctl"],
+    )
+    .unwrap();
+    let mut environment = vec![("PATH".into(), bin.into_os_string())];
     environment.push(("XDG_RUNTIME_DIR".into(), root.as_os_str().to_owned()));
     environment.push((
         "DBUS_SESSION_BUS_ADDRESS".into(),
@@ -298,7 +306,7 @@ fn private_service<'a>(host: &'a ProcessHost, root: &std::path::Path) -> UserSer
         root.to_owned(),
         environment,
     )
-    .expect("Linux entry fixture requires the real systemctl utility");
+    .expect("private manager fixture resolves through its captured PATH");
     UserService {
         files: ServiceFiles {
             control_root: root.to_owned(),
@@ -311,7 +319,7 @@ fn private_service<'a>(host: &'a ProcessHost, root: &std::path::Path) -> UserSer
 }
 
 #[tokio::test]
-async fn native_manager_failure_retains_status_and_start_outcome() {
+async fn manager_process_failure_retains_status_and_start_outcome() {
     let root = tempfile::tempdir().unwrap();
     let host = host().await;
     let service = private_service(&host, root.path());
@@ -323,6 +331,7 @@ async fn native_manager_failure_retains_status_and_start_outcome() {
         panic!("status must preserve the manager outcome");
     };
     assert!(!outcome.status.success());
+    assert_eq!(outcome.status.code(), Some(69));
     assert_eq!(outcome.cleanup, Cleanup::Complete);
     assert!(outcome.remaining.is_none());
     assert!(!outcome.transcript.as_ref().unwrap().stderr().is_empty());
@@ -331,6 +340,7 @@ async fn native_manager_failure_retains_status_and_start_outcome() {
         panic!("failed manager start must retain its causal outcome");
     };
     assert!(!outcome.status.success());
+    assert_eq!(outcome.status.code(), Some(69));
     assert_eq!(outcome.cleanup, Cleanup::Complete);
     assert!(outcome.remaining.is_none());
     assert!(!service.files.registration.exists());

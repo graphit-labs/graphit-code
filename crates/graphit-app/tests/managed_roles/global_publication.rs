@@ -11,6 +11,7 @@ async fn command(f: &Fixture, args: &[&str]) -> std::process::Output {
     tokio::task::spawn_blocking(move || {
         std::process::Command::new(env!("CARGO_BIN_EXE_graphit"))
             .env_clear()
+            .env("HOME", &cwd)
             .current_dir(cwd)
             .arg("--global-dir")
             .arg(installation)

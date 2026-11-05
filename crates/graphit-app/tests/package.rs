@@ -1,11 +1,20 @@
 //! Real CLI physical fixtures; these files are not semantic native datasets.
+#[path = "support/finite_cli.rs"]
+mod finite_cli;
+use finite_cli::FiniteOutput;
 use std::{
     fs,
     process::{Command, Output},
 };
 
-fn cli() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_graphit"))
+fn cli(root: &std::path::Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_graphit"));
+    command.env_clear().env("HOME", root).current_dir(root);
+    #[cfg(windows)]
+    if let Some(value) = std::env::var_os("SYSTEMROOT") {
+        command.env("SYSTEMROOT", value);
+    }
+    command
 }
 fn assert_success(output: Output) -> Output {
     assert!(
@@ -27,30 +36,30 @@ fn package_binary_roundtrips_each_payload_family() {
         fs::write(source.join(bundle).join(file), b"physical fixture bytes").unwrap();
         let archive = root.path().join("payload.zip");
         assert_success(
-            cli()
+            cli(root.path())
                 .args(["package", "export", "--kind", kind, "--source"])
                 .arg(&source)
                 .arg("--output")
                 .arg(&archive)
-                .output()
+                .finite_output()
                 .unwrap(),
         );
         let result = assert_success(
-            cli()
+            cli(root.path())
                 .args(["package", "inspect", "--kind", kind, "--input"])
                 .arg(&archive)
-                .output()
+                .finite_output()
                 .unwrap(),
         );
         assert_eq!(String::from_utf8(result.stdout).unwrap().trim(), kind);
         let destination = root.path().join("installed");
         assert_success(
-            cli()
+            cli(root.path())
                 .args(["package", "import", "--kind", kind, "--input"])
                 .arg(&archive)
                 .arg("--output")
                 .arg(&destination)
-                .output()
+                .finite_output()
                 .unwrap(),
         );
         assert_eq!(
@@ -59,12 +68,12 @@ fn package_binary_roundtrips_each_payload_family() {
         );
         assert!(destination.join(bundle).join("empty").is_dir());
         assert!(
-            !cli()
+            !cli(root.path())
                 .args(["package", "import", "--input"])
                 .arg(&archive)
                 .arg("--output")
                 .arg(&destination)
-                .output()
+                .finite_output()
                 .unwrap()
                 .status
                 .success()
@@ -73,58 +82,58 @@ fn package_binary_roundtrips_each_payload_family() {
 }
 #[test]
 fn package_usage_source_members_and_self_capture_fail_causally() {
+    let root = tempfile::tempdir().unwrap();
     assert!(
-        cli()
+        cli(root.path())
             .args(["package", "--help"])
-            .output()
+            .finite_output()
             .unwrap()
             .status
             .success()
     );
     assert_eq!(
-        cli()
+        cli(root.path())
             .args(["package", "export", "--kind", "ast"])
-            .output()
+            .finite_output()
             .unwrap()
             .status
             .code(),
         Some(2)
     );
-    let root = tempfile::tempdir().unwrap();
     let source = root.path().join("source");
     fs::create_dir(&source).unwrap();
     let output = root.path().join("output.zip");
     for kind in ["ast", "knowledge"] {
-        let missing = cli()
+        let missing = cli(root.path())
             .args(["package", "export", "--kind", kind, "--source"])
             .arg(&source)
             .arg("--output")
             .arg(&output)
-            .output()
+            .finite_output()
             .unwrap();
         assert!(!missing.status.success());
         assert!(!missing.stderr.is_empty());
         assert!(!output.exists());
     }
     fs::create_dir(source.join("graph.icebug")).unwrap();
-    let schema_missing = cli()
+    let schema_missing = cli(root.path())
         .args(["package", "export", "--kind", "ast", "--source"])
         .arg(&source)
         .arg("--output")
         .arg(&output)
-        .output()
+        .finite_output()
         .unwrap();
     assert!(!schema_missing.status.success());
     assert!(!output.exists());
     fs::write(source.join("graph.icebug/schema.cypher"), b"schema").unwrap();
     let inside = source.join("output.zip");
     assert!(
-        !cli()
+        !cli(root.path())
             .args(["package", "export", "--kind", "ast", "--source"])
             .arg(&source)
             .arg("--output")
             .arg(&inside)
-            .output()
+            .finite_output()
             .unwrap()
             .status
             .success()
@@ -132,12 +141,12 @@ fn package_usage_source_members_and_self_capture_fail_causally() {
     assert!(!inside.exists());
     fs::create_dir(source.join("search.lance")).unwrap();
     assert!(
-        !cli()
+        !cli(root.path())
             .args(["package", "export", "--kind", "ast", "--source"])
             .arg(&source)
             .arg("--output")
             .arg(&output)
-            .output()
+            .finite_output()
             .unwrap()
             .status
             .success()
@@ -148,10 +157,10 @@ fn package_usage_source_members_and_self_capture_fail_causally() {
 fn version_remains_available_without_package_startup() {
     let root = tempfile::tempdir().unwrap();
     let output = assert_success(
-        cli()
+        cli(root.path())
             .arg("--version")
             .current_dir(root.path())
-            .output()
+            .finite_output()
             .unwrap(),
     );
     assert!(!output.stdout.is_empty());
@@ -168,12 +177,12 @@ fn non_utf8_cli_path_is_rejected_before_package_io() {
     let archive = root
         .path()
         .join(std::ffi::OsString::from_vec(vec![b'p', 0xff]));
-    let output = cli()
+    let output = cli(root.path())
         .args(["package", "export", "--kind", "knowledge", "--source"])
         .arg(&source)
         .arg("--output")
         .arg(&archive)
-        .output()
+        .finite_output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(

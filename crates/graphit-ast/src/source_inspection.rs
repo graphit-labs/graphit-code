@@ -96,7 +96,8 @@ pub fn inspect_source(
 }
 
 /// Apply an observed PROJECT entity extent only to bytes with its observed SHA.
-/// The caller also retains and checks the actual graph/Raw association and grant.
+/// The caller retains the admitted PROJECT/branch Source snapshot and graph;
+/// historical storage generations are not required when the FILE bytes match.
 pub fn inspect_project_entity_source(
     indexed: IndexedSource<'_>,
     physical: Option<PhysicalSource<'_>>,

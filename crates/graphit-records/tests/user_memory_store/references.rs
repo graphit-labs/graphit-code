@@ -869,8 +869,8 @@ async fn live_query_config_signed_expiry_deadline_and_physical_swap_recheck_befo
         let ctx = request(&cancel);
         let f = Fixture::new(&ctx).await;
         let verifier = f.server.verifier(true, f.provider_revision(&ctx));
-        let expiry = now_seconds() + if ending == 1 { 5 } else { 600 };
-        let raw = f.server.token(SUBJECT, RESOURCE, expiry);
+        let seed_expiry = now_seconds() + 600;
+        let raw = f.server.token(SUBJECT, RESOURCE, seed_expiry);
         let proof = verifier
             .verify(&raw, BrokerRequestContext::new(ctx.snapshot()))
             .await
@@ -906,6 +906,17 @@ async fn live_query_config_signed_expiry_deadline_and_physical_swap_recheck_befo
             .await
             .is_ok()
         );
+        // Seed/SDK setup uses a durable proof; expiry is measured only after it completes.
+        let expiry = now_seconds() + if ending == 1 { 5 } else { 600 };
+        let raw = f.server.token(SUBJECT, RESOURCE, expiry);
+        let proof = verifier
+            .verify(&raw, BrokerRequestContext::new(ctx.snapshot()))
+            .await
+            .unwrap();
+        let read = f
+            .issuer
+            .admit_incoming_user_memory_read(&proof, &verifier, &ctx, "service", f.scope())
+            .unwrap();
         match ending {
             0 => {
                 let result = f

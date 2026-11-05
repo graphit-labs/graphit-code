@@ -1,8 +1,8 @@
 import '@/test/contextControls'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { taskApi, TaskReadError, type TaskCataloguePage, type TaskDetail, type TaskSearchPage } from '@/api/task'
 import { parseNativeJson, stringifyNativeJson } from '@/api/nativeJson'
 import { projectRecordHref } from '@/api/nativeRecordNavigation'
@@ -15,9 +15,14 @@ vi.mock('@/api/task', async importOriginal => ({ ...await importOriginal<typeof 
 vi.mock('@/components/shared/RecordReferences', () => ({ RecordReferences: () => <h3>Record links</h3> }))
 function Location() { return <output data-testid="location">{useLocation().pathname}</output> }
 function page() { return render(<MemoryRouter initialEntries={['/task/explorer']}><Routes><Route path="/task/explorer/:taskId?" element={<TaskExplorerPage />} /><Route path="/task/sessions/:id?" element={<Location />} /><Route path="/task/gantt" element={<Location />} /></Routes></MemoryRouter>) }
+afterEach(() => {
+ cleanup()
+ vi.clearAllTimers()
+ vi.useRealTimers()
+})
 beforeEach(() => {
+ vi.resetAllMocks()
  vi.stubGlobal('matchMedia', vi.fn((query: string) => ({ matches: false, media: query, onchange: null, addListener: vi.fn(), removeListener: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn(), dispatchEvent: vi.fn() })))
- vi.clearAllMocks()
  useTaskWorkspace.setState({ selection: context, contexts: [context], phase: 'ready', error: '' })
  vi.mocked(taskApi.context).mockImplementation(async selection => ({ ...context, ...selection }))
  vi.mocked(taskApi.catalogue).mockImplementation(async options => options.cursor ? { results: [summary(second)], next_cursor: null } : { results: [summary(first)], next_cursor: cursor })
@@ -268,6 +273,7 @@ describe('native Task Explorer', () => {
    expect(useTaskWorkspace.getState().phase).toBe('ready')
   })
   it.each(['initial', 'loaded'] as const)('coordinates header refresh with a cloned context and a pending %s catalogue', async mode => {
+   vi.useFakeTimers()
    let resolve!: (value: TaskCataloguePage) => void
    const pending = new Promise<TaskCataloguePage>(done => { resolve = done })
    const value: TaskCataloguePage = { results: [summary(first)], next_cursor: null }
@@ -278,20 +284,25 @@ describe('native Task Explorer', () => {
     signal?.addEventListener('abort', () => fail(new DOMException('Aborted', 'AbortError')), { once: true })
    }))
    if (mode === 'loaded') vi.mocked(taskApi.catalogue).mockResolvedValueOnce(value)
-   render(<MemoryRouter initialEntries={['/task/explorer']}><WorkspaceRefreshProvider>
-    <TaskWorkspaceSelectors /><TaskExplorerPage />
-   </WorkspaceRefreshProvider></MemoryRouter>)
-   if (mode === 'loaded') await screen.findByRole('heading', { name: 'Specification' })
+   await act(async () => {
+    render(<MemoryRouter initialEntries={['/task/explorer']}><WorkspaceRefreshProvider>
+     <TaskWorkspaceSelectors /><TaskExplorerPage />
+    </WorkspaceRefreshProvider></MemoryRouter>)
+   })
+   if (mode === 'loaded') {
+    await act(async () => { await vi.advanceTimersByTimeAsync(200) })
+    expect(screen.getByRole('heading', { name: 'Specification' })).toBeTruthy()
+   }
    const refresh = within(screen.getByRole('group', { name: 'Working context' })).getByRole('button', { name: 'Refresh' }) as HTMLButtonElement
-   fireEvent.click(refresh)
+   await act(async () => { fireEvent.click(refresh) })
    const expected = mode === 'loaded' ? 2 : 1
-   await waitFor(() => expect(taskApi.catalogue).toHaveBeenCalledTimes(expected))
+   expect(taskApi.catalogue).toHaveBeenCalledTimes(expected)
    const signal = vi.mocked(taskApi.catalogue).mock.calls[expected - 1][0].signal!
-   await act(async () => { await new Promise(done => window.setTimeout(done, 260)) })
+   await act(async () => { await vi.advanceTimersByTimeAsync(260) })
    expect(taskApi.catalogue).toHaveBeenCalledTimes(expected)
    expect(signal.aborted).toBe(false)
    expect(refresh.disabled).toBe(true)
    await act(async () => resolve(value))
-   await waitFor(() => expect(refresh.disabled).toBe(false))
+   expect(refresh.disabled).toBe(false)
   })
  })

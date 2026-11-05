@@ -411,7 +411,7 @@ impl BranchSnapshot {
         self.prepare_index_publication(added, removed).map(Some)
     }
 
-    fn prepare_index_publication(
+    pub(super) fn prepare_index_publication(
         &self,
         new_indices: Vec<IndexMetadata>,
         removed_indices: Vec<IndexMetadata>,

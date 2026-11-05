@@ -141,27 +141,24 @@ pub async fn inspect_captured_source(
         SourceIndexPresence::Absent => None,
         SourceIndexPresence::Available(index) => Some(index),
     };
-    if let (Some(entity), Some(index)) = (input.entity, &index)
-        && !entity.matches_index(entity.raw_version(), index.branch_observation())
+    let indexed = match &index {
+        Some(index) => Some(
+            index
+                .read(key, original)
+                .await
+                .map_err(SourceHandlerError::Index)?,
+        ),
+        None => None,
+    };
+    if input.entity.is_some()
+        && indexed.as_ref().is_none_or(|source| {
+            source.missing_reason() == Some(crate::indexed_source::MissingSourceReason::FileAbsent)
+        })
     {
         return Err(SourceHandlerError::Inspection(
             SourceInspectionError::Association,
         ));
     }
-    let indexed = match &index {
-        Some(index) => Some(
-            match input.entity {
-                Some(entity) => {
-                    index
-                        .read_version(key, entity.raw_version(), original)
-                        .await
-                }
-                None => index.read(key, original).await,
-            }
-            .map_err(SourceHandlerError::Index)?,
-        ),
-        None => None,
-    };
     let source = match &indexed {
         Some(indexed) => indexed
             .source(original)

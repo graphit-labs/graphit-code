@@ -41,6 +41,7 @@ pub mod git_hook_commands;
 pub mod git_records;
 pub mod graph_entry;
 pub mod graph_server;
+mod instruction_overrides;
 pub mod knowledge_ask;
 pub mod knowledge_ask_entry;
 mod knowledge_ask_service;
@@ -129,6 +130,13 @@ pub mod role_proxy;
 pub mod role_tool_server;
 
 pub mod knowledge_conversation;
+
+#[cfg(test)]
+#[path = "../tests/support/agent_fixture.rs"]
+pub(crate) mod test_agent_fixture;
+#[cfg(test)]
+#[path = "../tests/support/dream_peer.rs"]
+pub(crate) mod test_dream_peer;
 
 #[cfg(test)]
 #[path = "../../graphit-ai/tests/support/rerank_http.rs"]

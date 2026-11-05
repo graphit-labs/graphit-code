@@ -103,9 +103,13 @@ Fontes: `crates/graphit-app/src/now_entry.rs`, `now_renderer.rs`, `now_transport
 e o dispatch Now em `cli.rs`. O teste `tests/now_executable.rs` usa o executável
 compilado, Auth/Profile/Source reais e publicação de discovery pelo owner real.
 Seu peer WS valida o protocolo Broker; não qualifica SQL/TLS do Broker. A PTY
-Linux vem da biblioteca padrão Python, sem simulador de terminal ou API pública
-de teste de autoridade. A suite afetada é
-`cargo test --locked --offline -p graphit-app --test now_executable`.
+Linux usa as APIs seguras da Rustix já travada e leitura não bloqueante via
+Tokio AsyncFd. O filho real recebe stdout na PTY 80×24, stdin nulo e stderr
+separado; a jornada observa o encerramento do mesmo filho, EOF nativo e
+restauração da tela. Não exige Python, simulador de terminal ou API pública de
+teste de autoridade. As features pty/termios pertencem somente à dependência de
+desenvolvimento Linux. A suite afetada é
+`cargo xtask cargo test --locked --offline -p graphit-app --test now_executable`.
 A CLI Now e o IO cancelável deste contrato estão habilitados no Linux.
 Resultados Linux não implicam execução em Windows/macOS. A integração de stdout
 Windows em now_entry é parte da composição de plataforma em cab0; a habilitação
@@ -117,6 +121,11 @@ sem host Windows, esses testes são registrados como não executados. A ligaçã
 Windows do backend exercitam o worker e seu encerramento diretamente.
 
 ## Evidência atual Linux
+
+Na requalificação local de 2026-11-05, os sete casos passaram com o runner
+guardado e paralelismo padrão (10,37 s de testes). A PTY usa Rustix/AsyncFd,
+sem intérprete; mantém geometria, substituição do snapshot, escapes, restauração
+e encerramento 130 do filho real. Essa execução não qualifica Windows/macOS.
 
 Sete casos funcionais distintos passaram: seis em `tests05.log`, incluindo
 SIGTERM com pipe aberto que parou de ler, e restauração de flags blocking / já

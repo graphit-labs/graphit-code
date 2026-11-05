@@ -90,6 +90,8 @@ struct Shared {
     policy: NativeInstallPolicy,
     stop: CancellationToken,
     jobs: Mutex<JoinSet<io::Result<Completion>>>,
+    #[cfg(test)]
+    response_closed_observed: CancellationToken,
 }
 #[derive(Clone)]
 pub struct NativeInstallHttp(Arc<Shared>);
@@ -127,6 +129,8 @@ impl NativeInstallHttp {
             policy,
             stop,
             jobs: Mutex::new(JoinSet::new()),
+            #[cfg(test)]
+            response_closed_observed: CancellationToken::new(),
         })))
     }
     pub fn router(&self) -> Router {
@@ -258,7 +262,12 @@ async fn install(
         let result = loop {
             tokio::select! {
                 result = &mut work => break result,
-                () = send.closed(), if watch_closed => { cancel.cancel(); watch_closed = false; },
+                () = send.closed(), if watch_closed => {
+                    cancel.cancel();
+                    watch_closed = false;
+                    #[cfg(test)]
+                    state.response_closed_observed.cancel();
+                },
                 () = state.stop.cancelled(), if watch_stop => { cancel.cancel(); watch_stop = false; },
                 () = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)), if watch_deadline => {
                     // Keep deadline causality while continuing to watch client/owner cancellation.

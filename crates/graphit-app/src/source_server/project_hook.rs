@@ -106,6 +106,7 @@ impl HookPolicy {
             crate::role_tool_server::RoleToolPolicy::capture(source.clone(), config.clone())?;
         let brand = source.installation.brand();
         let mut variables = BTreeMap::from([
+            ("brand".into(), brand.key().to_owned()),
             ("brand_display".into(), brand.key().to_owned()),
             ("brand_marker".into(), brand.environment_prefix().to_owned()),
         ]);
@@ -602,6 +603,13 @@ async fn execute(
             value: InstructionValue::Text(version.version()),
         }))
         .collect();
+    let sources = crate::instruction_overrides::InstructionSources::capture(
+        state.auth.issuer(),
+        &state.policy,
+        Some(paths),
+        &original,
+    )
+    .map_err(|_| "Broker instruction layer unavailable")?;
     let encoded = render_captured_hook(
         &original,
         ProjectHookInput {
@@ -624,6 +632,7 @@ async fn execute(
             Some(read) => UserContext::Captured(read),
             None => UserContext::Unavailable,
         }),
+        Some(&sources),
     )
     .await
     .map_err(|error| error.to_string())?;
@@ -824,7 +833,7 @@ mod tests {
         let client = ()
             .serve_with_lifecycle(
                 StreamableHttpClientTransport::with_client(
-                    reqwest::Client::new(),
+                    crate::source_server::test_http_client(),
                     StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(headers),
                 ),
                 ClientLifecycleMode::Discover {

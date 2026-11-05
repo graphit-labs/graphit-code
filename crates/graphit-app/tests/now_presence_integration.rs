@@ -1,5 +1,8 @@
 #![cfg(target_os = "linux")]
 //! Compiled Runtime consumers. Broker journeys use its public native fixture.
+#[path = "support/finite_cli.rs"]
+mod finite_cli;
+use finite_cli::FiniteOutput;
 use graphit_app::foreground_source::ForegroundSource;
 use graphit_auth::{
     profile::{
@@ -25,6 +28,7 @@ use graphit_hub::{
     policy::{HubResourcePolicy, ResourceSetting},
 };
 use rmcp::{ServiceExt, model::CallToolRequestParams};
+use rustix::process::{Pid, Signal};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use std::{
@@ -100,14 +104,19 @@ impl Installation {
         // The stdio proxy maintains the actual checkout before selecting a
         // requested view. Seed the branch that the runtime is meant to serve.
         let git = |args: &[&str]| -> io::Result<()> {
-            let output = Command::new("git")
+            let path = std::env::var_os("PATH").unwrap_or_default();
+            let mut command =
+                Command::new(which::which_in("git", Some(&path), &root).map_err(io::Error::other)?);
+            let command = command
                 .env_clear()
                 .env("PATH", std::env::var_os("PATH").unwrap_or_default())
                 .env("HOME", temporary.path())
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .current_dir(&root)
-                .args(args)
-                .output()?;
+                .args(args);
+            let output = std::thread::scope(|scope| {
+                scope.spawn(|| command.finite_output()).join().unwrap()
+            })?;
             if !output.status.success() {
                 return Err(io::Error::other(format!(
                     "Git fixture {args:?}: {}",
@@ -346,13 +355,9 @@ struct Runtime {
     log: std::path::PathBuf,
 }
 impl Runtime {
-    async fn stop(&mut self, signal: &str) -> Result {
-        let status = Command::new("kill")
-            .args([signal, &self.child.id().to_string()])
-            .status()?;
-        if !status.success() {
-            return Err(io::Error::other("Runtime signal delivery failed").into());
-        }
+    async fn stop(&mut self, signal: Signal) -> Result {
+        let pid = Pid::from_raw(i32::try_from(self.child.id())?).ok_or("invalid Runtime PID")?;
+        rustix::process::kill_process(pid, signal)?;
         let until = Instant::now() + WAIT;
         loop {
             if let Some(status) = self.child.try_wait()? {
@@ -810,13 +815,8 @@ impl NowPipe {
     }
     async fn stop(&mut self) -> Result {
         let pid = self.child.id().ok_or("Now process already exited")?;
-        assert!(
-            tokio::process::Command::new("kill")
-                .args(["-TERM", &pid.to_string()])
-                .status()
-                .await?
-                .success()
-        );
+        let pid = Pid::from_raw(i32::try_from(pid)?).ok_or("invalid Now PID")?;
+        rustix::process::kill_process(pid, Signal::TERM)?;
         let status = tokio::time::timeout(WAIT, self.child.wait()).await??;
         // The same child has exited: retain its drain until actual EOF, also
         // when its status does not match the expected interruption.
@@ -917,7 +917,7 @@ async fn broker_journey(mode: BrokerMode) -> Result {
             "project_id":a.project_id,"version":a.version,"instance_id":a.instance_id()?,"provider":"inventory",
         })).await?;
         assert!(listed.to_string().contains(&a.instance_id()?));
-        first.stop("-TERM").await?;
+        first.stop(Signal::TERM).await?;
         a.cleaned();
         reconnected.empty().await?;
         reconnected.stop().await?;
@@ -932,7 +932,7 @@ async fn broker_journey(mode: BrokerMode) -> Result {
             )
             .await?;
         remote_heads(&sibling, &b, &b_tasks.ids);
-        second.stop("-INT").await?;
+        second.stop(Signal::INT).await?;
         b.cleaned();
         Ok(())
     }.await;
@@ -1024,14 +1024,14 @@ async fn compiled_two_runtime_projects_versions_native_heads_and_owned_shutdown(
     for id in &b_ids {
         assert!(!now_a.to_string().contains(id));
     }
-    first.stop("-TERM").await?;
+    first.stop(Signal::TERM).await?;
     a.cleaned();
     assert!(
         second.child.try_wait()?.is_none(),
         "sibling Runtime was stopped"
     );
     private_heads(&b.local_now().await?, &b, &b_ids);
-    second.stop("-INT").await?;
+    second.stop(Signal::INT).await?;
     b.cleaned();
     Ok(())
 }

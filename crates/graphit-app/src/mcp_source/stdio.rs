@@ -94,14 +94,13 @@ mod tests {
         let mut writer = pipe_writer(original.as_fd()).expect("writable pipe");
         drop(original);
         let bytes = vec![b'x'; 3 * 1024 * 1024];
-        // Establish readiness before timing the blocked write, so scheduling
-        // cannot make the nonempty-prefix assertion depend on the timer.
+        // Establish readiness, then poll the real write before cancelling it.
         timeout(Duration::from_secs(2), writer.write_all(&bytes[..1])).await??;
-        assert!(
-            timeout(Duration::from_millis(30), writer.write_all(&bytes))
-                .await
-                .is_err()
-        );
+        {
+            let pending = writer.write_all(&bytes);
+            tokio::pin!(pending);
+            assert!(futures_util::poll!(&mut pending).is_pending());
+        }
         drop(writer);
         let mut received = Vec::new();
         timeout(Duration::from_secs(2), reader.read_to_end(&mut received)).await??;

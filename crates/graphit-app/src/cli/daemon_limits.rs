@@ -12,7 +12,12 @@ pub(crate) fn raise_nofile_soft_limit() -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../tests/support/finite_cli.rs"]
+mod finite_cli;
+
+#[cfg(test)]
 mod tests {
+    use super::finite_cli::FiniteOutput;
     use super::*;
     use rustix::process::Rlimit;
     use std::{fs::File, os::fd::AsRawFd, process::Command};
@@ -26,10 +31,14 @@ mod tests {
             let test = format!(
                 "{module}::nofile_promotion_preserves_inherited_hard_limit_in_isolated_process"
             );
+            let directory = tempfile::tempdir().unwrap();
             let output = Command::new(std::env::current_exe().unwrap())
+                .env_clear()
+                .env("HOME", directory.path())
+                .current_dir(directory.path())
                 .args(["--exact", &test, "--nocapture"])
                 .env(CHILD, "1")
-                .output()
+                .finite_output()
                 .unwrap();
             assert!(
                 output.status.success(),

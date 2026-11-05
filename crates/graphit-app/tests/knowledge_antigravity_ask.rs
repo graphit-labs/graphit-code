@@ -1,5 +1,7 @@
 #![cfg(target_os = "linux")]
 //! Antigravity one-shot through the real CLI/SDK, authorized corpus and native Process.
+#[path = "support/agent_fixture.rs"]
+mod agent_fixture;
 use graphit_app::{
     native_install_http::NativeInstallPolicy,
     source_server::{SourcePolicy, SourceServer},
@@ -26,7 +28,6 @@ use std::{
     ffi::OsString,
     io,
     num::NonZeroUsize,
-    os::unix::fs::PermissionsExt,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -295,10 +296,11 @@ async fn progress_count(events: &Mutex<Vec<Seen>>, changed: &tokio::sync::Notify
     .unwrap();
 }
 
-fn script(f: &fixture_support::Fixture, body: &str) {
-    let program = f.temp.path().join("agy");
-    std::fs::write(&program, format!("#!/usr/bin/python3\n{body}")).unwrap();
-    std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o700)).unwrap();
+fn scenario(f: &fixture_support::Fixture, body: &str) {
+    let mut data: serde_json::Value = serde_json::from_str(body).unwrap();
+    data["kind"] = json!("wire");
+    data["protocol"] = json!("antigravity");
+    agent_fixture::install(&f.temp.path().join("agy"), data);
 }
 async fn attach(
     f: &mut fixture_support::Fixture,
@@ -328,21 +330,19 @@ fn fixture() -> fixture_support::Fixture {
     )
 }
 
-const SIMPLE: &str = r#"
-import json,sys,os
-assert sys.argv[1:5] == ['--input-format','stream-json','--output-format','stream-json']
-assert sys.argv[5] == '--model'
-assert sys.argv[6] == 'literal model;$(antigravity)' and len(sys.argv)==7
-assert os.environ['CAPTURED'] == 'startup only;$(literal)'
-assert os.path.basename(os.getcwd()) == 'project'
-wire=json.loads(sys.stdin.read())
-assert wire['event']=='user'
-prompt=json.loads(wire['message']['content'])
-assert prompt['question'] == '  literal β\n  '
-assert prompt['pages'][0]['slug'] == 'Paris'
-print('{"event":"init","conversation_id":"fixture-session","init":{"cwd":"/captured","tools":["view_file"],"permission_mode":"request-review","model":"observed-model"}}',flush=True)
-print('{"event":"result","result":{"conversation_id":"fixture-session","status":"SUCCESS","response":"actual β [[Paris]]","duration_seconds":0.001,"num_turns":1,"usage":{"input_tokens":0,"output_tokens":0}}}',flush=True)
-"#;
+const SIMPLE: &str = r#"{
+  "frames": [
+    "{\"event\":\"init\",\"conversation_id\":\"fixture-session\",\"init\":{\"cwd\":\"/captured\",\"tools\":[\"view_file\"],\"permission_mode\":\"request-review\",\"model\":\"observed-model\"}}",
+    "{\"event\":\"result\",\"result\":{\"conversation_id\":\"fixture-session\",\"status\":\"SUCCESS\",\"response\":\"actual β [[Paris]]\",\"duration_seconds\":0.001,\"num_turns\":1,\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}}"
+  ],
+  "checks": {
+    "model": "literal model;$(antigravity)",
+    "captured": "startup only;$(literal)",
+    "cwd_basename": "project",
+    "question": "  literal β\n  ",
+    "slug": "Paris"
+  }
+}"#;
 #[test]
 fn compiled_cli_antigravity_keeps_captured_launcher_and_literal_model_context() {
     run(async {
@@ -350,7 +350,7 @@ fn compiled_cli_antigravity_keeps_captured_launcher_and_literal_model_context() 
         let cancel = Cancellation::default();
         let ctx = original(&cancel);
         publish(&f, &ctx).await;
-        script(&f, SIMPLE);
+        scenario(&f, SIMPLE);
         let mut cmd = tokio::process::Command::from(command(&f));
         let mut daemon = cli_daemon::CliDaemon::start(
             f,
@@ -393,24 +393,28 @@ fn compiled_global_stdio_antigravity_streams_raw_native_events_before_real_exit(
         let ctx = original(&cancel);
         publish(&f, &ctx).await;
         let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        script(
+        scenario(
             &f,
-            r#"
-import json,sys,os,socket
-assert sys.argv[1:5] == ['--input-format','stream-json','--output-format','stream-json']
-assert sys.argv[5] == '--model'
-assert sys.argv[6]=='model fixture' and len(sys.argv)==7
-assert json.loads(json.loads(sys.stdin.read())['message']['content'])['pages'][0]['body'] == 'Paris é a capital.\n'
-print('{"event":"init","conversation_id":"fixture-session","init":{"cwd":"/captured","tools":["view_file"],"permission_mode":"request-review","model":"observed-model"}}',flush=True)
-print('{"event":"step_update","step_update":{"conversation_id":"fixture-session","step_index":1,"state":"ACTIVE","step_type":"tool","tool_name":"view_file","tool_info":{"parameters":{"big":9007199254740993,"big":9007199254740995,"ratio":1e-4}}}}',flush=True)
-print('{"event":"step_update","step_update":{"conversation_id":"fixture-session","step_index":1,"state":"DONE","step_type":"tool","tool_name":"view_file","tool_info":{"output":"native output"}}}',flush=True)
-print('{"event":"step_update","step_update":{"conversation_id":"fixture-session","step_index":2,"state":"DONE","step_type":"tool","tool_name":"delegate","subagent_info":{"subagents":[{"type_name":"research","role":"read","conversation_id":"native-subagent"}]},"text_delta":"injected response"}}',flush=True)
-print('{"event":"future","extra":null}',flush=True)
-print('{"event":"step_update","step_update":{"conversation_id":"fixture-session","step_index":4,"state":"ACTIVE","step_type":"agent_response","text_delta":"partial answer β"}}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
-assert s.recv(1) == b'1'
-print('{"event":"result","result":{"conversation_id":"fixture-session","status":"SUCCESS","response":"native answer β","duration_seconds":0.001,"num_turns":1,"usage":{"input_tokens":5,"output_tokens":3}}}',flush=True)
-"#,
+            r#"{
+  "frames": [
+    "{\"event\":\"init\",\"conversation_id\":\"fixture-session\",\"init\":{\"cwd\":\"/captured\",\"tools\":[\"view_file\"],\"permission_mode\":\"request-review\",\"model\":\"observed-model\"}}",
+    "{\"event\":\"step_update\",\"step_update\":{\"conversation_id\":\"fixture-session\",\"step_index\":1,\"state\":\"ACTIVE\",\"step_type\":\"tool\",\"tool_name\":\"view_file\",\"tool_info\":{\"parameters\":{\"big\":9007199254740993,\"big\":9007199254740995,\"ratio\":1e-4}}}}",
+    "{\"event\":\"step_update\",\"step_update\":{\"conversation_id\":\"fixture-session\",\"step_index\":1,\"state\":\"DONE\",\"step_type\":\"tool\",\"tool_name\":\"view_file\",\"tool_info\":{\"output\":\"native output\"}}}",
+    "{\"event\":\"step_update\",\"step_update\":{\"conversation_id\":\"fixture-session\",\"step_index\":2,\"state\":\"DONE\",\"step_type\":\"tool\",\"tool_name\":\"delegate\",\"subagent_info\":{\"subagents\":[{\"type_name\":\"research\",\"role\":\"read\",\"conversation_id\":\"native-subagent\"}]},\"text_delta\":\"injected response\"}}",
+    "{\"event\":\"future\",\"extra\":null}",
+    "{\"event\":\"step_update\",\"step_update\":{\"conversation_id\":\"fixture-session\",\"step_index\":4,\"state\":\"ACTIVE\",\"step_type\":\"agent_response\",\"text_delta\":\"partial answer β\"}}",
+    "{\"event\":\"result\",\"result\":{\"conversation_id\":\"fixture-session\",\"status\":\"SUCCESS\",\"response\":\"native answer β\",\"duration_seconds\":0.001,\"num_turns\":1,\"usage\":{\"input_tokens\":5,\"output_tokens\":3}}}"
+  ],
+  "gate": {
+    "before": 6,
+    "send": "",
+    "expect": "1"
+  },
+  "checks": {
+    "model": "model fixture",
+    "body": "Paris é a capital.\n"
+  }
+}"#,
         );
         let mut cmd = tokio::process::Command::from(command(&f));
         cmd.current_dir(f.paths.root());
@@ -612,11 +616,11 @@ fn antigravity_http_receipts_use_native_result_and_retain_real_failures() {
             let cancel = Cancellation::default();
             let ctx = original(&cancel);
             publish(&f, &ctx).await;
-            let mut body = String::from(
-                "import sys,json\nwire=json.loads(sys.stdin.read())\nassert wire['event']=='user'\nprompt=json.loads(wire['message']['content'])\nprint('{\"event\":\"init\",\"conversation_id\":\"fixture\",\"init\":{\"model\":\"observed\"}}',flush=True)\n",
-            );
+            let mut frames = vec![String::from(
+                "{\"event\":\"init\",\"conversation_id\":\"fixture\",\"init\":{\"model\":\"observed\"}}",
+            )];
             if mode == "malformed" {
-                body.push_str("print('{bad-json}',flush=True)\n");
+                frames.push(String::from("{bad-json}"));
             } else if mode != "missing" {
                 let mut result = json!({"conversation_id":"fixture", "status":"SUCCESS", "duration_seconds":0.001,"num_turns":1,"usage":{"input_tokens":2,"output_tokens":1}});
                 if mode == "native_error" {
@@ -630,19 +634,20 @@ fn antigravity_http_receipts_use_native_result_and_retain_real_failures() {
                     result["response"] = json!(if mode == "empty" { "" } else { "native answer" });
                 }
                 let envelope = json!({"event":"result", "result":result});
-                body.push_str(&format!("print({:?},flush=True)\n", envelope.to_string()));
+                frames.push(envelope.to_string());
             }
             if mode == "late_error" {
                 let native_error = json!({"event":"result","result":{"conversation_id":"fixture","status":"ERROR","error":"failure after terminal"}});
-                body.push_str(&format!(
-                    "print({:?},flush=True)\n",
-                    native_error.to_string()
-                ));
+                frames.push(native_error.to_string());
             }
-            if mode == "nonzero" {
-                body.push_str("sys.exit(9)\n");
-            }
-            script(&f, &body);
+            scenario(
+                &f,
+                &json!({
+                    "frames":frames,
+                    "exit":if mode == "nonzero" {9} else {0}
+                })
+                .to_string(),
+            );
             attach(&mut f, &ctx, vec![]).await;
             let (served, record) = serve(&f, &ctx).await;
             let h = SdkHarness::connect(&f, &ctx, record.address(), Duration::from_secs(10)).await;
@@ -722,13 +727,7 @@ fn antigravity_prechild_validation_denial_empty_and_unavailable_never_execute() 
             }
             let marker = f.temp.path().join("unexpected-child");
             if mode != "unavailable" {
-                script(
-                    &f,
-                    &format!(
-                        "from pathlib import Path\nPath({:?}).write_text('child')\n",
-                        marker.to_str().unwrap()
-                    ),
-                );
+                scenario(&f, &json!({"frames":[],"marker":marker}).to_string());
             }
             attach(&mut f, &ctx, vec![]).await;
             let (served, record) = serve(&f, &ctx).await;
@@ -800,18 +799,20 @@ fn antigravity_http_cancel_drop_deadline_and_dropped_shutdown_waiter_join_child(
             let ctx = original(&cancel);
             publish(&f, &ctx).await;
             let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-            script(
+            scenario(
                 &f,
-                r#"
-import os,socket,json,sys
-wire=json.loads(sys.stdin.read())
-assert wire['event']=='user'
-print('{"event":"init","conversation_id":"fixture","init":{"cwd":"/captured","tools":["view_file"],"permission_mode":"request-review","model":"observed"}}',flush=True)
-print('{"event":"step_update","step_update":{"conversation_id":"fixture","step_index":4,"state":"ACTIVE","step_type":"agent_response","text_delta":"must-not-be-answer"}}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
-s.sendall(b'w');s.recv(1)
-print('{"event":"result","result":{"conversation_id":"fixture","status":"SUCCESS","response":"must-not-be-answer","duration_seconds":0.001,"num_turns":1,"usage":{"input_tokens":0,"output_tokens":0}}}',flush=True)
-"#,
+                r#"{
+  "frames": [
+    "{\"event\":\"init\",\"conversation_id\":\"fixture\",\"init\":{\"cwd\":\"/captured\",\"tools\":[\"view_file\"],\"permission_mode\":\"request-review\",\"model\":\"observed\"}}",
+    "{\"event\":\"step_update\",\"step_update\":{\"conversation_id\":\"fixture\",\"step_index\":4,\"state\":\"ACTIVE\",\"step_type\":\"agent_response\",\"text_delta\":\"must-not-be-answer\"}}",
+    "{\"event\":\"result\",\"result\":{\"conversation_id\":\"fixture\",\"status\":\"SUCCESS\",\"response\":\"must-not-be-answer\",\"duration_seconds\":0.001,\"num_turns\":1,\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}}"
+  ],
+  "gate": {
+    "before": 2,
+    "send": "w",
+    "expect": null
+  }
+}"#,
             );
             attach(
                 &mut f,
@@ -932,19 +933,21 @@ fn antigravity_project_invalidation_after_native_effect_denies_delivery_keeps_re
         let ctx = original(&cancel);
         publish(&f, &ctx).await;
         let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        script(
+        scenario(
             &f,
-            r#"
-import os,socket,json,sys
-wire=json.loads(sys.stdin.read())
-assert wire['event']=='user'
-print('{"event":"init","conversation_id":"fixture","init":{"cwd":"/captured","tools":["view_file"],"permission_mode":"request-review","model":"observed"}}',flush=True)
-print('{"event":"step_update","step_update":{"conversation_id":"fixture","step_index":4,"state":"ACTIVE","step_type":"agent_response","text_delta":"native effect before invalidation"}}',flush=True)
-print('{"event":"step_update","step_update":{"conversation_id":"fixture","step_index":5,"state":"ACTIVE","step_type":"agent_response","text_delta":"fixture progress boundary"}}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])))
-assert s.recv(1)==b'1'
-print('{"event":"result","result":{"conversation_id":"fixture","status":"SUCCESS","response":"must-not-be-answer","duration_seconds":0.001,"num_turns":1,"usage":{"input_tokens":5,"output_tokens":3}}}',flush=True)
-"#,
+            r#"{
+  "frames": [
+    "{\"event\":\"init\",\"conversation_id\":\"fixture\",\"init\":{\"cwd\":\"/captured\",\"tools\":[\"view_file\"],\"permission_mode\":\"request-review\",\"model\":\"observed\"}}",
+    "{\"event\":\"step_update\",\"step_update\":{\"conversation_id\":\"fixture\",\"step_index\":4,\"state\":\"ACTIVE\",\"step_type\":\"agent_response\",\"text_delta\":\"native effect before invalidation\"}}",
+    "{\"event\":\"step_update\",\"step_update\":{\"conversation_id\":\"fixture\",\"step_index\":5,\"state\":\"ACTIVE\",\"step_type\":\"agent_response\",\"text_delta\":\"fixture progress boundary\"}}",
+    "{\"event\":\"result\",\"result\":{\"conversation_id\":\"fixture\",\"status\":\"SUCCESS\",\"response\":\"must-not-be-answer\",\"duration_seconds\":0.001,\"num_turns\":1,\"usage\":{\"input_tokens\":5,\"output_tokens\":3}}}"
+  ],
+  "gate": {
+    "before": 3,
+    "send": "",
+    "expect": "1"
+  }
+}"#,
         );
         attach(
             &mut f,

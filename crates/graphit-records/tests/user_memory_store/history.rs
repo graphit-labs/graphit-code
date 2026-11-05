@@ -280,8 +280,23 @@ async fn concurrent_expected_revision_has_one_winner_and_changed_attempt_conflic
             write_limits()
         )
     );
-    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
-    let winner = if a.is_ok() { "a" } else { "b" };
+    let (winner, committed) = match (a, b) {
+        (
+            Ok(committed),
+            Err(MemoryStoreError::RevisionConflict {
+                expected: 1,
+                actual: 2,
+            }),
+        ) => ("a", committed),
+        (
+            Err(MemoryStoreError::RevisionConflict {
+                expected: 1,
+                actual: 2,
+            }),
+            Ok(committed),
+        ) => ("b", committed),
+        outcomes => panic!("one CAS winner and one exact revision conflict required: {outcomes:?}"),
+    };
     let mut changed = update(winner, 1);
     changed.body = Some("changed same key".into());
     assert!(matches!(
@@ -293,6 +308,7 @@ async fn concurrent_expected_revision_has_one_winner_and_changed_attempt_conflic
         .await
         .unwrap()
         .unwrap();
+    assert_eq!(history.current, committed);
     assert_eq!(history.current.revision, 2);
     assert_eq!(history.revisions.len(), 1);
 }

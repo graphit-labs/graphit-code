@@ -8,6 +8,8 @@ use graphit_app::{
 mod cli_daemon;
 #[path = "support/knowledge_ask_server.rs"]
 mod fixture_support;
+#[path = "support/agent_fixture.rs"]
+mod native_agent_fixture;
 use graphit_auth::{
     Permission, ProjectCapture, ProjectRecordAuthority, ProjectWriteOperation, ScopeCapture,
     ScopeInput,
@@ -26,7 +28,6 @@ use std::{
     ffi::OsString,
     io,
     num::NonZeroUsize,
-    os::unix::fs::PermissionsExt,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -291,11 +292,13 @@ async fn progress_count(events: &Mutex<Vec<Seen>>, changed: &tokio::sync::Notify
     .await
     .unwrap();
 }
-fn script(f: &fixture_support::Fixture, body: &str) -> std::path::PathBuf {
+fn peer(f: &fixture_support::Fixture, scenario: Value) -> std::path::PathBuf {
     let program = f.temp.path().join("codex");
-    std::fs::write(&program, format!("#!/usr/bin/python3\n{body}")).unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    native_agent_fixture::install(&program, scenario);
     program
+}
+fn terminal() -> String {
+    r#"{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}"#.to_owned()
 }
 async fn attach(
     f: &mut fixture_support::Fixture,
@@ -331,21 +334,21 @@ fn compiled_stdio_preserves_native_progress_raw_numbers_token_and_final_order() 
         publish(&f, &ctx).await;
         let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = gate.local_addr().unwrap().port();
-        script(
+        peer(
             &f,
-            r#"import json,sys,os,socket
-assert sys.argv[1:] == ['exec','--json','--model','synthetic-secret-model;$(literal)','-']
-assert os.path.basename(os.getcwd()) == 'project'
-prompt=json.load(sys.stdin)
-assert prompt['question'] == '  synthetic-secret-query β\n  '
-assert prompt['pages'][0]['slug'] == 'Paris'
-print('{"type":"turn.started"}',flush=True)
-print('{"type":"item.completed","item":{"id":"m","type":"mcp_tool_call","server":"server","tool":"tool","arguments":{"n":1e400,"z":-0,"big":123456789012345678901234567890},"status":"completed","result":{"content":[],"structured_content":{"n":1e400}}}}',flush=True)
-print('{"type":"item.completed","item":{"id":"outer","type":"web_search","id":"inner","query":"synthetic-secret-web","action":{"type":"search","query":"q"},"results":[1e400,-0]}}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])));s.sendall(b'waiting');s.recv(1)
-print('{"type":"item.completed","item":{"id":"a","type":"agent_message","text":"synthetic-secret-answer β [[Paris]]"}}',flush=True)
-print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}',flush=True)
-"#,
+            json!({
+                "kind":"wire","protocol":"codex", "checks":{
+                    "args":["exec","--json","--model","synthetic-secret-model;$(literal)","-"],
+                    "cwd_basename":"project", "question":"  synthetic-secret-query β\n  ", "slug":"Paris"
+                },
+                "frames":[
+                    r#"{"type":"turn.started"}"#,
+                    r#"{"type":"item.completed","item":{"id":"m","type":"mcp_tool_call","server":"server","tool":"tool","arguments":{"n":1e400,"z":-0,"big":123456789012345678901234567890},"status":"completed","result":{"content":[],"structured_content":{"n":1e400}}}}"#,
+                    r#"{"type":"item.completed","item":{"id":"outer","type":"web_search","id":"inner","query":"synthetic-secret-web","action":{"type":"search","query":"q"},"results":[1e400,-0]}}"#,
+                    r#"{"type":"item.completed","item":{"id":"a","type":"agent_message","text":"synthetic-secret-answer β [[Paris]]"}}"#,
+                    terminal()
+                ], "gate":{"before":3,"send":"waiting","expect":"x"}, "marker":null,"exit":0
+            }),
         );
         let mut cmd = tokio::process::Command::from(command(&f));
         let mut daemon = cli_daemon::CliDaemon::start(
@@ -359,7 +362,8 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
         cmd.args(["mcp", "--stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
         let mut child = cmd.spawn().unwrap();
         let events = Arc::new(Mutex::new(Vec::new()));
         let changed = Arc::new(tokio::sync::Notify::new());
@@ -484,10 +488,7 @@ print('{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":
         assert!(toon.contains("output_tokens: 3"));
         assert!(toon.contains("synthetic-secret-answer β [[Paris]]"));
         client.cancel().await.unwrap();
-        let output = tokio::time::timeout(Duration::from_secs(10), child.wait_with_output())
-            .await
-            .unwrap()
-            .unwrap();
+        let output = cli_daemon::child_output(child, Duration::from_secs(10)).await;
         assert!(output.status.success());
         for marker in [
             "synthetic-secret-query",
@@ -544,7 +545,8 @@ fn kiro_stdio(binding: NativeBinding) {
         cmd.args(["mcp", "--stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
         let mut child = cmd.spawn().unwrap();
         let events = Arc::new(Mutex::new(Vec::new()));
         let changed = Arc::new(tokio::sync::Notify::new());
@@ -648,10 +650,7 @@ fn kiro_stdio(binding: NativeBinding) {
             assert!(matches!(seen.last(), Some(Seen::Final)));
         }
         client.cancel().await.unwrap();
-        let output = tokio::time::timeout(Duration::from_secs(10), child.wait_with_output())
-            .await
-            .unwrap()
-            .unwrap();
+        let output = cli_daemon::child_output(child, Duration::from_secs(10)).await;
         assert!(output.status.success());
         for marker in [
             "private-kiro-fixture-session",
@@ -683,12 +682,10 @@ fn unoffered_ask_preserves_source_and_never_launches_child() {
         let cancel = Cancellation::default();
         let ctx = original(&cancel);
         let marker = f.temp.path().join("child-ran");
-        script(
+        peer(
             &f,
-            &format!(
-                "from pathlib import Path\nPath({:?}).write_text('child')\n",
-                marker.to_str().unwrap()
-            ),
+            json!({"kind":"wire","protocol":"codex","frames":[],
+                "checks":{},"gate":null,"marker":marker,"exit":0}),
         );
         // No attach means the actual service offers no Ask capability.
         let (served, record) = serve(&f, &ctx).await;
@@ -777,12 +774,10 @@ fn offered_ask_auth_and_selection_denials_are_real_and_do_not_launch_child() {
             let ctx = original(&cancel);
             publish(&f, &ctx).await;
             let marker = f.temp.path().join("child-ran");
-            script(
+            peer(
                 &f,
-                &format!(
-                    "from pathlib import Path\nPath({:?}).write_text('child')\n",
-                    marker.to_str().unwrap()
-                ),
+                json!({"kind":"wire","protocol":"codex","frames":[],
+                "checks":{},"gate":null,"marker":marker,"exit":0}),
             );
             attach(&mut f, &ctx, vec![]).await;
             let (served, record) = serve(&f, &ctx).await;
@@ -867,22 +862,18 @@ fn native_nonzero_and_malformed_stdout_preserve_error_usage_and_receipt() {
             let cancel = Cancellation::default();
             let ctx = original(&cancel);
             publish(&f, &ctx).await;
-            let end = if malformed {
-                "print('{invalid-native-json',flush=True)"
-            } else {
-                "sys.exit(9)"
-            };
-            script(
+            let mut frames = vec![
+                r#"{"type":"turn.started"}"#.to_owned(),
+                r#"{"type":"item.completed","item":{"id":"a","type":"agent_message","text":"must-not-be-an-answer"}}"#.to_owned(),
+                terminal()
+            ];
+            if malformed {
+                frames.push("{invalid-native-json".to_owned());
+            }
+            peer(
                 &f,
-                &format!(
-                    r#"import sys,json
-json.load(sys.stdin)
-print('{{"type":"turn.started"}}',flush=True)
-print('{{"type":"item.completed","item":{{"id":"a","type":"agent_message","text":"must-not-be-an-answer"}}}}',flush=True)
-print('{{"type":"turn.completed","usage":{{"input_tokens":8,"cached_input_tokens":0,"output_tokens":3,"reasoning_output_tokens":0,"cache_write_input_tokens":0}}}}',flush=True)
-{end}
-"#
-                ),
+                json!({"kind":"wire","protocol":"codex","frames":frames,
+                "checks":{},"gate":null,"marker":null,"exit":if malformed {0} else {9}}),
             );
             attach(&mut f, &ctx, vec![]).await;
             let (served, record) = serve(&f, &ctx).await;
@@ -965,13 +956,11 @@ fn cancellation_eof_deadline_and_aborted_shutdown_keep_owned_cleanup() {
             publish(&f, &ctx).await;
             let gate = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let port = gate.local_addr().unwrap().port();
-            script(
+            peer(
                 &f,
-                r#"import json,sys,socket,os
-json.load(sys.stdin)
-print('{"type":"turn.started"}',flush=True)
-s=socket.create_connection(('127.0.0.1',int(os.environ['GATE_PORT'])));s.sendall(b'w');s.recv(1)
-"#,
+                json!({"kind":"wire","protocol":"codex",
+                "frames":[r#"{"type":"turn.started"}"#,terminal()],
+                "checks":{},"gate":{"before":1,"send":"w","expect":null},"marker":null,"exit":0}),
             );
             attach(
                 &mut f,

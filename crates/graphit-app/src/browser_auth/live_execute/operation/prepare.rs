@@ -635,6 +635,12 @@ pub(super) async fn execute<'a>(
         .filter(|(captured, _)| captured.selection.artifact_type == "rule")
         .map(|(_, body)| body.as_str())
         .collect::<Vec<_>>();
+    let instruction_sources = crate::instruction_overrides::InstructionSources::capture_project(
+        resources.auth.issuer(),
+        &resources.projects[selected_index].0,
+        original,
+    )
+    .map_err(io_failure)?;
     let rendered = texts
         .iter()
         .zip(&markdown)
@@ -648,7 +654,8 @@ pub(super) async fn execute<'a>(
                         !ast_contexts.is_empty(),
                         &policy,
                         instructions,
-                        original.snapshot(),
+                        original,
+                        &instruction_sources,
                     )
                     .map(Some),
                 "skill" => captured

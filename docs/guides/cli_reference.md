@@ -255,6 +255,12 @@ graphit hub sync                     # all bindings in the current PROJECT
 graphit hub sync --global            # global Hub installations
 ```
 
+With an active Broker profile, the general sync and the specific `skills sync`,
+`roles sync`, `coordinator sync` and `hooks sync` commands fetch that Broker's
+active instruction overrides. The same step runs through `graphit_sync` in MCP.
+A specific sync still reconciles only its own destinations. See the
+[template paths and precedence](../architecture/rust-agent-instruction-templates.md#broker-instruction-overrides).
+
 Sync retains each Hub artifact's **exact recorded version**, origin, alias,
 entry selection and physical mode. It reapplies authored local sources and uses
 current authorization for remote sources; it never silently substitutes a local

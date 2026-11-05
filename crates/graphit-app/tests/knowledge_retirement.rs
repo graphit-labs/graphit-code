@@ -722,6 +722,7 @@ fn runtime_cleanup_precedes_single_corpus_retirement_and_keeps_sibling_and_core(
             release,
             mut sibling_events,
         } = held(&f, false).await;
+        let mut release = Some(release);
         let driver = async {
             cancelled.recv().await.unwrap();
             let KnowledgeIndexRead::Published { generation, .. } =
@@ -734,19 +735,32 @@ fn runtime_cleanup_precedes_single_corpus_retirement_and_keeps_sibling_and_core(
                 before_semantic,
                 semantic_generation(&f, &ctx, &authority, &caller).await
             );
-            release.send(()).unwrap();
+            release.take().unwrap().send(()).unwrap();
         };
-        let (result, ()) = tokio::join!(
-            retire_knowledge_selection(
-                &authority,
-                &caller,
-                f.scope(),
-                &mut registry,
-                retirement_limits(),
-                &ctx
-            ),
-            driver
-        );
+        let completed = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(
+                retire_knowledge_selection(
+                    &authority,
+                    &caller,
+                    f.scope(),
+                    &mut registry,
+                    retirement_limits(),
+                    &ctx
+                ),
+                driver
+            )
+        })
+        .await;
+        let (result, ()) = match completed {
+            Ok(result) => result,
+            Err(_) => {
+                if let Some(release) = release.take() {
+                    let _ = release.send(());
+                }
+                let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+                panic!("retirement did not complete its observed cleanup journey");
+            }
+        };
         let result = result.unwrap();
         let KnowledgeBranchRetirement::Retired { generation } = result.index else {
             panic!("the single documentary/vector corpus must retire once")
@@ -951,21 +965,35 @@ fn actual_cleanup_error_retains_owner_and_blocks_data() {
             release,
             ..
         } = held(&f, true).await;
+        let mut release = Some(release);
         let driver = async {
             cancelled.recv().await.unwrap();
-            release.send(()).unwrap();
+            release.take().unwrap().send(()).unwrap();
         };
-        let (result, ()) = tokio::join!(
-            retire_knowledge_selection(
-                &authority,
-                &caller,
-                f.scope(),
-                &mut registry,
-                retirement_limits(),
-                &ctx
-            ),
-            driver
-        );
+        let completed = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(
+                retire_knowledge_selection(
+                    &authority,
+                    &caller,
+                    f.scope(),
+                    &mut registry,
+                    retirement_limits(),
+                    &ctx
+                ),
+                driver
+            )
+        })
+        .await;
+        let (result, ()) = match completed {
+            Ok(result) => result,
+            Err(_) => {
+                if let Some(release) = release.take() {
+                    let _ = release.send(());
+                }
+                let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+                panic!("retirement did not complete its observed cleanup journey");
+            }
+        };
         let error = result.unwrap_err();
         assert_eq!(error.phase(), KnowledgeRetirementPhase::Stop);
         assert!(
@@ -1009,6 +1037,7 @@ fn cancellation_and_deadline_during_join_wait_for_cleanup_then_block_data() {
                 ..
             } = held(&f, false).await;
             let cancel = Cancellation::default();
+            let deadline = Instant::now() + Duration::from_secs(2);
             let ctx = RequestContext::new(
                 ContentLimits {
                     max_input_bytes: 65536,
@@ -1019,31 +1048,45 @@ fn cancellation_and_deadline_during_join_wait_for_cleanup_then_block_data() {
                     max_collection_entries: 128,
                 },
                 &cancel,
-                Instant::now() + Duration::from_secs(2),
+                deadline,
             )
             .unwrap();
             let caller = issuer.authenticate_runtime(&f.secret(&ctx), &ctx).unwrap();
+            let mut release = Some(release);
             let driver = async {
                 cancelled.recv().await.unwrap();
                 if timeout {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    tokio::time::sleep_until(deadline.into()).await;
                 } else {
                     cancel.cancel();
                 }
                 assert_eq!(metadata, f.metadata());
-                release.send(()).unwrap();
+                release.take().unwrap().send(()).unwrap();
             };
-            let (result, ()) = tokio::join!(
-                retire_knowledge_selection(
-                    &authority,
-                    &caller,
-                    f.scope(),
-                    &mut registry,
-                    retirement_limits(),
-                    &ctx
-                ),
-                driver
-            );
+            let completed = tokio::time::timeout(Duration::from_secs(5), async {
+                tokio::join!(
+                    retire_knowledge_selection(
+                        &authority,
+                        &caller,
+                        f.scope(),
+                        &mut registry,
+                        retirement_limits(),
+                        &ctx
+                    ),
+                    driver
+                )
+            })
+            .await;
+            let (result, ()) = match completed {
+                Ok(result) => result,
+                Err(_) => {
+                    if let Some(release) = release.take() {
+                        let _ = release.send(());
+                    }
+                    let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+                    panic!("retirement did not complete its observed cleanup journey");
+                }
+            };
             let error = result.unwrap_err();
             assert_eq!(error.phase(), KnowledgeRetirementPhase::Index);
             assert_eq!(
@@ -1091,21 +1134,35 @@ fn local_auth_rejects_foreign_corpus_file_before_retirement() {
             release,
             ..
         } = held(&f, false).await;
+        let mut release = Some(release);
         let driver = async {
             cancelled.recv().await.unwrap();
-            release.send(()).unwrap();
+            release.take().unwrap().send(()).unwrap();
         };
-        let (result, ()) = tokio::join!(
-            retire_knowledge_selection(
-                &authority,
-                &caller,
-                f.scope(),
-                &mut registry,
-                retirement_limits(),
-                &ctx
-            ),
-            driver
-        );
+        let completed = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(
+                retire_knowledge_selection(
+                    &authority,
+                    &caller,
+                    f.scope(),
+                    &mut registry,
+                    retirement_limits(),
+                    &ctx
+                ),
+                driver
+            )
+        })
+        .await;
+        let (result, ()) = match completed {
+            Ok(result) => result,
+            Err(_) => {
+                if let Some(release) = release.take() {
+                    let _ = release.send(());
+                }
+                let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+                panic!("retirement did not complete its observed cleanup journey");
+            }
+        };
         let error = result.unwrap_err();
         assert_eq!(error.phase(), KnowledgeRetirementPhase::Index);
         assert!(matches!(
@@ -1147,21 +1204,35 @@ fn absent_corpora_are_not_created_and_native_limit_remains_causal() {
             if limited {
                 limits.native = NativeDocumentFileLimits::new(65536, 1, 256, 65536).unwrap();
             }
+            let mut release = Some(release);
             let driver = async {
                 cancelled.recv().await.unwrap();
-                release.send(()).unwrap();
+                release.take().unwrap().send(()).unwrap();
             };
-            let (result, ()) = tokio::join!(
-                retire_knowledge_selection(
-                    &authority,
-                    &caller,
-                    f.scope(),
-                    &mut registry,
-                    limits,
-                    &ctx
-                ),
-                driver
-            );
+            let completed = tokio::time::timeout(Duration::from_secs(5), async {
+                tokio::join!(
+                    retire_knowledge_selection(
+                        &authority,
+                        &caller,
+                        f.scope(),
+                        &mut registry,
+                        limits,
+                        &ctx
+                    ),
+                    driver
+                )
+            })
+            .await;
+            let (result, ()) = match completed {
+                Ok(result) => result,
+                Err(_) => {
+                    if let Some(release) = release.take() {
+                        let _ = release.send(());
+                    }
+                    let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+                    panic!("retirement did not complete its observed cleanup journey");
+                }
+            };
             if limited {
                 let error = result.unwrap_err();
                 assert_eq!(error.phase(), KnowledgeRetirementPhase::Index);

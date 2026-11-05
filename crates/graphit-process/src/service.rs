@@ -230,8 +230,8 @@ fn rejected(reason: Reason) -> ServiceFailure {
         remaining: None,
     }
 }
-fn remaining(control: &ServiceControl) -> Option<ServiceRemaining> {
-    (!control.slot.observe().finished()).then(|| ServiceRemaining {
+fn remaining(control: &ServiceControl, snapshot: RecordSnapshot) -> Option<ServiceRemaining> {
+    (!snapshot.finished()).then(|| ServiceRemaining {
         inner: RemainingProcess::for_slot(Arc::clone(&control.slot)),
     })
 }
@@ -420,7 +420,7 @@ async fn spawn_service_inner(
                     stderr: end,
                 };
             }
-            failure.remaining = remaining(&control);
+            failure.remaining = remaining(&control, snapshot);
             Err(failure)
         }
     }
@@ -680,7 +680,7 @@ pub async fn join_inherited_service(
             observed: Counts::default(),
             delivered: Counts::default(),
             transcript: None,
-            remaining: remaining(control),
+            remaining: remaining(control, snapshot),
         });
     }
     match observation.status {
@@ -691,7 +691,7 @@ pub async fn join_inherited_service(
             observed: Counts::default(),
             delivered: Counts::default(),
             transcript: None,
-            remaining: remaining(control),
+            remaining: remaining(control, snapshot),
         }),
         None => Err(ServiceFailure {
             reason: Reason::Cleanup,
@@ -702,7 +702,7 @@ pub async fn join_inherited_service(
             observed: Counts::default(),
             delivered: Counts::default(),
             transcript: None,
-            remaining: remaining(control),
+            remaining: remaining(control, snapshot),
         }),
     }
 }
@@ -896,12 +896,11 @@ pub async fn run_service<S: ServiceSink>(
         _ if state.cleanup_expired => Cleanup::TimedOut,
         cleanup => cleanup,
     };
-    let snapshot = control.slot.observe();
-    let remaining = if !snapshot.finished() {
-        remaining(&control)
-    } else {
-        None
-    };
+    // Match the cleanup observation consumed above rather than a later driver
+    // snapshot, which could suppress the caller's only terminal observation.
+    let remaining = (!state.supervision_done).then(|| ServiceRemaining {
+        inner: RemainingProcess::for_slot(Arc::clone(&control.slot)),
+    });
     if let Some(reason) = state.reason {
         Err(ServiceFailure {
             admission: None,

@@ -41,6 +41,19 @@ struct Fixture {
     projects: Vec<ProjectPaths>,
 }
 impl Fixture {
+    fn git(home: &std::path::Path, directory: &std::path::Path) -> Command {
+        let mut command = Command::new("git");
+        command
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", home)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", home.join("gitconfig-empty"))
+            .args(["-c", "init.templateDir="])
+            .current_dir(directory);
+        command
+    }
+
     async fn imported(&self, id: &str, text: &str) -> Result<u64> {
         use graphit_core::{
             installation_identity::InstallationIdentityStore, native_path::NativePath,
@@ -176,6 +189,7 @@ impl Fixture {
     }
     async fn new() -> Result<Self> {
         let temp = tempfile::tempdir()?;
+        fs::write(temp.path().join("gitconfig-empty"), [])?;
         let brand = Brand::new(env!("GRAPHIT_COMPILED_BUILD_BRAND"))?;
         let paths = InstallationPaths::resolve(
             brand.clone(),
@@ -208,9 +222,8 @@ impl Fixture {
             ],
             vec!["branch", "feature"],
         ] {
-            let output = Command::new("git")
+            let output = Self::git(temp.path(), projects[0].root())
                 .args(args)
-                .current_dir(projects[0].root())
                 .output()?;
             if !output.status.success() {
                 return Err(io::Error::other(String::from_utf8_lossy(&output.stderr)).into());
@@ -317,6 +330,11 @@ impl Fixture {
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("HOME", self._temp.path())
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                self._temp.path().join("gitconfig-empty"),
+            )
             .env("GRAPHIT_MODULES__AST", "false");
         command.env(
             self.paths
@@ -370,7 +388,16 @@ impl Fixture {
                 ))
                 .into());
             }
-            if self.paths.root().join("daemon/mcp.json").exists() {
+            let ready = fs::read(self.paths.root().join("daemon/mcp.json"))
+                .ok()
+                .and_then(|bytes| {
+                    serde_json::from_slice::<graphit_daemon::source_discovery::DiscoveryRecord>(
+                        &bytes,
+                    )
+                    .ok()
+                })
+                .is_some_and(|record| record.pid() == daemon.child.id());
+            if ready {
                 break;
             }
             if Instant::now() >= until {
@@ -425,14 +452,61 @@ impl Daemon {
     }
 }
 fn signal_child(child: &Child, signal: &str) -> io::Result<()> {
-    let status = Command::new("kill")
-        .args([signal, &child.id().to_string()])
-        .status()?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(io::Error::other("owned child signal failed"))
-    }
+    signal_pid(child.id(), signal)
+}
+fn signal_pid(pid: u32, signal: &str) -> io::Result<()> {
+    let signal = match signal {
+        "-INT" => rustix::process::Signal::INT,
+        "-TERM" => rustix::process::Signal::TERM,
+        _ => return Err(io::ErrorKind::InvalidInput.into()),
+    };
+    let pid = rustix::process::Pid::from_raw(i32::try_from(pid).map_err(io::Error::other)?)
+        .ok_or(io::ErrorKind::InvalidInput)?;
+    rustix::process::kill_process(pid, signal).map_err(io::Error::from)
+}
+
+/// A regression that starts the foreground service must fail this assertion,
+/// rather than leave the test waiting forever for its output pipes to close.
+async fn startup_output(command: Command) -> io::Result<Output> {
+    use tokio::io::AsyncReadExt;
+    let mut command = tokio::process::Command::from(command);
+    let mut child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()?;
+    let mut stdout = child.stdout.take().ok_or(io::ErrorKind::BrokenPipe)?;
+    let mut stderr = child.stderr.take().ok_or(io::ErrorKind::BrokenPipe)?;
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let (status, stdout_read, stderr_read) = tokio::join!(
+        async {
+            match tokio::time::timeout(Duration::from_secs(20), child.wait()).await {
+                Ok(Ok(status)) => Ok(status),
+                Ok(Err(cause)) => {
+                    let _ = child.kill().await;
+                    Err(cause)
+                }
+                Err(_) => {
+                    child.kill().await?; // Tokio kill also waits for the owned child.
+                    Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "foreground startup unexpectedly stayed alive",
+                    ))
+                }
+            }
+        },
+        stdout.read_to_end(&mut out),
+        stderr.read_to_end(&mut err),
+    );
+    let status = status?;
+    stdout_read?;
+    stderr_read?;
+    Ok(Output {
+        status,
+        stdout: out,
+        stderr: err,
+    })
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -767,7 +841,10 @@ async fn compiled_source_inflight_signal_keeps_service_usable() -> Result {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     record["address"] = json!(listener.local_addr()?.to_string());
     // Forward real authenticated SDK traffic, holding only a completed tool response.
-    let client = reqwest::Client::builder().no_proxy().build()?;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(20))
+        .build()?;
     let router = axum::Router::new().fallback({
         let ready = ready.clone();
         let release = release.clone();
@@ -824,10 +901,12 @@ async fn compiled_source_inflight_signal_keeps_service_usable() -> Result {
     let reached = tokio::time::timeout(Duration::from_secs(20), ready.notified()).await;
     let output = match reached {
         Ok(()) => {
-            let status = Command::new("kill")
-                .args(["-INT", &child.id().unwrap().to_string()])
-                .status()?;
-            assert!(status.success());
+            signal_pid(
+                child
+                    .id()
+                    .ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?,
+                "-INT",
+            )?;
             tokio::time::timeout(Duration::from_secs(20), child.wait_with_output()).await
         }
         Err(error) => {
@@ -906,8 +985,7 @@ async fn compiled_setup_preserves_unified_identity_metadata_settings_and_git_hoo
         assert!(!project.brand_directory().join("config.json").exists());
         f.assert_source(&["selected"], b"main indexed");
     }
-    let registered = Command::new("git")
-        .current_dir(project.root())
+    let registered = Fixture::git(f._temp.path(), project.root())
         .args([
             "config",
             "--local",
@@ -1045,10 +1123,9 @@ async fn compiled_source_versions_raw_selectors_and_owned_signal_cleanup() -> Re
     );
     let sibling = f.projects[1].root().to_str().unwrap();
     f.assert_source(&["sibling", "--project-dir", sibling], b"sibling raw text");
-    let second = f
-        .command()
-        .args(["daemon", "foreground", "--project-version", "main"])
-        .output()?;
+    let mut second_command = f.command();
+    second_command.args(["daemon", "foreground", "--project-version", "main"]);
+    let second = startup_output(second_command).await?;
     assert_eq!(second.status.code(), Some(1));
     assert_eq!(fs::read(f.paths.root().join("daemon/mcp.key"))?, key);
     daemon.stop("-INT").await?;
@@ -1083,11 +1160,11 @@ async fn compiled_config_globals_and_discovery_failures_remain_causal() -> Resul
         .stop("-TERM")
         .await?;
     let agent_variable = f.paths.brand().environment_variable("AGENT")?;
-    let denied = f
-        .command()
+    let mut denied_command = f.command();
+    denied_command
         .env(&agent_variable, "invalid-environment")
-        .args(["daemon", "foreground", "--project-version", "main"])
-        .output()?;
+        .args(["daemon", "foreground", "--project-version", "main"]);
+    let denied = startup_output(denied_command).await?;
     assert_eq!(denied.status.code(), Some(1));
     assert!(denied.stdout.is_empty());
     ConfigStore::project(&f.projects[0])?.set(
@@ -1211,15 +1288,14 @@ async fn compiled_config_globals_and_discovery_failures_remain_causal() -> Resul
     assert_eq!(malformed.status.code(), Some(1));
     assert!(malformed.stdout.is_empty());
     fs::remove_file(record)?;
-    let invalid_type = f
-        .command()
-        .args([
-            "daemon",
-            "foreground",
-            "-cagent=codex",
-            "-cmcp.port=invalid",
-        ])
-        .output()?;
+    let mut invalid_type_command = f.command();
+    invalid_type_command.args([
+        "daemon",
+        "foreground",
+        "-cagent=codex",
+        "-cmcp.port=invalid",
+    ]);
+    let invalid_type = startup_output(invalid_type_command).await?;
     assert_eq!(invalid_type.status.code(), Some(1));
     assert!(invalid_type.stdout.is_empty());
     ConfigStore::global(&f.paths)?.unset(
@@ -1232,7 +1308,9 @@ async fn compiled_config_globals_and_discovery_failures_remain_causal() -> Resul
         Duration::from_secs(5),
         &cancel,
     )?;
-    let missing_agent = f.command().args(["daemon", "foreground"]).output()?;
+    let mut missing_agent_command = f.command();
+    missing_agent_command.args(["daemon", "foreground"]);
+    let missing_agent = startup_output(missing_agent_command).await?;
     assert_eq!(missing_agent.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&missing_agent.stderr).contains("requires configured agent"));
     assert!(!f.paths.root().join("daemon/mcp.key").exists());
@@ -1269,7 +1347,9 @@ async fn compiled_mcp_stdio_current_explicit_sibling_and_eof_leave_daemon_alive(
         {
             Ok(sdk) => sdk,
             Err(error) => {
-                let output = child.wait_with_output().await?;
+                let output =
+                    tokio::time::timeout(Duration::from_secs(20), child.wait_with_output())
+                        .await??;
                 return Err(io::Error::other(format!(
                     "{error}: {}",
                     String::from_utf8_lossy(&output.stderr)
@@ -1409,17 +1489,16 @@ async fn compiled_private_credentials_and_late_startup_failure_cleanup() -> Resu
     // Occupy a real socket; bind failure occurs after key startup and must clean the owner.
     let occupied = std::net::TcpListener::bind("127.0.0.1:0")?;
     let port = format!("mcp.port={}", occupied.local_addr()?.port());
-    let failure = primary
-        .command()
-        .args([
-            "daemon",
-            "foreground",
-            "--project-version",
-            "main",
-            "-c",
-            &port,
-        ])
-        .output()?;
+    let mut failure_command = primary.command();
+    failure_command.args([
+        "daemon",
+        "foreground",
+        "--project-version",
+        "main",
+        "-c",
+        &port,
+    ]);
+    let failure = startup_output(failure_command).await?;
     assert_eq!(failure.status.code(), Some(1));
     assert!(failure.stdout.is_empty());
     assert!(!primary.paths.root().join("daemon/mcp.json").exists());
@@ -1505,7 +1584,8 @@ async fn compiled_knowledge_watcher_export_import_and_installed_mcp_query_withou
     let sdk = match ().serve((child.stdout.take().unwrap(), child.stdin.take().unwrap())).await {
         Ok(sdk) => sdk,
         Err(error) => {
-            let output = child.wait_with_output().await?;
+            let output =
+                tokio::time::timeout(Duration::from_secs(20), child.wait_with_output()).await??;
             return Err(io::Error::other(format!(
                 "{error}: {}",
                 String::from_utf8_lossy(&output.stderr)
@@ -2359,7 +2439,8 @@ async fn compiled_okf_and_obsidian_export_project_and_installed_source() -> Resu
     let sdk = match ().serve((child.stdout.take().unwrap(), child.stdin.take().unwrap())).await {
         Ok(sdk) => sdk,
         Err(error) => {
-            let output = child.wait_with_output().await?;
+            let output =
+                tokio::time::timeout(Duration::from_secs(20), child.wait_with_output()).await??;
             return Err(io::Error::other(format!(
                 "{error}: {}",
                 String::from_utf8_lossy(&output.stderr)
@@ -2821,33 +2902,6 @@ async fn compiled_memory_index_project_no_corpus_preserves_versions_and_user_bou
     // Startup captures the configured provider's service authority. Publishing a
     // new private profile directly is not the product login/configuration lifecycle.
     daemon = f.daemon(&["--project-version", "main"]).await?;
-    // Existence alone can still observe the previous owner's discovery during
-    // restart. Wait for this privately joined/restarted child to publish its PID.
-    let ready_until = Instant::now() + Duration::from_secs(20);
-    loop {
-        if let Some(status) = daemon.child.try_wait()? {
-            return Err(io::Error::other(format!(
-                "restarted daemon exited with {status}: {}",
-                fs::read_to_string(&daemon.log)?
-            ))
-            .into());
-        }
-        let published = fs::read(&discovery_path).ok().and_then(|bytes| {
-            serde_json::from_slice::<graphit_daemon::source_discovery::DiscoveryRecord>(&bytes).ok()
-        });
-        if published
-            .as_ref()
-            .is_some_and(|record| record.pid() == daemon.child.id())
-        {
-            break;
-        }
-        if Instant::now() >= ready_until {
-            return Err(
-                io::Error::other("restarted daemon did not publish its owned discovery").into(),
-            );
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
     let discovery = fs::read(&discovery_path)?;
     let key = fs::read(&key_path)?;
     let mut warm_requests = None;
@@ -3103,9 +3157,8 @@ async fn compiled_hub_sync_admits_local_native_without_importing_again() -> Resu
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn compiled_general_sync_stdio_uses_launch_project_and_keeps_global_explicit() -> Result {
     let f = Fixture::new().await?;
-    let init = Command::new("git")
+    let init = Fixture::git(f._temp.path(), f.projects[1].root())
         .args(["init", "-b", "main"])
-        .current_dir(f.projects[1].root())
         .output()?;
     assert!(
         init.status.success(),
@@ -3159,14 +3212,13 @@ async fn compiled_general_sync_stdio_uses_launch_project_and_keeps_global_explic
                 native["steps"]["native"]["git_hooks"]["state"],
                 "reconciled"
             );
-            let registration = std::process::Command::new("git")
+            let registration = Fixture::git(f._temp.path(), root)
                 .args([
                     "config",
                     "--local",
                     "--get",
                     "hook.graphit--post-commit.command",
                 ])
-                .current_dir(root)
                 .output()?;
             assert_eq!(registration.stdout, b"graphit git hook post-commit --\n");
             assert!(root.join(".codex/agents").exists());
@@ -3196,3 +3248,6 @@ async fn compiled_general_sync_stdio_uses_launch_project_and_keeps_global_explic
         (Ok(()), stopped) => stopped,
     }
 }
+
+#[path = "source_executable/instruction_overrides.rs"]
+mod instruction_overrides;

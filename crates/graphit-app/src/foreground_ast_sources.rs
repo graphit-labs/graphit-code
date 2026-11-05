@@ -907,7 +907,10 @@ impl ForegroundAstSources {
                 .map_err(err)?;
             recheck()?;
             directory.revalidate(request.snapshot())?;
-            store.capture_target(branch).await.map_err(err)?
+            drop(store);
+            BranchSnapshot::capture_ast_corpus(&path, branch, request.snapshot())
+                .await
+                .map_err(err)?
         };
         // This is a writer admission. Establish the branch before downstream
         // projections capture its origin, even if its Source matches Main.
@@ -1118,6 +1121,19 @@ impl ForegroundAstSources {
                 effects.published_version = Some(current.version());
                 current = index_source_paths(current, effects, &recheck).await?;
                 published = Some(current.version());
+                progressive::clean_corpus_history(
+                    &path,
+                    &directory,
+                    current,
+                    request.snapshot(),
+                    &recheck,
+                )
+                .await?;
+                current = BranchSnapshot::capture_ast_corpus(&path, branch, request.snapshot())
+                    .await
+                    .map_err(err)?;
+                recheck()?;
+                directory.revalidate(request.snapshot())?;
             }
             if let Some(live) = live.as_mut() {
                 // Unchanged Raw does not imply a missing/obsolete derived FILE
@@ -1283,6 +1299,8 @@ impl ForegroundAstSources {
         profiles.revalidate(request.snapshot())?;
         directory.revalidate(request.snapshot())?;
         recheck()?;
+        progressive::clean_corpus_history(&path, &directory, current, request.snapshot(), &recheck)
+            .await?;
         Ok(published)
     }
 }

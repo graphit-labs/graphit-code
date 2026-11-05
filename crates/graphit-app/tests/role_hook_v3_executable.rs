@@ -1,6 +1,8 @@
 //! Actual compiled CLI, Role factory/issuer and PROJECT Memory over controlled ACP.
 //! This does not qualify installed Kiro or model perception.
 #![cfg(unix)]
+#[path = "support/runtime_peer.rs"]
+mod runtime_peer;
 use graphit_app::managed_role_run::RunOutcome;
 use graphit_core::{
     brand::Brand,
@@ -12,7 +14,6 @@ use graphit_core::{
 use serde_json::json;
 use std::{
     fs, io,
-    os::unix::fs::PermissionsExt,
     path::Path,
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -65,129 +66,17 @@ fn command(
     cmd
 }
 fn role_peer(bin: &Path, brand: &Brand) -> io::Result<()> {
-    let prefix = format!(
-        "EXE={}\nINSPECTOR={}\nBRAND={}\nPROGRAM={}\nSTAGE={}\nHOME={}\n",
-        serde_json::to_string(env!("CARGO_BIN_EXE_graphit"))?,
-        serde_json::to_string(env!("CARGO_BIN_EXE_kiro-knowledge-fixture"))?,
-        serde_json::to_string(brand.key())?,
-        serde_json::to_string(brand.binary_name())?,
-        serde_json::to_string(
-            bin.parent()
-                .unwrap()
-                .join("peer-stage.json")
-                .to_str()
-                .unwrap()
-        )?,
-        serde_json::to_string(bin.parent().unwrap().join("home").to_str().unwrap())?,
-    );
-    let body = r#"import json,os,sys,subprocess,shlex,shutil
-role="unknown"
-cwd=None
-def stage(name):
-    with open(STAGE,"w") as file:json.dump({"stage":name,"role":role},file)
-stage("started")
-role=json.loads(os.environ["GRAPHIT_ROLE_REFERENCE"])["role"]
-os.environ["HOME"]=HOME
-def send(message): print(json.dumps(message),flush=True)
-def response(child,ident):
-    for line in child.stdout:
-        message=json.loads(line)
-        if message.get("id")==ident:return message
-    raise RuntimeError("Role stdio closed")
-def request(child,method,params,ident):
-    message={"jsonrpc":"2.0","method":method,"params":params}
-    if ident is not None:message["id"]=ident
-    child.stdin.write(json.dumps(message)+"\n");child.stdin.flush()
-    if ident is not None:return response(child,ident)
-for line in sys.stdin:
-    message=json.loads(line);method=message.get("method");ident=message.get("id");params=message.get("params",{})
-    stage(method)
-    if method=="initialize":
-        send({"jsonrpc":"2.0","id":ident,"result":{"protocolVersion":1,"agentCapabilities":{}}})
-    elif method=="session/new":
-        cwd=params["cwd"]
-        assert sys.argv[1:]==["acp","--agent-engine=v3"]
-        assert params["_meta"]["kiro"]["modeId"]==BRAND+"-"+role
-        send({"jsonrpc":"2.0","id":ident,"result":{"sessionId":"role-hooks-actual-transport"}})
-    elif method=="session/prompt":
-        assert all(os.environ.get(key) for key in ["GRAPHIT_ROLE_BEARER","GRAPHIT_ROLE_REFERENCE","GRAPHIT_ROLE_SELECTION"])
-        if role=="scribe":
-            initial={"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"role-mcp-denial","version":"1"}}}
-            for case in ["invalid-bearer","bearer-only","reference-only","explicit-missing","version-pin","explicit-version-pin"]:
-                private={key:value for key,value in os.environ.items() if not key.startswith("GRAPHIT_ROLE_")}
-                argv=[EXE,"mcp","--stdio"]
-                if case=="invalid-bearer":
-                    private["GRAPHIT_ROLE_BEARER"]="invalid-role-credential"
-                    private["GRAPHIT_ROLE_REFERENCE"]=os.environ["GRAPHIT_ROLE_REFERENCE"]
-                elif case=="bearer-only":private["GRAPHIT_ROLE_BEARER"]=os.environ["GRAPHIT_ROLE_BEARER"]
-                elif case=="reference-only":private["GRAPHIT_ROLE_REFERENCE"]=os.environ["GRAPHIT_ROLE_REFERENCE"]
-                elif case in ["version-pin","explicit-version-pin"]:
-                    private.update({key:value for key,value in os.environ.items() if key.startswith("GRAPHIT_ROLE_")})
-                    argv=[EXE,"--project-version","foreign-role-version","mcp","--stdio"]
-                    if case=="explicit-version-pin":argv.append("--role")
-                else:argv.append("--role")
-                rejected=subprocess.run(argv,cwd=cwd,env=private,input=json.dumps(initial)+"\n",capture_output=True,text=True,timeout=15)
-                assert rejected.returncode!=0,case
-                assert rejected.stdout=="",case
-                assert "Root Source startup is unavailable" not in rejected.stderr,case
-                if case in ["version-pin","explicit-version-pin"]:
-                    assert "managed-role MCP cannot override its captured transport or project" in rejected.stderr,case
-                for key in ["GRAPHIT_ROLE_BEARER","GRAPHIT_ROLE_REFERENCE"]:
-                    for secret in [os.environ[key],private.get(key)]:
-                        if secret:assert secret not in rejected.stdout and secret not in rejected.stderr,case
-            with subprocess.Popen([EXE,"mcp","--stdio"],cwd=cwd,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True) as child:
-                stage("mcp-initialize")
-                assert "result" in request(child,"initialize",{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"role-hook-proof","version":"1"}},1)
-                request(child,"notifications/initialized",{},None)
-                stage("mcp-write")
-                for number,required in [(1,True),(2,True),(3,False)]:
-                    answer=request(child,"tools/call",{"name":BRAND+"_memory_insert","arguments":{"input":{"idempotency_key":"role-hooks-"+str(number),"title":"Hook PROJECT "+str(number),"body":"MANDATORY-b9fb literal {{ data }} "+str(number),"classification":"convention","mandatory":required,"important":False,"tags":[]}}},number+1)
-                    assert "result" in answer and not answer["result"].get("isError",False)
-                stage("mcp-close")
-                child.stdin.close();assert child.wait(timeout=15)==0
-                stage("mcp-joined")
-        profile_path=os.path.join(cwd,".kiro","agents",BRAND+"-"+role+".md")
-        with open(profile_path) as f:profile=f.read()
-        assert "Standing context" not in profile
-        assert EXE not in profile and os.path.dirname(STAGE) not in profile
-        inspected=subprocess.run([INSPECTOR,"--profile-hook-commands",profile_path],capture_output=True,text=True,check=True)
-        commands=json.loads(inspected.stdout)
-        assert [entry["event"] for entry in commands]==["SessionStart","UserPromptSubmit"]
-        for entry in commands:
-            event=entry["event"];hook=entry["command"]
-            argv=shlex.split(hook)
-            assert argv[0]==PROGRAM and "--recipient" in argv and argv[argv.index("--recipient")+1]=="role"
-            assert "--global-dir" not in argv and argv[argv.index("--project-dir")+1]=="."
-            assert os.path.samefile(shutil.which(argv[0]),EXE)
-            stage("hook-"+event)
-            result=subprocess.run(["/bin/sh","-c",hook],cwd=cwd,input="",capture_output=True,text=True,timeout=20)
-            assert result.returncode==0 and result.stderr==""
-            if role=="tracker":assert result.stdout==""
-            else:
-                prefix="[Standing context]\nPROJECT mandatory Memory:\n"
-                assert result.stdout.startswith(prefix)
-                context=json.loads(result.stdout[len(prefix):])
-                assert context["memory_state"]=="published" and len(context["memories"])==2
-                assert {row["body"] for row in context["memories"]}=={"MANDATORY-b9fb literal {{ data }} 1","MANDATORY-b9fb literal {{ data }} 2"}
-                assert all(row["mandatory"] for row in context["memories"])
-                assert "task" not in context and "user" not in context
-            for key in ["GRAPHIT_ROLE_BEARER","GRAPHIT_ROLE_REFERENCE","GRAPHIT_ROLE_SELECTION"]:
-                missing=os.environ.copy();missing.pop(key)
-                rejected=subprocess.run(argv,cwd=cwd,env=missing,input="",capture_output=True,text=True,timeout=20)
-                assert rejected.returncode!=0 and rejected.stdout==""
-                invalid=os.environ.copy();invalid[key]=""
-                rejected=subprocess.run(argv,cwd=cwd,env=invalid,input="",capture_output=True,text=True,timeout=20)
-                assert rejected.returncode!=0 and rejected.stdout==""
-            coordinator=argv[:];at=coordinator.index("--recipient");del coordinator[at:at+2]
-            rejected=subprocess.run(coordinator,cwd=cwd,input="",capture_output=True,text=True,timeout=20)
-            assert rejected.returncode!=0 and rejected.stdout==""
-        send({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"role-hooks-actual-transport","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Role hooks verified"}}}})
-        send({"jsonrpc":"2.0","id":ident,"result":{"stopReason":"end_turn"}})
-"#;
-    let file = bin.join("kiro-cli");
-    fs::write(&file, format!("#!/usr/bin/env python3\n{prefix}{body}"))?;
-    fs::set_permissions(file, fs::Permissions::from_mode(0o700))
+    runtime_peer::install(
+        bin,
+        Some(serde_json::json!({
+            "fixture":"role-hooks", "brand":brand.key(), "program":brand.binary_name(),
+            "graphit":env!("CARGO_BIN_EXE_graphit"), "inspector":env!("CARGO_BIN_EXE_kiro-knowledge-fixture"),
+            "journal":bin.parent().ok_or(io::ErrorKind::InvalidInput)?.join("peer-stage.json")
+        })),
+        &["kiro-cli"],
+    )
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn role_hook_v3_compiled_profile_commands_real_factory_memory_and_role_transport()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -429,7 +318,6 @@ async fn role_hook_v3_run_worker_eof_stop_and_deadline_while_core_writer_is_held
             .send()
             .await?;
         assert!(response.status().is_success());
-        tokio::time::sleep(Duration::from_millis(150)).await;
         assert!(!temp.path().join("peer-stage.json").exists());
         assert!(
             !root

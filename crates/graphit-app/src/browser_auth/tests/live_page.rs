@@ -158,21 +158,13 @@ async fn live_evidence_reads_authorized_current_pages_after_close_and_head_updat
     let router = f
         .service
         .task_router(tasks.clone(), backend.clone(), None)
-        .merge(
-            f.service.live_execution_router(
-                tasks.clone(),
-                backend,
-                address,
-                std::env::current_exe()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .parent()
-                    .unwrap()
-                    .join("graphit"),
-                None,
-            ),
-        );
+        .merge(f.service.live_execution_router(
+            tasks.clone(),
+            backend,
+            address,
+            graphit_executable(),
+            None,
+        ));
     let stop = f.stop.clone();
     f.servers.push(tokio::spawn(async move {
         axum::serve(listener, router)

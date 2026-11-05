@@ -35,6 +35,8 @@ struct Fixture {
 }
 impl Fixture {
     fn git_project(&self) -> TestResult {
+        let git_config = self._directory.path().join("gitconfig-empty");
+        fs::write(&git_config, [])?;
         for arguments in [
             vec!["init", "-b", "main"],
             vec![
@@ -49,7 +51,17 @@ impl Fixture {
             ],
             vec!["branch", "feature"],
         ] {
-            let output = std::process::Command::new("git")
+            let mut command = std::process::Command::new("git");
+            command.env_clear();
+            if let Some(system_root) = std::env::var_os("SystemRoot") {
+                command.env("SystemRoot", system_root);
+            }
+            let output = command
+                .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+                .env("HOME", self._directory.path())
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", &git_config)
+                .args(["-c", "init.templateDir="])
                 .args(arguments)
                 .current_dir(self.projects[0].root())
                 .output()?;
@@ -184,7 +196,10 @@ async fn one_checkout_retains_distinct_versions_and_explicit_current_index() -> 
     });
     let record_path = fixture.paths.root().join("daemon/mcp.json");
     let key_path = fixture.paths.root().join("daemon/mcp.key");
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(30))
+        .build()?;
     for current in [0, 1] {
         let startup_cancel = Cancellation::default();
         let startup = fixture
@@ -318,7 +333,10 @@ async fn foreground_serves_two_roots_and_releases_singleton_after_joined_stop() 
     let cancellation = Cancellation::default();
     let signal = cancellation.clone();
     let running = tokio::spawn(async move { owner.run(&cancellation).await });
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(30))
+        .build()?;
     for (value, expected) in [
         (json!({"path":"raw"}), "\u{feff}one\r\nβ\0\n"),
         (json!({"path":"empty"}), ""),

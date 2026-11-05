@@ -373,6 +373,14 @@ mod tests {
     ) {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("target"), b"same").unwrap();
+        // A same-size edit must change the observed metadata even on filesystems
+        // whose timestamp precision groups consecutive writes into one tick.
+        File::options()
+            .write(true)
+            .open(tmp.path().join("target"))
+            .unwrap()
+            .set_modified(SystemTime::UNIX_EPOCH)
+            .unwrap();
         fs::write(tmp.path().join("other"), b"unrelated").unwrap();
         let context = SnapshotContext::new(Instant::now() + deadline, cancel);
         let parent = CapturedDocumentDirectory::capture(
@@ -569,10 +577,11 @@ mod tests {
                 cancel.clone(),
             );
             let expected = parent.read_named("target".as_ref(), names(), &ctx).unwrap();
+            let expires = ctx.deadline().unwrap();
             hooks::AFTER_ROUTE.with(|slot| {
                 *slot.borrow_mut() = Some(Box::new(move || {
                     if deadline {
-                        std::thread::sleep(Duration::from_millis(260));
+                        std::thread::sleep(expires.saturating_duration_since(Instant::now()));
                     } else {
                         cancel.cancel();
                     }

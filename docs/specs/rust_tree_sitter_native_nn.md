@@ -454,11 +454,14 @@ retained pins; there is no periodic GC, quota or retention promise in this
 producer.
 
 Portable indexed AST exports capture the available graph FILE observations
-and independently selected corpus snapshot under write admission. Source is
-streamed into a private SDK dataset from the FILEs' actual historical Raw
-versions, validating unique paths and stored-text hashes; only one historical
-SDK pin is retained at a time. Empty FILEs and NULL/TextNotStored records retain
-their Source contract. Source is not duplicated in each entity.
+and independently selected Source and corpus snapshots under write admission.
+Source is streamed into a private SDK dataset from that one captured Source
+branch. Every selected FILE must have a unique path and its stored text must
+match the graph's SHA. A changed or absent FILE is an explicit integrity error;
+the export never omits it silently or checks out a historical Source version.
+Empty FILEs and NULL/TextNotStored records retain their Source contract. An
+already captured snapshot remains usable when a later request sees new text.
+Source is not duplicated in each entity.
 
 The corpus is exported independently with its native lexical/vector indices.
 Export does not require a Source/graph generation common to every searchable
@@ -467,21 +470,31 @@ have been removed. Actual native dataset manifests, immutable artifact digests,
 authorization and file integrity remain the publication/read contract. A graph-only
 artifact still exposes only its actual capabilities.
 
-Local Source retains the exact native branch and historical generation selected
-by each published FILE. A named pin resolves the real SDK branch reference before
-checking out that historical branch/version; the generation need not exist in
-Main. Branch/version identity remains checked, and an absent branch cannot fall
-back to Main. FILE metadata retains its Raw generation even when the file has no
-lexical entities, including an empty source file. A newer Raw HEAD does not
-replace that published association.
+Local Source captures the current native branch through the existing AST reader
+lease. Entity reads verify the FILE SHA before selecting its exact extents;
+an unrelated FILE commit does not invalidate the entity. A changed or absent
+FILE returns an association error. Physical fallback requires an admitted
+NULL/TextNotStored row and the matching SHA. A missing named branch cannot fall
+back to Main. Pending SCIP replay uses the captured Source and FILE SHA; stale
+parser enrichment is abandoned for that FILE while normal processing remains
+eligible. Completed vectors are not invalidated by a global Raw advance.
 
-Physical Source dependencies are determined by the data files, overlays,
-deletion files and indices actually used by the selected native manifests.
-Unused manifest base-path entries do not establish a consumer. Raw HEAD and
-published per-FILE historical pins remain Source consumers after corpus
-unification; referenced physical data must remain available to the SDK with its
-native branch history. Stable public record identities do not depend on the
-local container path.
+SCIP definition identities retain the original FILE association. The codec
+validates current Source bytes, path, SHA and occurrence ranges through the
+official producer before deriving canonical definitions with that original
+association. Enrichment requires the same FILE revision, SHA and selected
+compiler; its input need not share the original Raw generation. Stored Raw
+metadata remains provenance and a codec/fingerprint input, never permission
+to reopen obsolete Source history.
+
+Source and search history use the existing SDK maintenance path. After a Source
+FILE commit and at EOF, the publisher checks the existing 32-version cadence,
+releases its snapshot and cleans only obsolete SDK history when due. Active
+Source/search reader leases may defer cleanup. Native branches and captured
+readers remain protected; there are no per-FILE historical Source lookups or
+extra snapshot catalogs. Physical dependencies are determined by the data files,
+overlays, deletion files and indices actually used by retained native manifests.
+Stable public record identities do not depend on the local container path.
 
 The affected fixtures are `live_search/tests.rs`, corpus acquisition/branch
 fixtures and App's progressive publication/lifetime cases. The storage integration

@@ -481,12 +481,19 @@ impl Endpoint {
         }
         let config =
             StreamableHttpClientTransportConfig::with_uri(self.uri.clone()).custom_headers(headers);
-        ().serve(StreamableHttpClientTransport::with_client(
-            reqwest::Client::new(),
+        let client = ().serve(StreamableHttpClientTransport::with_client(
+            reqwest::Client::builder()
+                .no_proxy()
+                .connect_timeout(Duration::from_secs(5))
+                .read_timeout(Duration::from_secs(30))
+                .build()
+                .unwrap(),
             config,
-        ))
-        .await
-        .unwrap()
+        ));
+        tokio::time::timeout(Duration::from_secs(30), client)
+            .await
+            .expect("Source MCP initialization deadline")
+            .unwrap()
     }
     async fn stop(self) {
         self.handler.shutdown().await.unwrap();
@@ -494,13 +501,16 @@ impl Endpoint {
     }
 }
 async fn call(client: &RunningService<RoleClient, ()>, args: Value) -> CallToolResult {
-    client
-        .call_tool(
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        client.call_tool(
             CallToolRequestParams::new("graphit_ast_source")
                 .with_arguments(args.as_object().unwrap().clone()),
-        )
-        .await
-        .unwrap()
+        ),
+    )
+    .await
+    .expect("Source MCP request deadline")
+    .unwrap()
 }
 fn text(result: &CallToolResult) -> &str {
     result.content[0].as_text().unwrap().text.as_str()
@@ -523,7 +533,11 @@ async fn real_sdk_lists_schema_and_reads_raw_files_with_exact_selectors() -> Tes
     let before = fs::read(f.projects[0].0.identity_file())?;
     let e = f.start().await;
     let client = e.client(Some(&f.raw), Some("runtime")).await;
-    let tools = client.list_tools(Default::default()).await?;
+    let tools = tokio::time::timeout(
+        Duration::from_secs(30),
+        client.list_tools(Default::default()),
+    )
+    .await??;
     let mut source_tools = tools
         .tools
         .iter()
@@ -817,10 +831,13 @@ async fn strict_schema_paths_and_unavailable_routes_produce_typed_errors() -> Te
         call(&client, json!({"path":"raw","head":-1})).await,
         "inspection",
     );
-    let unknown = client
-        .call_tool(CallToolRequestParams::new("unknown"))
-        .await
-        .unwrap_err();
+    let unknown = tokio::time::timeout(
+        Duration::from_secs(30),
+        client.call_tool(CallToolRequestParams::new("unknown")),
+    )
+    .await
+    .expect("unknown Source MCP request deadline")
+    .unwrap_err();
     assert!(
         unknown.to_string().contains("unknown tool") || unknown.to_string().contains("not found")
     );

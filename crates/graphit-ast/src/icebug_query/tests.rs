@@ -1277,6 +1277,9 @@ fn captured_paths_reject_non_unicode_and_preserve_unicode_parents() {
     let path = parent
         .path()
         .join(std::ffi::OsString::from_vec(b"native-\xff".to_vec()));
+    // APFS rejects this filename before the reader can validate it. Other Unix
+    // filesystems also exercise rejection of an existing non-Unicode directory.
+    #[cfg(not(target_os = "macos"))]
     fs::rename(temp.path(), &path).unwrap();
     let ctx = original(Duration::from_secs(30));
     let retained = RetainedBytesLimits::new(4096, 4, 4096).unwrap();
@@ -1305,6 +1308,9 @@ fn captured_paths_reject_non_unicode_and_preserve_unicode_parents() {
     assert!(cause.to_string().contains("path is not valid Unicode"));
 
     let unicode = parent.path().join("capturado café 日本 \\");
+    #[cfg(target_os = "macos")]
+    fs::rename(temp.path(), &unicode).unwrap();
+    #[cfg(not(target_os = "macos"))]
     fs::rename(&path, &unicode).unwrap();
     let graph = capture(&unicode, &ctx);
     let runtime = runtime();

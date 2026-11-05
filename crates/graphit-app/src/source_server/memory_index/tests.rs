@@ -54,7 +54,7 @@ impl Connection {
         let proxy = SourceProxy::new(
             source.paths.clone(),
             address,
-            reqwest::Client::new(),
+            crate::source_server::test_http_client(),
             (
                 source.server.0.policy.index,
                 source.server.0.policy.content,

@@ -367,10 +367,7 @@ async fn service_original_keeps_socket_active_until_real_cancellation() {
         .await
         .unwrap();
     let mut pending = Box::pin(socket.receive());
-    tokio::select! {
-        result = &mut pending => panic!("service read ended before cancellation: {}", result.is_ok()),
-        _ = tokio::time::sleep(Duration::from_millis(20)) => {}
-    }
+    assert!(futures_util::poll!(&mut pending).is_pending());
     signal.cancel();
     assert!(matches!(
         pending.await,

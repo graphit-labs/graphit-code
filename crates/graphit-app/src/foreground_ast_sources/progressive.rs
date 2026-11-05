@@ -351,4 +351,4 @@ async fn wait_for_close(
 
 mod corpus;
 pub(crate) use corpus::ProgressivePublication;
-pub(super) use corpus::{file_rows, snapshot as corpus_snapshot};
+pub(super) use corpus::{clean_corpus_history, file_rows, snapshot as corpus_snapshot};

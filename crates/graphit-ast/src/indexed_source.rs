@@ -2,7 +2,8 @@
 //!
 //! The caller selects and authorizes the corpus. This module neither opens a
 //! locator nor grants authority. An owned result retains the observed Dataset,
-//! but its Arc is not a pin against external garbage collection.
+//! including any reader lease already held by that snapshot. A bare SDK capture
+//! without a coordinated reader lease is not protected from external cleanup.
 
 use arrow_array::{Array, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema};

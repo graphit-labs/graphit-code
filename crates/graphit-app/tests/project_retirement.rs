@@ -354,15 +354,29 @@ async fn actual_cleanup_precedes_removal_and_preserves_sibling_checkout_versions
     let ctx = request(&cancel);
     let input = f.input(&ctx);
     let (mut registry, mut observed, release) = held_registry(&f, false).await;
+    let mut release = Some(release);
     let driver = async {
         observed.recv().await.unwrap();
         assert!(f.registered(&ctx, 0));
-        release.send(()).unwrap();
+        release.take().unwrap().send(()).unwrap();
     };
-    let (result, ()) = tokio::join!(
-        retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
-        driver
-    );
+    let completed = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
+            driver
+        )
+    })
+    .await;
+    let (result, ()) = match completed {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(release) = release.take() {
+                let _ = release.send(());
+            }
+            let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+            panic!("retirement did not complete its observed cleanup journey");
+        }
+    };
     assert!(result.unwrap());
     let snapshot = f.store().load(ctx.snapshot()).unwrap();
     let a = snapshot.get(f.ids[0]).unwrap();
@@ -450,15 +464,29 @@ async fn cancellation_during_cleanup_joins_owners_but_keeps_metadata() {
     let ctx = request(&cancel);
     let (mut registry, mut observed, release) = held_registry(&f, false).await;
     let input = f.input(&ctx);
+    let mut release = Some(release);
     let driver = async {
         observed.recv().await.unwrap();
         cancel.cancel();
-        release.send(()).unwrap();
+        release.take().unwrap().send(()).unwrap();
     };
-    let (result, ()) = tokio::join!(
-        retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
-        driver
-    );
+    let completed = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
+            driver
+        )
+    })
+    .await;
+    let (result, ()) = match completed {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(release) = release.take() {
+                let _ = release.send(());
+            }
+            let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+            panic!("retirement did not complete its observed cleanup journey");
+        }
+    };
     assert!(
         matches!(result,Err(CheckoutRetirementError::Request(e)) if e.kind()==io::ErrorKind::Interrupted)
     );
@@ -476,15 +504,29 @@ async fn deadline_during_cleanup_joins_owners_but_keeps_metadata() {
     let ctx = RequestContext::new(content(), &cancel, deadline).unwrap();
     let (mut registry, mut observed, release) = held_registry(&f, false).await;
     let input = f.input(&ctx);
+    let mut release = Some(release);
     let driver = async {
         observed.recv().await.unwrap();
         tokio::time::sleep_until(deadline.into()).await;
-        release.send(()).unwrap();
+        release.take().unwrap().send(()).unwrap();
     };
-    let (result, ()) = tokio::join!(
-        retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
-        driver
-    );
+    let completed = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
+            driver
+        )
+    })
+    .await;
+    let (result, ()) = match completed {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(release) = release.take() {
+                let _ = release.send(());
+            }
+            let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+            panic!("retirement did not complete its observed cleanup journey");
+        }
+    };
     assert!(
         matches!(result,Err(CheckoutRetirementError::Request(e)) if e.kind()==io::ErrorKind::TimedOut)
     );
@@ -500,14 +542,28 @@ async fn cleanup_failure_preserves_cause_and_inventory_without_restart() {
     let ctx = request(&cancel);
     let (mut registry, mut observed, release) = held_registry(&f, true).await;
     let input = f.input(&ctx);
+    let mut release = Some(release);
     let driver = async {
         observed.recv().await.unwrap();
-        release.send(()).unwrap();
+        release.take().unwrap().send(()).unwrap();
     };
-    let (result, ()) = tokio::join!(
-        retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
-        driver
-    );
+    let completed = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
+            driver
+        )
+    })
+    .await;
+    let (result, ()) = match completed {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(release) = release.take() {
+                let _ = release.send(());
+            }
+            let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+            panic!("retirement did not complete its observed cleanup journey");
+        }
+    };
     assert!(
         matches!(result,Err(CheckoutRetirementError::Stop(e)) if e.kind()==io::ErrorKind::PermissionDenied && e.to_string()=="producer cleanup failed")
     );
@@ -524,6 +580,7 @@ async fn metadata_failure_after_cleanup_preserves_error_and_stopped_effect() {
     let ctx = request(&cancel);
     let (mut registry, mut observed, release) = held_registry(&f, false).await;
     let input = f.input(&ctx);
+    let mut release = Some(release);
     let driver = async {
         observed.recv().await.unwrap();
         fs::write(
@@ -531,12 +588,25 @@ async fn metadata_failure_after_cleanup_preserves_error_and_stopped_effect() {
             b"invalid JSON",
         )
         .unwrap();
-        release.send(()).unwrap();
+        release.take().unwrap().send(()).unwrap();
     };
-    let (result, ()) = tokio::join!(
-        retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
-        driver
-    );
+    let completed = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
+            driver
+        )
+    })
+    .await;
+    let (result, ()) = match completed {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(release) = release.take() {
+                let _ = release.send(());
+            }
+            let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+            panic!("retirement did not complete its observed cleanup journey");
+        }
+    };
     assert!(
         matches!(result,Err(CheckoutRetirementError::Inventory(e)) if e.kind()==io::ErrorKind::InvalidData)
     );
@@ -687,16 +757,30 @@ async fn replaced_installation_after_cleanup_does_not_publish_inventory() {
     let (mut registry, mut observed, release) = held_registry(&f, false).await;
     let input = f.input(&ctx);
     let held = f._temp.path().join("held-installation");
+    let mut release = Some(release);
     let driver = async {
         observed.recv().await.unwrap();
         fs::rename(f.paths.root(), &held).unwrap();
         fs::create_dir(f.paths.root()).unwrap();
-        release.send(()).unwrap();
+        release.take().unwrap().send(()).unwrap();
     };
-    let (result, ()) = tokio::join!(
-        retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
-        driver
-    );
+    let completed = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            retire_checkout(&f.auth, input, &mut registry, 65536, &ctx),
+            driver
+        )
+    })
+    .await;
+    let (result, ()) = match completed {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(release) = release.take() {
+                let _ = release.send(());
+            }
+            let _ = tokio::time::timeout(Duration::from_secs(5), registry.shutdown()).await;
+            panic!("retirement did not complete its observed cleanup journey");
+        }
+    };
     assert!(result.is_err());
     assert_eq!(
         fs::read(held.join("project-inventory.json")).unwrap(),

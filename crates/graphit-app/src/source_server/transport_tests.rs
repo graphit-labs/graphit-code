@@ -60,9 +60,7 @@ async fn cleanup(fixture: support::Fixture) {
 async fn stop_acknowledgement_drains_after_backpressure() {
     let (fixture, mut client, mut running) = stopping_connection(Duration::from_secs(30)).await;
     assert!(
-        tokio::time::timeout(Duration::from_millis(25), &mut running)
-            .await
-            .is_err(),
+        futures_util::poll!(&mut running).is_pending(),
         "stop must retain the connection while its acknowledgement cannot be written",
     );
     let mut response = Vec::new();

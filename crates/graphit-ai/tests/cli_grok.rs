@@ -1,3 +1,5 @@
+#[path = "support/cli_control.rs"]
+mod control;
 use graphit_ai::{cli_grok::*, cli_grok_wire::*};
 use graphit_core::{file_io::SnapshotContext, file_lock::Cancellation};
 use graphit_process::{
@@ -6,14 +8,14 @@ use graphit_process::{
 };
 use std::{
     ffi::OsString,
-    io::{self, Read, Write},
-    net::{TcpListener, TcpStream},
+    io,
+    net::TcpListener,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
-use tokio::time::sleep;
+use tokio::net::TcpStream;
 fn original() -> Arc<SnapshotContext> {
     Arc::new(SnapshotContext::new(
         Instant::now() + Duration::from_secs(10),
@@ -122,45 +124,13 @@ fn sequence(dir: &Path, l: &TcpListener, exit: i32, writes: &[(bool, &[u8])]) ->
     native(dir, a)
 }
 async fn peer(l: &TcpListener, c: &SnapshotContext) -> TcpStream {
-    loop {
-        c.check().unwrap();
-        match l.accept() {
-            Ok((p, _)) => {
-                p.set_nonblocking(true).unwrap();
-                return p;
-            }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            Err(e) => panic!("accept {:?}", e.kind()),
-        }
-    }
+    control::peer(l, c).await.unwrap()
 }
 async fn read_byte(p: &mut TcpStream, c: &SnapshotContext) -> Option<u8> {
-    let mut b = [0];
-    loop {
-        c.check().unwrap();
-        match p.read(&mut b) {
-            Ok(0) => return None,
-            Ok(_) => return Some(b[0]),
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            Err(e) => panic!("read {:?}", e.kind()),
-        }
-    }
+    control::byte(p, c).await.unwrap()
 }
 async fn ack(p: &mut TcpStream, c: &SnapshotContext) {
-    loop {
-        c.check().unwrap();
-        match p.write(b"A") {
-            Ok(1) => return,
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            _ => panic!("ack failed"),
-        }
-    }
+    control::acknowledge(p, c).await.unwrap();
 }
 // Test-control ACK per write, including writes that contain no complete frame.
 async fn drive(l: &TcpListener, c: &SnapshotContext, n: usize) {
@@ -261,7 +231,7 @@ impl GrokSink for Sink<'_> {
             if self.seen.len() == 1 {
                 // The child cannot start its next write until this ACK.
                 let mut b = [0];
-                assert!(matches!(p.read(&mut b),Err(e)if e.kind()==io::ErrorKind::WouldBlock));
+                assert!(matches!(p.try_read(&mut b),Err(e)if e.kind()==io::ErrorKind::WouldBlock));
                 self.backpressure = true;
             }
             ack(p, original).await;
@@ -274,44 +244,33 @@ impl GrokSink for Sink<'_> {
 }
 // Test-control ACK, tolerant of the real child being terminated by an invalid frame.
 async fn release(l: &TcpListener, writes: usize) {
-    let end = Instant::now() + Duration::from_secs(3);
-    let mut p = loop {
-        match l.accept() {
-            Ok((p, _)) => {
-                p.set_nonblocking(true).unwrap();
-                break p;
-            }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                assert!(Instant::now() < end);
-                sleep(Duration::from_millis(1)).await;
-            }
-            Err(e) => panic!("test accept {:?}", e.kind()),
-        }
-    };
+    let original = SnapshotContext::new(
+        Instant::now() + Duration::from_secs(3),
+        Cancellation::default(),
+    );
+    let mut p = control::peer(l, &original).await.unwrap();
     for _ in 0..writes {
-        loop {
-            let mut b = [0];
-            match p.read(&mut b) {
-                Ok(0) => return,
-                Ok(_) => {
-                    assert_eq!(b[0], b'L');
-                    let _ = p.write(b"A");
-                    break;
-                }
-                Err(e)
-                    if matches!(
-                        e.kind(),
+        match control::byte(&mut p, &original).await {
+            Ok(None) => return,
+            Ok(Some(byte)) => {
+                assert_eq!(byte, b'L');
+                if let Err(error) = control::acknowledge(&mut p, &original).await {
+                    assert!(matches!(
+                        error.kind(),
                         io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe
-                    ) =>
-                {
+                    ));
                     return;
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    assert!(Instant::now() < end);
-                    sleep(Duration::from_millis(1)).await;
-                }
-                Err(e) => panic!("test control {:?}", e.kind()),
             }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe
+                ) =>
+            {
+                return;
+            }
+            Err(error) => panic!("test control {:?}", error.kind()),
         }
     }
 }

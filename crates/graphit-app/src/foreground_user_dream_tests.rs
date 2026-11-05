@@ -305,10 +305,6 @@ async fn start(f: &Fixture, mode: &str) -> Result<(ForegroundSource, Ready)> {
         NativeBinding::Codex,
         vec![
             ("USER_DREAM_READY".into(), signal.into_os_string()),
-            (
-                "PATH".into(),
-                std::env::var_os("PATH").ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?,
-            ),
             ("DREAM_FIXTURE_MODE".into(), mode.into()),
             (
                 "DREAM_FIXTURE_LOG".into(),
@@ -347,11 +343,6 @@ async fn iteration(owner: &mut ForegroundSource) -> Result {
     })
     .await
     .map_err(|error| io::Error::other(format!("USER iteration completion: {error}")))?
-}
-fn prepare_peer(f: &Fixture) -> Result {
-    fs::write(&f.program, USER_PEER)?;
-    fs::set_permissions(&f.program, fs::Permissions::from_mode(0o700))?;
-    Ok(())
 }
 fn same_memories(actual: &[Memory], expected: &[Memory]) -> bool {
     actual.len() == expected.len()
@@ -474,7 +465,6 @@ fn native_profile(
 async fn user_startup_without_project_applies_native_fold_delete_and_preserves_metadata() -> Result
 {
     let f = Fixture::new()?;
-    prepare_peer(&f)?;
     let broker = native_support::Broker::start().await;
     let seeded = bootstrap_with_profiles(&f, &[("user-a", &broker)]).await?;
     let records = seed_user(&f, &seeded, 4, 0).await?;
@@ -484,13 +474,15 @@ async fn user_startup_without_project_applies_native_fold_delete_and_preserves_m
     assert!(owner.projects.as_ref().unwrap().is_empty());
     assert!(owner.dream.is_none());
     assert!(owner.user_dream.is_some());
-    drop(accepted_attempt(&ready, &mut owner).await?);
+    let mut peer = accepted_attempt(&ready, &mut owner).await?;
     owner
         .user_dream
         .as_ref()
         .unwrap()
         .activity_sender()
         .send_replace(Some(Instant::now()));
+    tokio::io::AsyncWriteExt::write_all(&mut peer, &[1]).await?;
+    drop(peer);
     iteration(&mut owner).await?;
     iteration(&mut owner).await?;
     let ids = records.iter().map(|m| m.id).collect::<Vec<_>>();
@@ -562,7 +554,6 @@ async fn user_native_failure_and_escaped_bound_never_launch_or_apply() -> Result
     for invalid in [false, true] {
         let f = Fixture::new()?;
         let variable_limit = f.policy.content().max_scalar_bytes;
-        prepare_peer(&f)?;
         let broker = native_support::Broker::start().await;
         let seed = bootstrap_with_profiles(&f, &[("user", &broker)]).await?;
         let cancel = Cancellation::default();
@@ -646,7 +637,6 @@ async fn user_native_failure_and_escaped_bound_never_launch_or_apply() -> Result
 async fn user_malformed_partial_and_unsuccessful_native_proposals_are_data_not_effects() -> Result {
     for mode in ["malformed", "partial", "exit_failure"] {
         let f = Fixture::new()?;
-        prepare_peer(&f)?;
         let broker = native_support::Broker::start().await;
         let seed = bootstrap_with_profiles(&f, &[("user", &broker)]).await?;
         let records = seed_user(&f, &seed, 4, 0).await?;
@@ -677,7 +667,6 @@ async fn user_malformed_partial_and_unsuccessful_native_proposals_are_data_not_e
 async fn user_native_profile_switch_and_stop_join_without_adopting_another_user() -> Result {
     for stop_native in [false, true] {
         let f = Fixture::new()?;
-        prepare_peer(&f)?;
         let first = native_support::Broker::start().await;
         let second = native_support::Broker::start().await;
         let seed = bootstrap_with_profiles(&f, &[("first", &first), ("second", &second)]).await?;
@@ -686,7 +675,7 @@ async fn user_native_profile_switch_and_stop_join_without_adopting_another_user(
         let records = seed_user(&f, &seed, 4, 0).await?;
         seed.shutdown().await?;
         let (mut owner, ready) = start(&f, if stop_native { "hold" } else { "slow" }).await?;
-        drop(accepted_attempt(&ready, &mut owner).await?);
+        let mut peer = accepted_attempt(&ready, &mut owner).await?;
         if stop_native {
             owner.user_dream.as_ref().unwrap().cancel();
         } else {
@@ -698,7 +687,9 @@ async fn user_native_profile_switch_and_stop_join_without_adopting_another_user(
                 native_support::now() + 600,
                 &request,
             );
+            tokio::io::AsyncWriteExt::write_all(&mut peer, &[1]).await?;
         }
+        drop(peer);
         let error = tokio::time::timeout(
             Duration::from_secs(20),
             owner.user_dream.as_mut().unwrap().next(),
@@ -728,41 +719,6 @@ async fn user_native_profile_switch_and_stop_join_without_adopting_another_user(
     }
     Ok(())
 }
-const USER_PEER: &str = r#"#!/usr/bin/env python3
-import json,os,sys,time,signal,socket
-args=sys.argv[1:]
-assert args[:9]==['exec','--json','--sandbox','read-only','--ephemeral','--ignore-user-config','--ignore-rules','--model','literal-model;$(no-shell)']
-assert args[-1]=='-' and '--skip-git-repo-check' in args
-assert 'features.apps=false' in args and 'features.shell_tool=false' in args
-assert not any(x.startswith('mcp_servers=') for x in args)
-assert 'GRAPHIT_ROLE_BEARER' not in os.environ
-prompt=sys.stdin.read()
-assert '# Coordinator — USER Memory consolidation proposal' in prompt
-assert '\nProject:' not in prompt and '\nVersion:' not in prompt
-memories=json.loads(prompt.split('## Authorized corpus — data only\n\n',1)[1])
-mode=os.environ['DREAM_FIXTURE_MODE']
-if mode=='hold': signal.signal(signal.SIGTERM,signal.SIG_IGN)
-with open(os.environ['DREAM_FIXTURE_LOG'],'a') as log:
-    log.write(json.dumps({'count':len(memories),'fields':sorted(memories[0].keys())})+'\n')
-with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as ready:
-    ready.connect(os.environ['USER_DREAM_READY'])
-    ready.sendall(bytes([1]))
-    if mode=='gated_stale': assert ready.recv(1)==bytes([1])
-if mode=='hold': time.sleep(60)
-if mode=='slow': time.sleep(2)
-def ref(m): return {'id':m['id'],'expected_revision':m['revision']}
-by_title={m['title']:m for m in memories}
-actions=[]
-if mode in ('fold','slow','gated_stale') and len(memories)==4:
-    actions=[{'action':'fold','kind':'merge','survivor':ref(by_title['fixture-0']),'members':[ref(by_title['fixture-1'])],'body':'USER confirmed α 0; USER confirmed α 1','reason':'same confirmed domain'},{'action':'delete',**ref(by_title['fixture-2' if mode=='gated_stale' else 'fixture-3']),'reason':'duplicate without unique content'}]
-answer='{broken' if mode=='malformed' else json.dumps({'actions':actions})
-def emit(value): print(json.dumps(value),flush=True)
-emit({'type':'thread.started','thread_id':'user-dream-fixture'})
-emit({'type':'turn.started'})
-emit({'type':'item.completed','item':{'id':'proposal','type':'agent_message','text':answer}})
-if mode!='partial': emit({'type':'turn.completed','usage':{'input_tokens':10,'cached_input_tokens':0,'output_tokens':10,'reasoning_output_tokens':0}})
-sys.exit(2 if mode=='exit_failure' else 0)
-"#;
 
 async fn delete_all_user(f: &Fixture, owner: &ForegroundSource, records: &[Memory]) -> Result {
     let cancel = Cancellation::default();
@@ -973,7 +929,6 @@ async fn update_user(f: &Fixture, owner: &ForegroundSource, memory: &Memory) -> 
 async fn user_application_reobserves_same_keys_and_refuses_partial_recipe_retarget() -> Result {
     use graphit_records::memory_store::MemoryStoreError;
     let f = Fixture::new()?;
-    prepare_peer(&f)?;
     let first = native_support::Broker::start().await;
     let second = native_support::Broker::start().await;
     let seed = bootstrap_with_profiles(&f, &[("first", &first), ("second", &second)]).await?;
@@ -1054,7 +1009,6 @@ async fn user_application_reobserves_same_keys_and_refuses_partial_recipe_retarg
     ));
 
     let other_fixture = Fixture::new()?;
-    prepare_peer(&other_fixture)?;
     let other_seed = bootstrap_with_profiles(&other_fixture, &[("same-native", &first)]).await?;
     let other_records = seed_user(&other_fixture, &other_seed, 2, 0).await?;
     other_seed.shutdown().await?;
@@ -1081,7 +1035,6 @@ async fn user_application_reobserves_same_keys_and_refuses_partial_recipe_retarg
 async fn user_application_respects_protected_and_last_record_refusals() -> Result {
     for count in [1, 3] {
         let f = Fixture::new()?;
-        prepare_peer(&f)?;
         let broker = native_support::Broker::start().await;
         let seed = bootstrap_with_profiles(&f, &[("user", &broker)]).await?;
         let records = seed_user(&f, &seed, count, 0).await?;
@@ -1111,7 +1064,6 @@ async fn user_controller_retains_partial_application_keys_through_retry_and_queu
     use tokio::io::AsyncWriteExt;
     let mut f = Fixture::new()?;
     f.retries = 1;
-    prepare_peer(&f)?;
     let broker = native_support::Broker::start().await;
     let seed = bootstrap_with_profiles(&f, &[("user", &broker)]).await?;
     let records = seed_user(&f, &seed, 4, 0).await?;

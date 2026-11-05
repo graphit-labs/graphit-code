@@ -127,7 +127,84 @@ fn compiler(variable: &str, target: &str, host: &str) -> Option<std::ffi::OsStri
     .find_map(env::var_os)
 }
 
-pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> {
+fn requires_engine(metadata: &cargo_metadata::Metadata, args: &[String]) -> bool {
+    let mut selected = Vec::new();
+    let mut args = args.iter().map(String::as_str).take_while(|s| *s != "--");
+    while let Some(arg) = args.next() {
+        if arg == "--workspace" {
+            return true;
+        }
+        if arg == "-p" || arg == "--package" {
+            if let Some(name) = args.next() {
+                selected.push(name);
+            }
+        } else if let Some(name) = arg
+            .strip_prefix("--package=")
+            .or_else(|| arg.strip_prefix("-p").filter(|name| !name.is_empty()))
+        {
+            selected.push(name);
+        }
+    }
+    // Leave uncommon Cargo package specs/patterns to Cargo, without accidentally
+    // skipping a required engine. Exact workspace selections use its real graph.
+    if selected.is_empty()
+        || selected
+            .iter()
+            .any(|name| name.contains(['*', '?', '[', '#', '/']))
+    {
+        return true;
+    }
+    let Some(resolve) = &metadata.resolve else {
+        return true;
+    };
+    let engines: std::collections::HashSet<_> = metadata
+        .packages
+        .iter()
+        .filter(|p| p.name.as_str() == "lbug")
+        .map(|p| &p.id)
+        .collect();
+    let mut pending = Vec::new();
+    for name in selected {
+        let name = name.split('@').next().unwrap_or(name);
+        let Some(package) = metadata
+            .workspace_packages()
+            .into_iter()
+            .find(|p| p.name.as_str() == name)
+        else {
+            return true;
+        };
+        pending.push(&package.id);
+    }
+    let nodes: std::collections::HashMap<_, _> = resolve.nodes.iter().map(|n| (&n.id, n)).collect();
+    let mut seen = std::collections::HashSet::new();
+    while let Some(id) = pending.pop() {
+        if engines.contains(id) {
+            return true;
+        }
+        if !seen.insert(id) {
+            continue;
+        }
+        if let Some(node) = nodes.get(id) {
+            pending.extend(node.dependencies.iter());
+        }
+    }
+    false
+}
+
+pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Option<Prepared>, String> {
+    let mut metadata = MetadataCommand::new();
+    metadata.manifest_path(root.join("Cargo.toml"));
+    let mut options = vec!["--locked".to_owned()];
+    if args.iter().any(|a| a == "--offline" || a == "--frozen") {
+        options.push("--offline".into());
+    }
+    let metadata = metadata
+        .other_options(options)
+        .exec()
+        .map_err(|e| e.to_string())?;
+    if !requires_engine(&metadata, args) {
+        return Ok(None);
+    }
     if env::var_os("LBUG_SHARED").is_some() {
         return Err(
             "Graphit's Icebug adapter requires the static Ladybug build; unset LBUG_SHARED".into(),
@@ -168,18 +245,6 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
     {
         return Err("official lbug binding uses /MD; +crt-static is incompatible".into());
     }
-    let mut metadata = MetadataCommand::new();
-    metadata.manifest_path(root.join("Cargo.toml"));
-    let mut options = vec![
-        "--locked".to_owned(),
-        "--filter-platform".to_owned(),
-        target.clone(),
-    ];
-    if args.iter().any(|a| a == "--offline" || a == "--frozen") {
-        options.push("--offline".into());
-    }
-    metadata.other_options(options);
-    let metadata = metadata.exec().map_err(|e| e.to_string())?;
     let package = official_package(&metadata)?;
     let source = package
         .manifest_path
@@ -382,14 +447,14 @@ pub(crate) fn prepare(root: &Path, args: &[String]) -> Result<Prepared, String> 
         source.display(),
         build.display()
     );
-    Ok(Prepared {
+    Ok(Some(Prepared {
         source,
         generated,
         library,
         compiler,
         target,
         _lock: lock,
-    })
+    }))
 }
 
 // Keep the official archive's Zstd symbols private to Ladybug on MSVC,

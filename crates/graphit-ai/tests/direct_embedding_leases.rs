@@ -633,6 +633,8 @@ async fn later_status_codec_shape_and_finite_errors_preserve_typed_cause_without
 #[tokio::test]
 async fn transport_origin_rejection_retains_not_sent_and_network_cause() {
     let tcp = fixture(vec![]).await;
+    let other = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let other_origin = format!("http://{}", other.local_addr().unwrap());
     let cancel = Cancellation::default();
     let ctx = request(&cancel, Instant::now() + Duration::from_secs(30));
     let auth = AuthFixture::embedding(&ctx, DirectProtocol::Voyage, &tcp.origin);
@@ -647,7 +649,7 @@ async fn transport_origin_rejection_retains_not_sent_and_network_cause() {
             &lease,
             &["text"],
             DirectEmbeddingInput::Query,
-            &client("http://127.0.0.1:1"),
+            &client(&other_origin),
             limits(1),
         )
         .await,
@@ -662,6 +664,14 @@ async fn transport_origin_rejection_retains_not_sent_and_network_cause() {
     assert_eq!(result.effect(), NetworkEffect::NotSent);
     redacted(&result);
     assert!(tcp.server.await.unwrap().is_empty());
+    std::future::poll_fn(|cx| {
+        assert!(
+            other.poll_accept(cx).is_pending(),
+            "origin denial sent to the other peer"
+        );
+        std::task::Poll::Ready(())
+    })
+    .await;
 }
 
 #[tokio::test]

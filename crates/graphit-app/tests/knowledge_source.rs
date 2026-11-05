@@ -1,5 +1,5 @@
 //! Native FULL16 source through the authenticated App boundary.
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 use graphit_app::knowledge_source::*;
 use graphit_auth::*;
 use graphit_auth::{

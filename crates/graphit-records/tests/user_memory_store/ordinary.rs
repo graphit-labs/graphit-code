@@ -227,6 +227,28 @@ async fn actual_incoming_config_cancel_deadline_expiry_and_physical_replacement_
         let ctx = request(&cancel);
         let f = Fixture::new(&ctx).await;
         let verifier = f.server.verifier(true, f.provider_revision(&ctx));
+        let seed_expiry = now_seconds() + 600;
+        let raw = f.server.token(SUBJECT, RESOURCE, seed_expiry);
+        let proof = verifier
+            .verify(&raw, BrokerRequestContext::new(ctx.snapshot()))
+            .await
+            .unwrap();
+        let write = f
+            .issuer
+            .admit_incoming_user_memory_write(
+                &proof,
+                &verifier,
+                &ctx,
+                "service",
+                f.scope(),
+                UserMemoryWriteOperation::Memory,
+            )
+            .unwrap();
+        let memory =
+            NativeUserMemoryStore::create(ctx.snapshot(), &write, input("valid"), write_limits())
+                .await
+                .unwrap();
+        // Seed/SDK setup uses a durable proof; expiry is measured only after it completes.
         let expiry = now_seconds() + if ending == 3 { 2 } else { 600 };
         let raw = f.server.token(SUBJECT, RESOURCE, expiry);
         let proof = verifier
@@ -248,10 +270,6 @@ async fn actual_incoming_config_cancel_deadline_expiry_and_physical_replacement_
                 UserMemoryWriteOperation::Memory,
             )
             .unwrap();
-        let memory =
-            NativeUserMemoryStore::create(ctx.snapshot(), &write, input("valid"), write_limits())
-                .await
-                .unwrap();
         match ending {
             0 => {
                 let result = f

@@ -1,8 +1,8 @@
 import '@/test/contextControls'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { taskApi, type TaskCataloguePage } from '@/api/task'
 import { useTaskWorkspace } from './taskWorkspaceState'
 import { WorkspaceRefreshProvider } from '@/components/layout/WorkspaceRefreshProvider'
@@ -11,14 +11,20 @@ import TaskGanttPage from './TaskGanttPage'
 import { context, cursor, first, second, summary } from './task.test-fixtures'
 vi.mock('@/api/task', async importOriginal => ({ ...await importOriginal<typeof import('@/api/task')>(), taskApi: { contexts: vi.fn(), context: vi.fn(), catalogue: vi.fn(), get: vi.fn() } }))
 beforeEach(() => {
- vi.clearAllMocks(); useTaskWorkspace.setState({ selection: context, contexts: [context], phase: 'ready', error: '' })
+ vi.resetAllMocks(); useTaskWorkspace.setState({ selection: context, contexts: [context], phase: 'ready', error: '' })
  vi.mocked(taskApi.context).mockImplementation(async selection => ({ ...context, ...selection }))
  vi.mocked(taskApi.catalogue).mockImplementation(async options => options.cursor ? { results: [summary(second)], next_cursor: null } : { results: [summary(first)], next_cursor: cursor })
 })
 function Location() { return <output>{useLocation().pathname}</output> }
 function page() { return render(<MemoryRouter><Routes><Route path="/" element={<TaskGanttPage />} /><Route path="/task/explorer/:id" element={<Location />} /></Routes></MemoryRouter>) }
+afterEach(() => {
+ cleanup()
+ vi.clearAllTimers()
+ vi.useRealTimers()
+})
 describe('native Task Gantt', () => {
  it('awaits the current calendar through the single keyboard-operated header refresh', async () => {
+  vi.useFakeTimers()
   let resolve!: (value: TaskCataloguePage) => void
   const pending = new Promise<TaskCataloguePage>(done => { resolve = done })
   const cloned = { ...context, project_dir: context.project_dir }
@@ -28,26 +34,32 @@ describe('native Task Gantt', () => {
    void pending.then(done)
    signal?.addEventListener('abort', () => fail(new DOMException('Aborted', 'AbortError')), { once: true })
   }))
-  const user = userEvent.setup()
-  render(<MemoryRouter initialEntries={['/task/gantt']}><WorkspaceRefreshProvider>
-   <TaskWorkspaceSelectors /><TaskGanttPage />
-  </WorkspaceRefreshProvider></MemoryRouter>)
-  await screen.findByText('3 days inclusive')
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+  await act(async () => {
+   render(<MemoryRouter initialEntries={['/task/gantt']}><WorkspaceRefreshProvider>
+    <TaskWorkspaceSelectors /><TaskGanttPage />
+   </WorkspaceRefreshProvider></MemoryRouter>)
+  })
+  await act(async () => { await vi.advanceTimersByTimeAsync(200) })
+  expect(screen.getByText('3 days inclusive')).toBeTruthy()
   const buttons = screen.getAllByRole('button', { name: /^Refresh$/ })
   expect(buttons).toHaveLength(1)
   const refresh = buttons[0] as HTMLButtonElement
-  refresh.focus(); await user.keyboard('{Enter}')
-  await waitFor(() => expect(taskApi.catalogue).toHaveBeenCalledTimes(2))
+  act(() => refresh.focus())
+  const keyboard = user.keyboard('{Enter}')
+  await act(async () => { await vi.runAllTimersAsync() })
+  await keyboard
+  expect(taskApi.catalogue).toHaveBeenCalledTimes(2)
   const signal = vi.mocked(taskApi.catalogue).mock.calls[1][0].signal!
-  await act(async () => { await new Promise(done => window.setTimeout(done, 260)) })
+  await act(async () => { await vi.advanceTimersByTimeAsync(260) })
   expect(taskApi.catalogue).toHaveBeenCalledTimes(2)
   expect(signal.aborted).toBe(false)
   expect(refresh.disabled).toBe(true)
   expect(refresh.getAttribute('aria-busy')).toBe('true')
   expect(screen.queryByText('3 days inclusive')).toBeNull()
   await act(async () => resolve({ results: [{ ...summary(first), schedule: { start_date: '2028-03-02', end_date: '2028-03-02' } }], next_cursor: null }))
-  expect(await screen.findByText('1 day inclusive')).toBeTruthy()
-  await waitFor(() => expect(refresh.disabled).toBe(false))
+  expect(screen.getByText('1 day inclusive')).toBeTruthy()
+  expect(refresh.disabled).toBe(false)
   expect(refresh.getAttribute('aria-busy')).toBe('false')
   expect(taskApi.catalogue).toHaveBeenLastCalledWith(expect.objectContaining({ selection: context }))
   expect(taskApi.get).not.toHaveBeenCalled()

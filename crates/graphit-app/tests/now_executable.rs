@@ -27,6 +27,7 @@ use graphit_core::{
     project_paths::InstallationPaths,
 };
 use graphit_hub::NativeBinding;
+use rustix::process::{Pid, Signal};
 use serde_json::{Value, json};
 use std::{
     io,
@@ -355,14 +356,10 @@ fn validate_publish(frame: &Value, instance: &str, project: &str, version: &str)
 fn native() -> NativeDocumentFileLimits {
     NativeDocumentFileLimits::new(65536, 4096, 128, 65536).unwrap()
 }
-async fn signal(pid: u32, name: &str) -> Result {
-    assert!(
-        Command::new("kill")
-            .args([name, &pid.to_string()])
-            .status()
-            .await?
-            .success()
-    );
+fn signal(pid: u32, signal: Signal) -> Result {
+    let pid = Pid::from_raw(i32::try_from(pid)?)
+        .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    rustix::process::kill_process(pid, signal)?;
     Ok(())
 }
 async fn stopped(child: &mut Child, code: i32) -> Result {
@@ -391,7 +388,7 @@ async fn first_line(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn compiled_pipe_full_empty_filters_precision_and_both_signals_join() -> Result {
-    for sig in ["-INT", "-TERM"] {
+    for sig in [Signal::INT, Signal::TERM] {
         let mut f = Fixture::new().await?;
         let mut child = f.cli().spawn()?;
         let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
@@ -418,7 +415,7 @@ async fn compiled_pipe_full_empty_filters_precision_and_both_signals_join() -> R
             serde_json::from_str::<Value>(&empty)?["instances"],
             json!([])
         );
-        signal(child.id().unwrap(), sig).await?;
+        signal(child.id().unwrap(), sig)?;
         stopped(&mut child, 130).await?;
         f.joined().await?;
         f.shutdown().await?;
@@ -539,58 +536,52 @@ async fn compiled_missing_flags_project_denial_and_provider_failure_are_finite()
     f.shutdown().await
 }
 
-// Python's standard-library PTY gives the compiled child a real terminal without unsafe Rust.
-const PTY: &str = r#"
-import errno, fcntl, os, pty, struct, subprocess, sys, termios
-master, slave = pty.openpty()
-fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
-child = subprocess.Popen(sys.argv[1:], stdin=subprocess.DEVNULL, stdout=slave, stderr=subprocess.PIPE)
-os.close(slave)
-print('PID:' + str(child.pid), flush=True)
-try:
-    while True:
-        try:
-            data = os.read(master, 4096)
-        except OSError as error:
-            if error.errno == errno.EIO:
-                break
-            raise
-        if not data:
-            break
-        sys.stdout.buffer.write(data)
-        sys.stdout.buffer.flush()
-finally:
-    os.close(master)
-    if child.poll() is None:
-        child.terminate()
-    _, errors = child.communicate(timeout=8)
-    sys.stdout.buffer.write(errors)
-    print('EXIT:' + str(child.returncode), flush=True)
-"#;
+type Terminal = tokio::io::unix::AsyncFd<rustix::fd::OwnedFd>;
+
+async fn terminal_read(reader: &Terminal, bytes: &mut [u8]) -> io::Result<usize> {
+    loop {
+        let mut ready = reader.readable().await?;
+        match ready.try_io(
+            |reader| match rustix::io::read(reader.get_ref(), &mut *bytes) {
+                Ok(count) => Ok(count),
+                // Linux reports EIO when the last user-side descriptor closes.
+                Err(rustix::io::Errno::IO) => Ok(0),
+                Err(error) => Err(error.into()),
+            },
+        ) {
+            Ok(result) => return result,
+            Err(_) => continue,
+        }
+    }
+}
+fn terminal_text(text: &mut String, pending: &mut Vec<u8>, bytes: &[u8]) -> io::Result<()> {
+    pending.extend_from_slice(bytes);
+    let complete = match std::str::from_utf8(pending) {
+        Ok(_) => pending.len(),
+        Err(error) if error.error_len().is_none() => error.valid_up_to(),
+        Err(_) => return Err(io::Error::other("invalid terminal UTF-8")),
+    };
+    text.push_str(std::str::from_utf8(&pending[..complete]).map_err(io::Error::other)?);
+    pending.drain(..complete);
+    if text.len() + pending.len() > 65536 {
+        return Err(io::Error::other("unexpected terminal output"));
+    }
+    Ok(())
+}
 async fn terminal_until(
-    reader: &mut BufReader<tokio::process::ChildStdout>,
+    reader: &Terminal,
     text: &mut String,
+    pending: &mut Vec<u8>,
     needle: &str,
 ) -> Result {
     tokio::time::timeout(WAIT, async {
         let mut bytes = [0; 4096];
-        let mut pending = Vec::new();
         while !text.contains(needle) {
-            let count = reader.read(&mut bytes).await?;
+            let count = terminal_read(reader, &mut bytes).await?;
             if count == 0 {
                 return Err(io::Error::other("terminal ended before expected view"));
             }
-            pending.extend_from_slice(&bytes[..count]);
-            let complete = match std::str::from_utf8(&pending) {
-                Ok(_) => pending.len(),
-                Err(error) if error.error_len().is_none() => error.valid_up_to(),
-                Err(_) => return Err(io::Error::other("invalid terminal UTF-8")),
-            };
-            text.push_str(std::str::from_utf8(&pending[..complete]).map_err(io::Error::other)?);
-            pending.drain(..complete);
-            if text.len() > 65536 {
-                return Err(io::Error::other("unexpected terminal output"));
-            }
+            terminal_text(text, pending, &bytes[..count])?;
         }
         Ok::<_, io::Error>(())
     })
@@ -601,64 +592,80 @@ async fn terminal_until(
 async fn compiled_real_pty_replaces_shrinking_view_escapes_controls_and_restores_terminal() -> Result
 {
     let mut f = Fixture::new().await?;
-    let mut bridge = Command::new("python3")
-        .env_clear()
-        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
-        .current_dir(&f.directory)
-        .args([
-            "-u",
-            "-c",
-            PTY,
-            env!("CARGO_BIN_EXE_graphit"),
-            "--global-dir",
-        ])
-        .arg(f.paths.root())
-        .args([
-            "now",
-            "--project",
-            &f.project.to_string(),
-            "--provider",
-            "now",
-            "--version",
-            "feature/β",
-            "--instance",
-            "a",
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true)
-        .spawn()?;
-    let mut reader = BufReader::new(bridge.stdout.take().unwrap());
-    let mut line = String::new();
-    tokio::time::timeout(WAIT, reader.read_line(&mut line)).await??;
-    let pid: u32 = line.trim().strip_prefix("PID:").ok_or("PTY pid")?.parse()?;
+    use rustix::{
+        fs::{OFlags, fcntl_setfl},
+        pty::{OpenptFlags, grantpt, ioctl_tiocgptpeer, openpt, unlockpt},
+        termios::{Winsize, tcsetwinsize},
+    };
+    let flags = OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC;
+    let controller = openpt(flags)?;
+    grantpt(&controller)?;
+    unlockpt(&controller)?;
+    let terminal = ioctl_tiocgptpeer(&controller, flags)?;
+    tcsetwinsize(
+        &terminal,
+        Winsize {
+            ws_row: 24,
+            ws_col: 80,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        },
+    )?;
+    fcntl_setfl(&controller, OFlags::NONBLOCK)?;
+    let reader = Terminal::new(controller)?;
+    let mut command = f.cli();
+    command.stdout(Stdio::from(terminal));
+    let mut child = command.spawn()?;
+    drop(command); // The child alone retains the terminal's user side.
+    let mut pending = Vec::new();
     let mut view = String::new();
-    terminal_until(&mut reader, &mut view, "\\u{202e}title").await?;
+    terminal_until(&reader, &mut view, &mut pending, "\\u{202e}title").await?;
     assert!(view.contains("Café β") && view.contains("feature/β"));
     assert!(view.contains("\\u{001b}[31m\\u{0085}\\u{202e}title"));
     assert!(
         !view.contains("\u{001b}[31m") && !view.contains('\u{0085}') && !view.contains('\u{202e}')
     );
     assert!(view.contains("9007199254740991"));
-    terminal_until(&mut reader, &mut view, "complete snapshot.").await?;
+    terminal_until(&reader, &mut view, &mut pending, "complete snapshot.").await?;
     assert!(view.contains("\u{001b}[1;1HNow  ") && view.contains("Provider now"));
     assert!(view.contains("\u{001b}[24;1HMore items or text"));
     assert!(!view.contains("\u{001b}[25;1H"));
     f.empty().await?;
     terminal_until(
-        &mut reader,
+        &reader,
         &mut view,
+        &mut pending,
         "No online instances match these filters.",
     )
     .await?;
     assert_eq!(view.matches("\u{001b}[2J").count(), 2);
     let last = view.rsplit("\u{001b}[2J").next().unwrap();
     assert!(!last.contains("guide") && !last.contains("title"));
-    signal(pid, "-TERM").await?;
-    terminal_until(&mut reader, &mut view, "EXIT:130").await?;
+    signal(child.id().unwrap(), Signal::TERM)?;
+    terminal_until(&reader, &mut view, &mut pending, "\u{001b}[?1049l").await?;
+    stopped(&mut child, 130).await?;
+    tokio::time::timeout(WAIT, async {
+        let mut bytes = [0; 4096];
+        loop {
+            let count = terminal_read(&reader, &mut bytes).await?;
+            if count == 0 {
+                break;
+            }
+            terminal_text(&mut view, &mut pending, &bytes[..count])?;
+        }
+        Ok::<_, io::Error>(())
+    })
+    .await??;
+    assert!(pending.is_empty(), "terminal ended inside a UTF-8 scalar");
     assert!(view.contains("\u{001b}[?1049h") && view.contains("\u{001b}[?1049l"));
-    stopped(&mut bridge, 0).await?;
+    let mut errors = String::new();
+    child
+        .stderr
+        .take()
+        .unwrap()
+        .read_to_string(&mut errors)
+        .await?;
+    assert!(errors.is_empty());
     f.joined().await?;
     f.shutdown().await
 }
@@ -671,7 +678,7 @@ async fn compiled_signal_interrupts_a_live_pipe_that_stops_reading() -> Result {
     let mut prefix = vec![0; 8192];
     tokio::time::timeout(WAIT, reader.read_exact(&mut prefix)).await??;
     assert!(prefix.starts_with(b"{\"type\":\"snapshot\""));
-    signal(child.id().unwrap(), "-TERM").await?;
+    signal(child.id().unwrap(), Signal::TERM)?;
     let status = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
     if status.is_err() {
         drop(reader);

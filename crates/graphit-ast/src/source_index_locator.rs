@@ -2,7 +2,8 @@
 //!
 //! The caller authorizes acquisition and delivery. Scope captures are observations,
 //! not grants. Pathname SDK IO is bracketed by native revalidation; this does not
-//! promise continuous confinement or a pin against external dataset GC.
+//! promise continuous confinement. The existing AST reader lease protects the
+//! captured SDK snapshot from coordinated history cleanup through delivery.
 
 use crate::indexed_source::{
     BranchSourceObservation, IndexedSourceError, IndexedSourceSnapshot, read_branch_source,
@@ -17,7 +18,7 @@ use graphit_core::{
     },
     project_identity::ProjectId,
 };
-use graphit_data::lance_branch_store::{BranchError, BranchSnapshot, LanceBranchStore};
+use graphit_data::lance_branch_store::{BranchError, BranchSnapshot};
 use std::{
     error::Error,
     fmt, fs, io,
@@ -199,31 +200,6 @@ impl LocalSourceIndex<'_> {
         result.map_err(SourceIndexError::Source)
     }
 
-    /// Read the physical Raw pin belonging to an already published FILE. Other
-    /// FILE commits may have advanced the branch without changing this entity.
-    pub async fn read_version(
-        &self,
-        path: &str,
-        version: u64,
-        original: &Arc<SnapshotContext>,
-    ) -> Result<IndexedSourceSnapshot, SourceIndexError> {
-        self.revalidate(original)?;
-        if version == 0 || version > self.snapshot.version() {
-            return Err(SourceIndexError::InvalidLocator);
-        }
-        let captured = self
-            .snapshot
-            .at_version(version)
-            .await
-            .map_err(|cause| SourceIndexError::Operation(io::Error::other(cause)))?;
-        self.revalidate(original)?;
-        let source = crate::indexed_source::read_branch_source(&captured, path, original)
-            .await
-            .map_err(SourceIndexError::Source)?;
-        self.revalidate(original)?;
-        Ok(source)
-    }
-
     /// Enumerate every literal path in this same captured generation.
     ///
     /// Keys with unstored source remain present. The result contains no bodies,
@@ -241,7 +217,8 @@ impl LocalSourceIndex<'_> {
 
 /// Acquire only the fixed Installation/ProjectId corpus and resolved SDK branch.
 /// An observed miss is read-only. Once presence is observed, every failure stays
-/// an error. No directory, dataset or branch is created or repaired.
+/// an error. The existing reader lease coordinates cleanup of a present corpus;
+/// no directory, dataset or branch is created or repaired.
 pub async fn open_local_source_index<'a>(
     installation: ScopeCapture<'a>,
     project: ProjectCapture<'a>,
@@ -288,23 +265,23 @@ pub async fn open_local_source_index<'a>(
         validate_scopes(installation, project, original)?;
         parent = child;
     }
-    let uri = path.to_str().ok_or(SourceIndexError::InvalidLocator)?;
     parent.revalidate(original)?;
     validate_scopes(installation, project, original)?;
-    let opened = LanceBranchStore::open(uri, source_schema(), None).await;
-    parent.revalidate(original)?;
-    validate_scopes(installation, project, original)?;
-    let store = opened.map_err(|error| SourceIndexError::Storage(Box::new(error)))?;
     let encoded = project.version.lance_branch();
     let branch = if encoded.is_empty() {
         None
     } else {
         Some(encoded.as_str())
     };
-    let captured = store.capture_target(branch).await;
+    let captured = BranchSnapshot::capture_ast_corpus(&path, branch, original).await;
     parent.revalidate(original)?;
     validate_scopes(installation, project, original)?;
-    let snapshot = captured.map_err(|error| SourceIndexError::Storage(Box::new(error)))?;
+    let snapshot = captured.map_err(SourceIndexError::Operation)?;
+    if snapshot.schema() != source_schema().as_ref() {
+        return Err(SourceIndexError::Storage(Box::new(
+            BranchError::SchemaMismatch,
+        )));
+    }
     let result = LocalSourceIndex {
         installation,
         project,

@@ -1,8 +1,7 @@
 //! Observed NativeNN acquisition for real captured Installation/PROJECT scopes.
 //!
-//! Captures and schema observations are not grants, raw/model freshness proofs or
-//! a continuous pathname confinement/GC pin. The caller retains this owner and
-//! authorizes use of the borrowed SDK snapshot before effects and delivery.
+//! The snapshot holds the local AST corpus's shared cleanup lease.
+//! The caller separately authorizes and revalidates the selected project.
 
 use arrow_schema::Schema;
 use graphit_auth::{ProjectCapture, ScopeCapture};
@@ -245,7 +244,6 @@ async fn open<'a>(
         validate_scopes(installation, project, original)?;
         parent = child;
     }
-    let uri = path.to_str().ok_or(NativeNnIndexError::InvalidLocator)?;
     let encoded = project.version.lance_branch();
     let branch = if encoded.is_empty() {
         None
@@ -254,19 +252,23 @@ async fn open<'a>(
     };
     parent.revalidate(original)?;
     validate_scopes(installation, project, original)?;
-    let observed = BranchSnapshot::capture_observed(uri, branch, None).await;
+    path.to_str().ok_or(NativeNnIndexError::InvalidLocator)?;
+    let observed = BranchSnapshot::capture_ast_corpus(&path, branch, original).await;
     parent.revalidate(original)?;
     validate_scopes(installation, project, original)?;
     let snapshot = match observed {
         Ok(snapshot) => snapshot,
-        Err(BranchError::Sdk(error))
-            if matches!(error.as_ref(), lance::Error::DatasetNotFound { .. })
-                && !error.is_commit_status_unknown()
-                && !mapped =>
-        {
-            return Ok(NativeNnIndexPresence::Absent);
-        }
-        Err(error) => return Err(NativeNnIndexError::Storage(Box::new(error))),
+        Err(error) => match error.downcast::<BranchError>() {
+            Ok(BranchError::Sdk(cause))
+                if !mapped
+                    && matches!(cause.as_ref(), lance::Error::DatasetNotFound { .. })
+                    && !cause.is_commit_status_unknown() =>
+            {
+                return Ok(NativeNnIndexPresence::Absent);
+            }
+            Ok(error) => return Err(NativeNnIndexError::Storage(Box::new(error))),
+            Err(error) => return Err(error.into()),
+        },
     };
     crate::corpus::validate_schema(snapshot.schema())?;
     let index = LocalNativeNnIndex {

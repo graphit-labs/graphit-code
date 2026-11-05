@@ -1,5 +1,5 @@
 //! Public imported reads with real signed Web authority, Hub registry and Lance datasets.
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 #[path = "support/imported_knowledge_fixture.rs"]
 mod fixture;
 use fixture::*;
@@ -518,7 +518,13 @@ fn cancelled_original_and_expired_original_remain_auth_causes() {
 #[test]
 fn foreign_registry_symlink_and_wrong_schema_are_causal_errors() {
     native_test(async {
-        for fault in ["registry", "symlink", "schema", "capture"] {
+        for fault in [
+            "registry",
+            #[cfg(unix)]
+            "symlink",
+            "schema",
+            "capture",
+        ] {
             let server = Server::new().await;
             let cancel = Cancellation::default();
             let ctx = context(&cancel);
@@ -557,6 +563,17 @@ fn foreign_registry_symlink_and_wrong_schema_are_causal_errors() {
                 continue;
             }
             let path = f.source.directory().as_path().join("index.lance");
+            #[cfg(unix)]
+            if fault == "symlink" {
+                let moved = path.with_file_name("held-index.lance");
+                std::fs::rename(&path, &moved).unwrap();
+                std::os::unix::fs::symlink(&moved, &path).unwrap();
+                assert!(matches!(
+                    open_imported_knowledge(&read, input(&f, None), limits()).await,
+                    Err(ImportedKnowledgeReadError::InvalidLocator)
+                ));
+                continue;
+            }
             if fault == "capture" {
                 let ImportedKnowledgeOpen::Published(reader) =
                     open_imported_knowledge(&read, input(&f, None), limits())
@@ -574,14 +591,6 @@ fn foreign_registry_symlink_and_wrong_schema_are_causal_errors() {
                 assert!(matches!(
                     reader.heads(heads_limits()).await,
                     Err(ImportedKnowledgeReadError::Capture(_))
-                ));
-            } else if fault == "symlink" {
-                let moved = path.with_file_name("held-index.lance");
-                std::fs::rename(&path, &moved).unwrap();
-                std::os::unix::fs::symlink(&moved, &path).unwrap();
-                assert!(matches!(
-                    open_imported_knowledge(&read, input(&f, None), limits()).await,
-                    Err(ImportedKnowledgeReadError::InvalidLocator)
                 ));
             } else {
                 std::fs::remove_dir_all(&path).unwrap();

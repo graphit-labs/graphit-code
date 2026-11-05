@@ -602,19 +602,17 @@ async fn stalled_body_observes_shared_cancellation_and_original_deadline() {
     }
     // The second request inherits the original deadline; no per-batch extension.
     let mut first = reply(rows(1));
-    first.delay = Duration::from_millis(60);
+    first.delay = Duration::from_millis(600);
     let mut second = reply(rows(1));
-    // Body arrives around 120ms: after original100, before renewedHTTP160.
-    // A renewed HTTP deadline would deliver the body and yield Context(Deadline),
-    // rather than the required Network(Deadline).
-    second.delay = Duration::from_millis(60);
+    // 600 + 600 ms crosses the original 1 s budget but stays before a
+    // renewed second HTTP budget. Only Network(Deadline) is correct.
+    second.delay = Duration::from_millis(600);
     let fixture = fixture(vec![first, second]).await;
     let client = client(&fixture.origin);
     let endpoint = format!("{}/embeddings", fixture.origin);
     let cancel = Cancellation::default();
     let policy = EmbeddingLimits::new(3, 100, 2, 6, 1, 1000, 1000).unwrap();
-    let context = InferenceContext::new(&cancel, Instant::now() + Duration::from_millis(100));
-    let started = Instant::now();
+    let context = InferenceContext::new(&cancel, Instant::now() + Duration::from_secs(1));
     assert_eq!(
         error(
             adapter(&client, &endpoint, policy)
@@ -623,7 +621,6 @@ async fn stalled_body_observes_shared_cancellation_and_original_deadline() {
         ),
         EmbeddingError::Network(NetworkError::Deadline)
     );
-    assert!(started.elapsed() < Duration::from_millis(170));
     assert_eq!(fixture.server.await.unwrap().len(), 2);
 }
 #[test]

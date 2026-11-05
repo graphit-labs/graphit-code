@@ -125,6 +125,9 @@ fn native_service_child() {
         .unwrap();
     peer.write_all(b"L").unwrap();
     if mode == "broken" {
+        let mut ack = [0];
+        peer.read_exact(&mut ack).unwrap();
+        assert_eq!(ack, [b'A']);
         std::process::exit(7);
     }
     if mode != "blocked" {
@@ -312,11 +315,27 @@ async fn admission_and_bootstrap_failures_are_real() {
         let host = install_host(&service, 1).await;
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap().to_string();
-        let startup = original(&Cancellation::default(), Duration::from_millis(250));
+        let startup = original(
+            &Cancellation::default(),
+            if mode == "blocked" {
+                Duration::from_millis(250)
+            } else {
+                Duration::from_secs(5)
+            },
+        );
         let mut req = request(mode, &address);
         req.stdin = Some(Zeroizing::new(vec![37; 8 * 1024 * 1024]));
         req.limits.stdin_bytes = 8 * 1024 * 1024;
-        let error = spawn_service(req, &startup, &host).await.unwrap_err();
+        let pending = spawn_service(req, &startup, &host);
+        let release = async {
+            let mut peer = connected(&listener).await;
+            if mode == "broken" {
+                peer.write_all(b"A").await.unwrap();
+            }
+            peer
+        };
+        let (result, _peer) = tokio::join!(pending, release);
+        let error = result.unwrap_err();
         if mode == "blocked" {
             assert_eq!(error.reason, Reason::TimedOut);
         } else {

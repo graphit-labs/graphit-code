@@ -64,6 +64,9 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
+#[path = "support/dream_peer.rs"]
+mod dream_peer;
+
 #[path = "foreground_tasks/hosting.rs"]
 mod hosting;
 #[path = "foreground_tasks/open_ui.rs"]
@@ -967,13 +970,13 @@ struct Daemon {
 }
 impl Daemon {
     async fn stop(mut self, signal: &str) {
-        assert!(
-            Command::new("kill")
-                .args([signal, &self.child.id().to_string()])
-                .status()
-                .unwrap()
-                .success()
-        );
+        let signal = match signal {
+            "-INT" => rustix::process::Signal::INT,
+            "-TERM" => rustix::process::Signal::TERM,
+            _ => panic!("unexpected fixture signal: {signal}"),
+        };
+        let pid = rustix::process::Pid::from_raw(i32::try_from(self.child.id()).unwrap()).unwrap();
+        rustix::process::kill_process(pid, signal).unwrap();
         let until = Instant::now() + Duration::from_secs(20);
         loop {
             if let Some(status) = self.child.try_wait().unwrap() {

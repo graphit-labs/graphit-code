@@ -412,7 +412,6 @@ async fn live_sse_same_subscription_delivers_two_turns_beyond_rpc_budget() {
     let cookie = f.login().await;
     seed_live(&f).await;
     let rpc_budget = f.tasks.as_ref().unwrap().0.browser_policy().1;
-    let opened_at = Instant::now();
     let subscriber = call(
         &f,
         &cookie,
@@ -421,9 +420,10 @@ async fn live_sse_same_subscription_delivers_two_turns_beyond_rpc_budget() {
     )
     .await;
     assert_eq!(subscriber.status(), StatusCode::OK);
+    let opened_at = Instant::now();
     record_live_turn(&f, "first").await;
     // Cross the actual finite RPC budget once; it is not the lifetime of this subscription.
-    tokio::time::sleep_until((opened_at + rpc_budget + Duration::from_millis(100)).into()).await;
+    tokio::time::sleep_until((opened_at + rpc_budget).into()).await;
     record_live_turn(&f, "second").await;
     let closed = call(
         &f,

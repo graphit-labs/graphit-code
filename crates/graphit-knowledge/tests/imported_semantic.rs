@@ -1,6 +1,6 @@
 //! Signed Web, registry and SDK fixtures for Imported semantic kernels.
 //! Vectors are ordinary fixture data; App qualifies the actual Models.Query RPC.
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 #[path = "support/imported_knowledge_fixture.rs"]
 #[allow(dead_code)]
 mod fixture;
@@ -781,16 +781,19 @@ fn imported_source_export_ignores_invalid_vector_values_and_keeps_terminal_guard
             matches!(reader.validate_export_destination(&f.source.directory().as_path().join("inside.md")),
             Err(ImportedKnowledgeReadError::Capture(error)) if error.kind() == std::io::ErrorKind::InvalidInput)
         );
-        let alias = exports.path().join("alias");
-        std::os::unix::fs::symlink(f.source.directory().as_path(), &alias).unwrap();
-        assert!(
-            reader
-                .validate_export_destination(&alias.join("inside.md"))
-                .is_err()
-        );
-        let final_link = exports.path().join("link.md");
-        std::os::unix::fs::symlink(f.source.directory().as_path(), &final_link).unwrap();
-        assert!(reader.validate_export_destination(&final_link).is_err());
+        #[cfg(unix)]
+        {
+            let alias = exports.path().join("alias");
+            std::os::unix::fs::symlink(f.source.directory().as_path(), &alias).unwrap();
+            assert!(
+                reader
+                    .validate_export_destination(&alias.join("inside.md"))
+                    .is_err()
+            );
+            let final_link = exports.path().join("link.md");
+            std::os::unix::fs::symlink(f.source.directory().as_path(), &final_link).unwrap();
+            assert!(reader.validate_export_destination(&final_link).is_err());
+        }
         std::fs::write(&outside, b"occupied file").unwrap();
         reader.validate_export_destination(&outside).unwrap();
         assert_eq!(std::fs::read(&outside).unwrap(), b"occupied file");

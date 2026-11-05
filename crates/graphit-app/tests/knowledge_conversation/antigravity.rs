@@ -7,43 +7,10 @@ impl Fixture {
         deadline_ms: Option<u64>,
     ) -> ForegroundSource {
         let program = self.temp.path().join("agy");
-        std::fs::write(&program, r#"#!/usr/bin/python3
-import json, os, sys, time, signal
-signal.signal(signal.SIGTERM, lambda *_: open(os.environ["AGY_RELEASE"] + ".term", "w").write("term"))
-args = sys.argv[1:]
-base = ['--input-format','stream-json','--output-format','stream-json','--model','fixture-model']
-session = '00000000-0000-4000-8000-000000000001'
-assert args == base or args == base + ['--conversation',session]
-wire = json.loads(sys.stdin.read())
-assert wire['event'] == 'user'
-prompt = json.loads(wire['message']['content'])
-query = prompt['question']
-assert prompt['pages'][0]['body'] == '---\ntitle: Capital β\n---\nParis é a capital.\n'
-with open(os.environ['AGY_JOURNAL'], 'a') as journal:
-    journal.write(json.dumps({'args':args,'query':query,'cwd':os.getcwd(),'captured':os.environ.get('AGY_CAPTURED'),'pid':os.getpid()})+'\n')
-if query == 'mismatch':
-    session = '00000000-0000-4000-8000-000000000002'
-if query != 'missing init':
-    print(json.dumps({'event':'init','conversation_id':session,'init':{'model':'observed-native','permission_mode':'request-review'}}),flush=True)
-if query == 'malformed':
-    print('{bad native frame',flush=True)
-    sys.exit(0)
-print(json.dumps({'event':'step_update','step_update':{'conversation_id':session,'step_index':4,'state':'ACTIVE','step_type':'agent_response','text_delta':'antigravity native progress'}}),flush=True)
-if query == 'wait for release':
-    while not os.path.exists(os.environ['AGY_RELEASE']):
-        time.sleep(0.01)
-if query == 'missing result':
-    sys.exit(0)
-result = {'conversation_id':session,'status':'ERROR' if query == 'native error' else 'SUCCESS','response':'Paris answer','num_turns':13,'usage':{'input_tokens':12345,'output_tokens':678,'total_tokens':13023},'duration_seconds':42.125}
-if query == 'native error':
-    result['error'] = 'native failure'
-if query == 'result mismatch':
-    result['conversation_id'] = '00000000-0000-4000-8000-000000000002'
-print(json.dumps({'event':'result','result':result}),flush=True)
-if query == 'nonzero':
-    sys.exit(7)
-"#).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        agent_fixture::install(
+            &program,
+            json!({"kind":"conversation","protocol":"antigravity"}),
+        );
         self.start_native(
             broker,
             Some(json!(true)),

@@ -74,7 +74,7 @@ async fn client(uri: &str, raw: &str, origin: &str) -> RunningService<RoleClient
     );
     ().serve_with_lifecycle(
         StreamableHttpClientTransport::with_client(
-            reqwest::Client::new(),
+            crate::source_server::test_http_client(),
             StreamableHttpClientTransportConfig::with_uri(uri.to_owned()).custom_headers(headers),
         ),
         ClientLifecycleMode::Discover {
@@ -473,7 +473,7 @@ async fn root_proxy_preserves_global_omission_and_explicit_other_project() {
     let proxy = crate::mcp_source::SourceProxy::new(
         fixture.paths.clone(),
         address,
-        reqwest::Client::new(),
+        crate::source_server::test_http_client(),
         (
             fixture.server.0.policy.index,
             fixture.server.0.policy.content,
@@ -740,7 +740,7 @@ async fn root_alternate_brand_catalog_dispatch_and_proxy_keep_global_neutral() {
     let proxy = crate::mcp_source::SourceProxy::new(
         fixture.paths.clone(),
         address,
-        reqwest::Client::new(),
+        crate::source_server::test_http_client(),
         (
             fixture.server.0.policy.index,
             fixture.server.0.policy.content,
@@ -897,4 +897,250 @@ async fn http_mcp_module_skill_output_modes_preserve_rendered_unicode_and_markdo
     runtime.cancel().await.unwrap();
     fixture.server.shutdown().await.unwrap();
     served.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn synced_broker_skill_is_below_local_rules_and_deactivation_restores_default() {
+    use graphit_auth::{
+        profile::{
+            AiService, BrokerDeviceMetadata, BrokerDeviceProfileData, BrokerDeviceTokens,
+            BrokerService, ProfileExpectation, ProfileLimits, ProviderConfig, ProviderKind,
+            S3Location, S3Source, Secret,
+        },
+        store::AuthStore,
+    };
+    use graphit_core::auth_document::{AuthDocumentLimits, AuthDocumentStore};
+    use std::{
+        fs,
+        sync::atomic::{AtomicU8, Ordering},
+    };
+
+    const NAME: &str = "skills/ast/entry.md";
+    let mut f = super::super::test_fixture::fixture_with_projects_and_authority(
+        &[Permission::Read(Module::Ast)],
+        &[
+            Permission::Configure,
+            Permission::ManageAccessGrants,
+            Permission::External(graphit_auth::ExternalEffect::PublishedFilesystem),
+        ],
+        Brand::default(),
+        NativeBinding::Codex,
+        &["sample"],
+        &[],
+    );
+    let config = ConfigSnapshot::new(f.paths.brand(), []).unwrap();
+    f.server.attach_project_hook(&config).unwrap();
+    std::sync::Arc::get_mut(&mut f.server.0)
+        .unwrap()
+        .roles
+        .attach_hub_transport(crate::source_server::test_http_client(), true, None)
+        .unwrap();
+    let state = &f.server.0;
+    let cancel = Cancellation::default();
+    let original = RequestContext::new(
+        state.policy.content,
+        &cancel,
+        Instant::now() + Duration::from_secs(30),
+    )
+    .unwrap();
+    let issuer = f.auth.issuer();
+    let caller = issuer.authenticate_runtime(&f.raw, &original).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let phase = std::sync::Arc::new(AtomicU8::new(0));
+    let server_phase = phase.clone();
+    let broker = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            axum::Router::new().route(
+                "/v1/agent-instructions",
+                axum::routing::get(move |headers: axum::http::HeaderMap| {
+                    let phase = server_phase.load(Ordering::Relaxed);
+                    async move {
+                        use axum::response::IntoResponse;
+                        assert_eq!(
+                            headers[axum::http::header::AUTHORIZATION],
+                            "Bearer fixture-token"
+                        );
+                        match phase {
+                            0 => axum::Json(
+                                json!({"version":1,"templates":{NAME:"Broker {{ brand }}."}}),
+                            )
+                            .into_response(),
+                            1 => axum::http::StatusCode::UNAUTHORIZED.into_response(),
+                            _ => axum::Json(json!({"version":1,"templates":{}})).into_response(),
+                        }
+                    }
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+    });
+
+    let store = AuthStore::new(
+        AuthDocumentStore::capture(
+            f.auth.installation().live.clone(),
+            AuthDocumentLimits::new(65536, 65536, 256, 65536).unwrap(),
+            original.snapshot(),
+        )
+        .unwrap(),
+        ProfileLimits {
+            bytes: 65536,
+            nodes: 4096,
+            scalar_bytes: 8192,
+            collection_entries: 64,
+            providers: 16,
+            profiles: 16,
+        },
+        &original,
+    )
+    .unwrap();
+    let publication = store
+        .mutate(store.load(&original).unwrap(), &original, |doc, request| {
+            doc.add_provider(
+                "broker".into(),
+                ProviderConfig {
+                    kind: ProviderKind::Broker(BrokerService {
+                        endpoint: origin.clone(),
+                        mcp_resource: None,
+                        allow_anonymous: false,
+                    }),
+                    embedding: AiService::Disabled,
+                    rerank: AiService::Disabled,
+                    s3: S3Location {
+                        bucket: None,
+                        region: None,
+                        endpoint: None,
+                        prefix: None,
+                        source: S3Source::BrokerScope,
+                    },
+                },
+                doc.revision(),
+                1,
+                request,
+            )?;
+            let expected = ProfileExpectation {
+                document_revision: doc.revision(),
+                provider_revision: doc.provider("broker").unwrap().revision(),
+                profile_revision: None,
+            };
+            doc.replace_broker_device_profile(
+                BrokerDeviceProfileData {
+                    name: "native".into(),
+                    provider: "broker".into(),
+                    issuer: origin,
+                    subject: "fixture".into(),
+                    metadata: BrokerDeviceMetadata::default(),
+                    s3_disabled: true,
+                    tokens: BrokerDeviceTokens {
+                        access_token: Secret::new("fixture-token".to_owned().into()),
+                        expires_at: i64::MAX / 2,
+                    },
+                },
+                expected,
+                1,
+                request,
+            )?;
+            doc.activate("native", doc.revision(), request)
+        })
+        .unwrap();
+    assert!(publication.failure().is_none());
+
+    let project = &f.projects[0];
+    let read = || {
+        execute(
+            state,
+            Some(project),
+            serde_json::from_value(json!({"module":"ast"})).unwrap(),
+            &f.raw,
+            false,
+            &original,
+        )
+        .unwrap()["content"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    let sync = || crate::instruction_overrides::sync(issuer, &caller, &f.paths, true, &original);
+    let default = read();
+    // A specific sync fetches and applies the layer even before the general sync.
+    let (uri, job) = serve(&f.server).await;
+    let specific = reqwest::Client::builder()
+        .no_proxy()
+        .build()
+        .unwrap()
+        .post(format!(
+            "{}{}",
+            uri.strip_suffix("/mcp").unwrap(),
+            crate::managed_roles::http::ROUTE
+        ))
+        .header("x-graphit-auth-origin", "runtime")
+        .bearer_auth(&f.raw)
+        .json(&json!({
+            "destination":"project","project_dir":f.projects[0].0.root(),"binding":"codex",
+            "roles":[],"skills_only":true,"rules":[],
+        }))
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(specific.status(), reqwest::StatusCode::OK);
+    let installed: Value = serde_json::from_slice(&specific.bytes().await.unwrap()).unwrap();
+    assert_eq!(installed["failure"], Value::Null, "{installed}");
+    let skill = f.projects[0]
+        .0
+        .root()
+        .join(".agents/skills/graphit-ast/SKILL.md");
+    assert!(
+        fs::read_to_string(skill)
+            .unwrap()
+            .contains("Broker graphit.")
+    );
+    assert_eq!(read(), "Broker graphit.");
+    assert_eq!(sync().await.unwrap()["templates"], 1);
+    let global = f.paths.root().join("rules").join(NAME);
+    let project = project
+        .0
+        .root()
+        .join(project.0.brand().directory())
+        .join("rules")
+        .join(NAME);
+    for (path, text) in [
+        (&global, "Personal override."),
+        (&project, "Project override."),
+    ] {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, text).unwrap();
+        assert_eq!(read(), text);
+    }
+    fs::remove_file(project).unwrap();
+    assert_eq!(read(), "Personal override.");
+    fs::remove_file(global).unwrap();
+    phase.store(1, Ordering::Relaxed);
+    assert_eq!(
+        sync().await.unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
+    assert_eq!(read(), "Broker graphit.");
+    phase.store(2, Ordering::Relaxed);
+    assert_eq!(sync().await.unwrap()["templates"], 0);
+    assert_eq!(read(), default);
+
+    phase.store(0, Ordering::Relaxed);
+    sync().await.unwrap();
+    assert_eq!(read(), "Broker graphit.");
+    let logout = store
+        .mutate(store.load(&original).unwrap(), &original, |doc, request| {
+            doc.logout(None, doc.revision(), request)
+        })
+        .unwrap();
+    assert!(logout.failure().is_none());
+    phase.store(1, Ordering::Relaxed);
+    assert_eq!(sync().await.unwrap()["status"], "local_provider");
+    assert_eq!(read(), default);
+    f.stop.cancel();
+    job.await.unwrap().unwrap();
+    broker.abort();
+    assert!(broker.await.unwrap_err().is_cancelled());
 }

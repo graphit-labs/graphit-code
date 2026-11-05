@@ -653,7 +653,6 @@ pub(crate) fn spawn(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     fn wire_limits() -> CodexWireLimits {
         CodexWireLimits {
@@ -676,25 +675,29 @@ mod tests {
             cleanup: Duration::from_secs(2),
         }
     }
-    fn program(root: &Path, body: &str) -> io::Result<std::path::PathBuf> {
-        let python = which::which("python3").map_err(io::Error::other)?;
+    fn program(root: &Path, mut process: serde_json::Value) -> io::Result<std::path::PathBuf> {
         let program = root.join("opencode");
-        std::fs::write(
+        process["args"] = serde_json::json!(["acp"]);
+        crate::test_agent_fixture::install(
             &program,
-            format!(
-                "#!{}\nimport os,sys\nassert sys.argv[1:]==['acp']\n{body}\n",
-                python.display()
-            ),
-        )?;
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700))?;
+            serde_json::json!({"kind":"raw","process":process}),
+        );
         Ok(program)
+    }
+    async fn assert_retirement_pending(owner: &AcpProcessOwner) {
+        {
+            let observation = owner.observe(Instant::now() + Duration::from_secs(4));
+            tokio::pin!(observation);
+            assert!(futures_util::poll!(observation.as_mut()).is_pending());
+        }
+        assert!(matches!(*owner.state.lock().await, OwnerState::Joining(_)));
     }
     #[tokio::test]
     async fn sdk_foreground_completion_preserves_native_eof_and_normal_exit() {
         let temp = tempfile::tempdir().unwrap();
         let program = program(
             temp.path(),
-            "import time\nwith open('ready', 'w') as marker: marker.write('ready')\nsys.stdin.buffer.read()\nwith open('stdin.eof', 'w') as marker: marker.write('EOF')\ntime.sleep(0.05)",
+            serde_json::json!({"ready":"ready","wait_stdin_eof":true,"stdin_eof_marker":"stdin.eof"}),
         )
         .unwrap();
         let original = Arc::new(SnapshotContext::new(
@@ -748,31 +751,17 @@ mod tests {
      {
         for mode in ["leader_exit", "original_cancel", "deadline", "service_stop"] {
             let temp = tempfile::tempdir().unwrap();
-            let leader = if mode == "leader_exit" {
-                "while not os.path.exists('release.leader'): time.sleep(0.005)\nos._exit(7)"
+            let mut process = serde_json::json!({
+                "ready":"leader.ready","term_marker":"leader.term","term_exit":31,
+                "child":{"pid":"descendant.pid","ignore_term":true,"term_marker":"descendant.term","hold":true}
+            });
+            if mode == "leader_exit" {
+                process["release"] = "release.leader".into();
+                process["exit"] = 7.into();
             } else {
-                "signal.pause()"
-            };
-            let body = format!(
-                r#"import signal,time
-pid=os.fork()
-if pid==0:
- def term(signum,frame):
-  with open('descendant.term','w') as marker: marker.write('TERM')
- signal.signal(signal.SIGTERM,term)
- with open('descendant.pid','w') as marker: marker.write(str(os.getpid()))
- while True:
-  with open('heartbeat','ab') as beat: beat.write(b'.')
-  time.sleep(0.01)
-def term(signum,frame):
- with open('leader.term','w') as marker: marker.write('TERM')
- os._exit(31)
-signal.signal(signal.SIGTERM,term)
-while not os.path.exists('descendant.pid'): time.sleep(0.005)
-with open('leader.ready','w') as marker: marker.write('ready')
-{leader}"#
-            );
-            let program = program(temp.path(), &body).unwrap();
+                process["hold"] = true.into();
+            }
+            let program = program(temp.path(), process).unwrap();
             let cancel = Cancellation::default();
             let service_stop = Cancellation::default();
             let foreground = Cancellation::default();
@@ -805,23 +794,13 @@ with open('leader.ready','w') as marker: marker.write('ready')
             });
             let exercise = async {
                 tokio::time::timeout(Duration::from_secs(2), async {
-                    while !temp.path().join("leader.ready").exists()
-                        || !std::fs::metadata(temp.path().join("heartbeat"))
-                            .is_ok_and(|m| m.len() > 0)
-                    {
+                    while !temp.path().join("leader.ready").exists() {
                         tokio::time::sleep(Duration::from_millis(5)).await;
                     }
                 })
                 .await
                 .unwrap();
-                assert!(
-                    tokio::time::timeout(
-                        Duration::from_millis(20),
-                        owner.observe(Instant::now() + Duration::from_secs(4))
-                    )
-                    .await
-                    .is_err()
-                );
+                assert_retirement_pending(&owner).await;
                 assert!(matches!(*owner.state.lock().await, OwnerState::Joining(_)));
                 assert_eq!(slots.available_permits(), 0);
                 assert!(!temp.path().join("descendant.term").exists());
@@ -846,10 +825,8 @@ with open('leader.ready','w') as marker: marker.write('ready')
                 .unwrap();
                 assert_eq!(slots.available_permits(), 0);
                 foreground.cancel();
-                assert!(
-                    owner.observe(Instant::now() + Duration::from_secs(3)).await,
-                    "{mode}"
-                );
+                let cleanup_deadline = Instant::now() + Duration::from_secs(3);
+                assert!(owner.observe(cleanup_deadline).await, "{mode}");
                 let observed = owner.public_observation().await;
                 assert_eq!(observed["joined"], true);
                 assert_eq!(observed["group_kill_completed"], true);
@@ -864,23 +841,28 @@ with open('leader.ready','w') as marker: marker.write('ready')
                     .unwrap()
                     .parse::<u32>()
                     .unwrap();
-                match std::fs::read_to_string(format!("/proc/{descendant}/stat")) {
-                    Ok(stat) => {
-                        assert_eq!(stat.rsplit_once(") ").unwrap().1.chars().next(), Some('Z'))
+                tokio::time::timeout_at(cleanup_deadline.into(), async {
+                    loop {
+                        match std::fs::read_to_string(format!("/proc/{descendant}/stat")) {
+                            Ok(stat) if stat.rsplit_once(") ").unwrap().1.starts_with('Z') => {
+                                break;
+                            }
+                            Ok(_) => tokio::time::sleep(Duration::from_millis(1)).await,
+                            // procfs can report ESRCH after opening a now-dead process.
+                            Err(error) => {
+                                assert!(
+                                    error.kind() == io::ErrorKind::NotFound
+                                        || error.raw_os_error()
+                                            == Some(rustix::io::Errno::SRCH.raw_os_error()),
+                                    "{mode}: {error:?}"
+                                );
+                                break;
+                            }
+                        }
                     }
-                    // procfs can report ESRCH after opening a now-dead process.
-                    Err(error) => assert!(
-                        error.kind() == io::ErrorKind::NotFound
-                            || error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()),
-                        "{mode}: {error:?}"
-                    ),
-                }
-                let heartbeat = std::fs::read(temp.path().join("heartbeat")).unwrap();
-                tokio::time::sleep(Duration::from_millis(60)).await;
-                assert_eq!(
-                    std::fs::read(temp.path().join("heartbeat")).unwrap(),
-                    heartbeat
-                );
+                })
+                .await
+                .expect("descendant must terminate within the existing cleanup deadline");
                 assert!(
                     !owner.clean().await,
                     "a nonzero native exit never becomes an answer"
@@ -904,7 +886,11 @@ with open('leader.ready','w') as marker: marker.write('ready')
         let temp = tempfile::tempdir().unwrap();
         let mut frame = br#"{"extension":1.2300e+02,"literal":"\u0061"}"#.to_vec();
         frame.push(b'\n');
-        let program = program(temp.path(), &format!("os.write(1,bytes({frame:?}))")).unwrap();
+        let program = program(
+            temp.path(),
+            serde_json::json!({"stdout":String::from_utf8(frame.clone()).unwrap()}),
+        )
+        .unwrap();
         let original = Arc::new(SnapshotContext::new(
             Instant::now() + Duration::from_secs(5),
             Cancellation::default(),
@@ -940,7 +926,7 @@ with open('leader.ready','w') as marker: marker.write('ready')
     #[tokio::test]
     async fn abandoned_observer_keeps_the_same_task_and_slot_until_owned_retirement() {
         let temp = tempfile::tempdir().unwrap();
-        let program = program(temp.path(), "os.read(0,1)").unwrap();
+        let program = program(temp.path(), serde_json::json!({"read_stdin_bytes":1})).unwrap();
         let original = Arc::new(SnapshotContext::new(
             Instant::now() + Duration::from_secs(5),
             Cancellation::default(),
@@ -957,14 +943,7 @@ with open('leader.ready','w') as marker: marker.write('ready')
             permit: slots.clone().acquire_owned().await.unwrap(),
         })
         .unwrap();
-        assert!(
-            tokio::time::timeout(
-                Duration::from_millis(20),
-                owner.observe(Instant::now() + Duration::from_secs(4))
-            )
-            .await
-            .is_err()
-        );
+        assert_retirement_pending(&owner).await;
         assert!(matches!(*owner.state.lock().await, OwnerState::Joining(_)));
         assert_eq!(slots.available_permits(), 0);
         drop(transport);
@@ -979,7 +958,7 @@ with open('leader.ready','w') as marker: marker.write('ready')
             let temp = tempfile::tempdir().unwrap();
             let program = program(
                 temp.path(),
-                "import signal\ndef term(signum,frame):\n with open('term.observed','w') as marker: marker.write('TERM')\n os._exit(31)\nsignal.signal(signal.SIGTERM,term)\nos.write(1,b'{}\\n')\nsignal.pause()",
+                serde_json::json!({"stdout":"{}\n","term_marker":"term.observed","term_exit":31,"hold":true}),
             )
             .unwrap();
             let cancel = Cancellation::default();
@@ -1060,7 +1039,7 @@ with open('leader.ready','w') as marker: marker.write('ready')
     #[tokio::test]
     async fn native_frame_limit_stops_delivery_and_retains_first_error_through_real_retirement() {
         let temp = tempfile::tempdir().unwrap();
-        let program=program(temp.path(),"import signal\nos.write(1,b'{\"extension\":\"over the native frame limit\"}\\n')\nsignal.pause()").unwrap();
+        let program = program(temp.path(), serde_json::json!({"stdout":"{\"extension\":\"over the native frame limit\"}\n","hold":true})).unwrap();
         let original = Arc::new(SnapshotContext::new(
             Instant::now() + Duration::from_secs(5),
             Cancellation::default(),

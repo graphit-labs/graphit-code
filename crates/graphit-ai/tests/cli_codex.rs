@@ -1,3 +1,5 @@
+#[path = "support/cli_control.rs"]
+mod control;
 use graphit_ai::{
     cli_codex::{
         CodexClassification, CodexFailure, CodexReason, CodexReceipt, CodexSink, CodexStreamLimits,
@@ -16,14 +18,14 @@ use graphit_process::{
 };
 use std::{
     ffi::OsString,
-    io::{self, Read, Write},
-    net::{TcpListener, TcpStream},
+    io,
+    net::TcpListener,
     path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
-use tokio::time::sleep;
+use tokio::net::TcpStream;
 const START: &[u8] = br#"{"type":"turn.started"}"#;
 const END:&[u8]=br#"{"type":"turn.completed","usage":{"input_tokens":8,"cached_input_tokens":2,"output_tokens":3,"reasoning_output_tokens":1}}"#;
 fn message(text: &str) -> Vec<u8> {
@@ -173,45 +175,13 @@ fn sequence(dir: &Path, l: &TcpListener, exit: i32, writes: &[(bool, &[u8])]) ->
     native(dir, a)
 }
 async fn peer(l: &TcpListener, c: &SnapshotContext) -> TcpStream {
-    loop {
-        c.check().unwrap();
-        match l.accept() {
-            Ok((p, _)) => {
-                p.set_nonblocking(true).unwrap();
-                return p;
-            }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            Err(e) => panic!("accept {:?}", e.kind()),
-        }
-    }
+    control::peer(l, c).await.unwrap()
 }
 async fn read_byte(p: &mut TcpStream, c: &SnapshotContext) -> Option<u8> {
-    let mut b = [0];
-    loop {
-        c.check().unwrap();
-        match p.read(&mut b) {
-            Ok(0) => return None,
-            Ok(_) => return Some(b[0]),
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            Err(e) => panic!("read {:?}", e.kind()),
-        }
-    }
+    control::byte(p, c).await.unwrap()
 }
 async fn ack(p: &mut TcpStream, c: &SnapshotContext) {
-    loop {
-        c.check().unwrap();
-        match p.write(b"A") {
-            Ok(1) => return,
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                sleep(Duration::from_millis(1)).await
-            }
-            _ => panic!("ack failed"),
-        }
-    }
+    control::acknowledge(p, c).await.unwrap();
 }
 // Test-control ACK per write, including writes that contain no complete frame.
 async fn drive(l: &TcpListener, c: &SnapshotContext, n: usize) {
@@ -295,7 +265,7 @@ impl CodexSink for Sink<'_> {
             if self.events == 1 {
                 // The child cannot start its next write until this ACK.
                 let mut b = [0];
-                assert!(matches!(p.read(&mut b),Err(e) if e.kind()==io::ErrorKind::WouldBlock));
+                assert!(matches!(p.try_read(&mut b),Err(e) if e.kind()==io::ErrorKind::WouldBlock));
                 self.pending_verified = true;
             }
             ack(p, original).await;

@@ -658,10 +658,11 @@ async fn bounded_output_and_current_provider_removal_never_deliver_partial_user_
 async fn expired_access_without_refresh_is_rejected_before_user_read() {
     let (_temp, server, raw) = tasks(Some(&READ));
     let f = Fixture::with_tasks(policy(), Some((server, raw))).await;
-    f.issuer.access_seconds.store(1, Ordering::SeqCst);
+    // JWT timestamps have whole-second precision; leave a full second for login.
+    f.issuer.access_seconds.store(2, Ordering::SeqCst);
     f.issuer.issue_refresh.store(false, Ordering::SeqCst);
     let cookie = f.login().await;
-    tokio::time::sleep(Duration::from_millis(1100)).await;
+    wait_until_access_expiration(&f).await;
     assert_eq!(
         read(&f, &cookie, "list", json!({})).await.status(),
         StatusCode::UNAUTHORIZED

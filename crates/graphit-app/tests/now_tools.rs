@@ -61,6 +61,14 @@ async fn serve(
         discovery,
     )
 }
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap()
+}
+
 async fn client(address: SocketAddr, raw: &str, origin: &str) -> RunningService<RoleClient, ()> {
     let mut headers = HashMap::new();
     let mut bearer = reqwest::header::HeaderValue::from_str(&format!("Bearer {raw}")).unwrap();
@@ -71,11 +79,14 @@ async fn client(address: SocketAddr, raw: &str, origin: &str) -> RunningService<
         reqwest::header::HeaderValue::from_str(origin).unwrap(),
     );
     let transport = StreamableHttpClientTransport::with_client(
-        reqwest::Client::new(),
+        http_client(),
         StreamableHttpClientTransportConfig::with_uri(format!("http://{address}/mcp"))
             .custom_headers(headers),
     );
-    ().serve(transport).await.unwrap()
+    tokio::time::timeout(Duration::from_secs(8), ().serve(transport))
+        .await
+        .expect("MCP negotiation deadline")
+        .unwrap()
 }
 fn params(name: &str, value: Value) -> CallToolRequestParams {
     let Value::Object(mut arguments) = value else {
@@ -262,7 +273,7 @@ async fn real_sdk_stdio_forwards_now_and_instances_without_source_argument_rewri
     let proxy = SourceProxy::new(
         f.paths.clone(),
         address,
-        reqwest::Client::new(),
+        http_client(),
         (
             graphit_core::native_document_file::NativeDocumentFileLimits::new(
                 65536, 4096, 128, 65536,
@@ -280,7 +291,10 @@ async fn real_sdk_stdio_forwards_now_and_instances_without_source_argument_rewri
     let (read, write) = tokio::io::split(remote_io);
     let task_proxy = proxy.clone();
     let joined = tokio::spawn(async move { task_proxy.serve_stream(read, write).await });
-    let caller = ().serve(local_io).await.unwrap();
+    let caller = tokio::time::timeout(Duration::from_secs(8), ().serve(local_io))
+        .await
+        .expect("MCP negotiation deadline")
+        .unwrap();
     let tools = caller.peer().list_all_tools().await.unwrap();
     for name in ["graphit_now", "graphit_instances", "graphit_ast_source"] {
         assert!(tools.iter().any(|t| t.name == name));
@@ -326,7 +340,7 @@ async fn stdio_now_shutdown_cancels_a_pending_http_handshake_and_joins() {
     let proxy = SourceProxy::new(
         f.paths.clone(),
         address,
-        reqwest::Client::new(),
+        http_client(),
         (
             graphit_core::native_document_file::NativeDocumentFileLimits::new(
                 65536, 4096, 128, 65536,
@@ -376,7 +390,10 @@ async fn stdio_now_shutdown_cancels_a_pending_http_handshake_and_joins() {
     let (read, write) = tokio::io::split(remote_io);
     let served_proxy = proxy.clone();
     let joined = tokio::spawn(async move { served_proxy.serve_stream(read, write).await });
-    let caller = ().serve(local_io).await.unwrap();
+    let caller = tokio::time::timeout(Duration::from_secs(8), ().serve(local_io))
+        .await
+        .expect("MCP negotiation deadline")
+        .unwrap();
     let peer = caller.peer().clone();
     let arguments = local(&f);
     let call = tokio::spawn(async move { peer.call_tool(params("graphit_now", arguments)).await });
@@ -422,13 +439,14 @@ async fn subscribe_refuses_unauthenticated_input_and_untrusted_http_origin() {
     );
     attach(&mut f);
     let (address, served, discovery) = serve(&f).await;
-    let client = reqwest::Client::new();
+    let client = http_client();
     let url = format!("http://{address}/api/now/subscribe");
     let request = json!({"project_id":f.projects[0].1,"provider":"now"});
     assert_eq!(
         client
             .post(&url)
             .body(request.to_string())
+            .timeout(Duration::from_secs(8))
             .send()
             .await
             .unwrap()
@@ -442,6 +460,7 @@ async fn subscribe_refuses_unauthenticated_input_and_untrusted_http_origin() {
             .bearer_auth(&f.raw)
             .header("x-graphit-auth-origin", "runtime")
             .body(request.to_string())
+            .timeout(Duration::from_secs(8))
             .send()
             .await
             .unwrap()
@@ -455,6 +474,7 @@ async fn subscribe_refuses_unauthenticated_input_and_untrusted_http_origin() {
             .bearer_auth(&f.raw)
             .header("x-graphit-auth-origin", "runtime")
             .body(invalid.to_string())
+            .timeout(Duration::from_secs(8))
             .send()
             .await
             .unwrap()
@@ -509,7 +529,7 @@ async fn actual_app_ndjson_full_empty_replacements_and_body_drop_close_the_owner
         version: None,
         instance_id: None,
     };
-    let client = reqwest::Client::new();
+    let client = http_client();
     let mut stream = graphit_app::now_transport::connect_now(
         &f.paths,
         address,
@@ -526,8 +546,25 @@ async fn actual_app_ndjson_full_empty_replacements_and_body_drop_close_the_owner
     )
     .await
     .unwrap();
-    assert_eq!(stream.next().await.unwrap().unwrap().instances().len(), 2);
-    assert!(stream.next().await.unwrap().unwrap().instances().is_empty());
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(8), stream.next())
+            .await
+            .expect("Now stream observation deadline")
+            .unwrap()
+            .unwrap()
+            .instances()
+            .len(),
+        2
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_secs(8), stream.next())
+            .await
+            .expect("Now stream observation deadline")
+            .unwrap()
+            .unwrap()
+            .instances()
+            .is_empty()
+    );
     drop(stream);
     protocol.closed().await;
     stop(&f, served, &discovery).await;

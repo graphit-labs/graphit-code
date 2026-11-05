@@ -94,6 +94,22 @@ pub(super) async fn execute(
             .configured_binding(input.project_dir.as_deref(), request)?,
     });
     let mut result = json!({"status":"ok","operation":"sync","steps":{}});
+    match crate::instruction_overrides::sync(
+        state.auth.issuer(),
+        &caller,
+        &state.policy.installation,
+        state.native_allow_loopback_http,
+        request,
+    )
+    .await
+    {
+        Ok(value) => result["steps"]["broker_instructions"] = value,
+        Err(cause) => {
+            result["status"] = "error".into();
+            result["failed_step"] = "broker_instructions".into();
+            return Err(FileEffectFailure::observed(result, cause));
+        }
+    }
     for global in [true, false] {
         if !global && input.global {
             continue;

@@ -303,6 +303,7 @@ pub fn execute_install(
                 &captured_input,
                 policy,
                 &parent,
+                auth.issuer(),
                 original,
             )?;
             for capture in &observed {
@@ -448,6 +449,7 @@ pub(crate) fn compile_definition(
     input: &InstallRequest,
     policy: &SourcePolicy,
     parent: &graphit_auth::AdminParent<'_>,
+    issuer: &graphit_auth::RoleIssuer,
     original: &RequestContext<'_>,
 ) -> io::Result<CompiledDefinition> {
     parent
@@ -464,27 +466,13 @@ pub(crate) fn compile_definition(
     )
     .map_err(io::Error::other)?;
     let defaults = role_templates(role);
-    let mut observed = Vec::new();
-    for candidate in defaults.candidates() {
-        if let Some(paths) = paths {
-            observed.push(capture_template(
-                paths.root(),
-                &Path::new(brand.directory())
-                    .join("rules")
-                    .join(candidate.name),
-                InstructionOrigin::Project,
-                policy.index,
-                original,
-            )?);
-        }
-        observed.push(capture_template(
-            policy.installation.root(),
-            &Path::new("rules").join(candidate.name),
-            InstructionOrigin::Global,
-            policy.index,
-            original,
-        )?);
-    }
+    let mut observed = crate::instruction_overrides::local_candidates(
+        defaults.candidates(),
+        policy.installation.root(),
+        policy.index,
+        paths,
+        original,
+    )?;
     let matches: Vec<_> = input
         .rules
         .iter()
@@ -568,6 +556,12 @@ pub(crate) fn compile_definition(
             });
         }
     }
+    let broker = crate::instruction_overrides::BrokerInstructions::load(
+        issuer,
+        policy.installation.root(),
+        original,
+    )?;
+    candidates.extend(broker.candidates(defaults.candidates()));
     let skills: Vec<String> = role
         .modules()
         .iter()
@@ -621,7 +615,7 @@ pub(crate) fn compile_definition(
     .map_err(io::Error::other)?;
     let descriptor = AgentDescriptor::new(
         rendered.name(),
-        role.summary(),
+        rendered.summary(),
         rendered.body(),
         role.read_only(),
         role.allows_shell(),
@@ -810,21 +804,18 @@ pub(crate) fn capture_template(
             })
             .transpose()?;
         // Logical names exclude the physical prefix rules and BRAND directory.
-        let name = relative
-            .strip_prefix(Path::new("rules"))
-            .unwrap_or(relative)
-            .to_string_lossy()
-            .into_owned();
-        let name = if origin == InstructionOrigin::Project {
-            relative
-                .components()
-                .skip(2)
-                .collect::<PathBuf>()
-                .to_string_lossy()
-                .into_owned()
-        } else {
-            name
+        let skip = match origin {
+            InstructionOrigin::Project => 2,
+            InstructionOrigin::Global => 1,
+            _ => 0,
         };
+        let name = parts
+            .get(skip..)
+            .ok_or(io::ErrorKind::InvalidInput)?
+            .iter()
+            .map(|part| part.to_str().ok_or(io::ErrorKind::InvalidData))
+            .collect::<Result<Vec<_>, _>>()?
+            .join("/");
         return Ok(TemplateObservation {
             directory,
             observation,

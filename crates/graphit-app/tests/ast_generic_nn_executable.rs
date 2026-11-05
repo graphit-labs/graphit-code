@@ -17,7 +17,7 @@ use graphit_hub::{
 use serde_json::{Value, json};
 use std::{
     fs, io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, Command, Output, Stdio},
     time::{Duration, Instant},
 };
@@ -73,8 +73,22 @@ fn require(condition: bool, message: impl Into<String>) -> Result {
 }
 
 impl Fixture {
+    fn git(home: &Path, directory: &Path) -> Command {
+        let mut command = Command::new("git");
+        command
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", home)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", home.join("gitconfig-empty"))
+            .args(["-c", "init.templateDir="])
+            .current_dir(directory);
+        command
+    }
+
     async fn new() -> Result<Self> {
         let temp = tempfile::tempdir()?;
+        fs::write(temp.path().join("gitconfig-empty"), "")?;
         let brand = Brand::new(env!("GRAPHIT_COMPILED_BUILD_BRAND"))?;
         let paths = InstallationPaths::resolve(
             brand.clone(),
@@ -90,14 +104,12 @@ impl Fixture {
             .writer(Duration::from_secs(5), &cancel)?
             .ensure(&ProjectMetadata::new("generic-native-nn")?)?;
         checked(
-            Command::new("git")
-                .current_dir(&root)
+            Self::git(temp.path(), &root)
                 .args(["init", "-b", "main"])
                 .output()?,
         )?;
         checked(
-            Command::new("git")
-                .current_dir(&root)
+            Self::git(temp.path(), &root)
                 .args([
                     "-c",
                     "user.name=Fixture",

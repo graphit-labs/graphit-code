@@ -308,7 +308,9 @@ async fn attach_documents(
             continue;
         }
         let vector = batch.slice(row, 1);
+        // Nullable vector evolution can retain identity metadata without a vector.
         if found.num_columns() == 23
+            && found.column(22).is_valid(0)
             && found.columns()[18..22]
                 .iter()
                 .zip(&vector.columns()[1..5])

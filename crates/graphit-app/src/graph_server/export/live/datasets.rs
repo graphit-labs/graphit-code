@@ -19,27 +19,20 @@ pub(super) async fn source(
     original: &Arc<SnapshotContext>,
 ) -> io::Result<u64> {
     original.check()?;
-    // Reuse one historical SDK pin at a time. FILEs retain their real parser
-    // Raw versions; a newer unrelated Raw commit cannot replace their source.
-    files.sort_by(|a, b| (a.raw_version, &a.path).cmp(&(b.raw_version, &b.path)));
+    // One admitted Source snapshot serves the complete export. Each FILE's
+    // stored text must match its graph SHA even when unrelated FILEs advanced.
+    files.sort_by(|a, b| a.path.cmp(&b.path));
     let lifetime = Arc::clone(original);
     let rows = futures_util::stream::try_unfold(
-        (files.into_iter(), raw.clone(), None::<BranchSnapshot>),
-        move |(mut files, raw, previous)| {
+        (files.into_iter(), raw.clone()),
+        move |(mut files, raw)| {
             let original = Arc::clone(&lifetime);
             async move {
                 original.check().map_err(DataFusionError::IoError)?;
                 let Some(file) = files.next() else {
                     return Ok::<_, DataFusionError>(None);
                 };
-                let pin = match previous {
-                    Some(pin) if pin.version() == file.raw_version => pin,
-                    _ => raw
-                        .at_version(file.raw_version)
-                        .await
-                        .map_err(|error| DataFusionError::External(Box::new(error)))?,
-                };
-                let mut scan = pin.scan();
+                let mut scan = raw.scan();
                 scan.project(&["path", "source"])
                     .map_err(|error| DataFusionError::External(Box::new(error)))?;
                 scan.filter_expr(col("path").eq(lit(file.path.as_str())));
@@ -82,7 +75,7 @@ pub(super) async fn source(
                 {
                     return Err(invalid());
                 }
-                Ok(Some((batch, (files, raw, Some(pin)))))
+                Ok(Some((batch, (files, raw))))
             }
         },
     );

@@ -1419,7 +1419,7 @@ fn compiler_enrichment_preserves_source_tag_and_rejects_superseded_file() {
             LiveFileInput {
                 path: "a.rs",
                 source_sha256: [1; 32],
-                raw_version: 7,
+                raw_version: 8,
                 nodes: &enriched,
                 edges: &[],
                 definitions: &[],
@@ -1442,6 +1442,14 @@ fn compiler_enrichment_preserves_source_tag_and_rejects_superseded_file() {
             .unwrap()
             .file_revision,
         1
+    );
+    assert_eq!(
+        g.file_observation("a.rs", &original())
+            .unwrap()
+            .unwrap()
+            .raw_version,
+        8,
+        "a newer Source observation with the same FILE SHA can enrich the retained revision"
     );
     assert_ne!(g.generation().unwrap(), before);
     assert_eq!(
@@ -1481,7 +1489,7 @@ fn compiler_enrichment_preserves_source_tag_and_rejects_superseded_file() {
                 oracle: &[],
                 oracle_file: None,
                 pending_compiler: None,
-                scip_compiler: None,
+                scip_compiler: Some("changed/compiler"),
             },
             1,
             &original()

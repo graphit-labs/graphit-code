@@ -92,6 +92,30 @@ Rust runs cases within each test target in parallel, using the CPUs available to
 the process. Set `RUST_TEST_THREADS` to choose a different test concurrency for a
 local run. `CARGO_BUILD_JOBS` controls compilation separately.
 
+App subprocess fixtures are Rust targets in this workspace. Before App tests,
+`cargo xtask cargo test ...` prepares all `*-fixture` App binaries with
+`cargo test --no-run` and the same selected packages, test targets, profile and
+features. The fixture targets have `test = false` and `harness = false`: explicit
+preparation emits their real `main`, while the standard test run does not execute
+them as tests. This also avoids compiling a second dependency feature set just
+for the peers. The runner takes executable
+paths from Cargo's `compiler-artifact` messages and passes them to tests as
+`GRAPHIT_TEST_<TARGET_NAME>` (uppercase, hyphens replaced by underscores), for
+example `GRAPHIT_TEST_APP_DREAM_FIXTURE`. Cargo reuses unchanged artifacts.
+It also exports `GRAPHIT_TEST_GRAPHIT` from the normal CLI artifact, never its
+unit-test harness. Lib-only preparation includes the existing Browser startup
+integration target in `--no-run` so Cargo emits that CLI even in a clean checkout.
+The CLI's own unit tests keep their normal harness.
+Tests never search `target/debug`, compile themselves or require Python or an
+agent vendor executable to emulate a peer. Use the xtask entrypoint for these
+tests, including `--lib`; a standalone `cargo test --lib` does not prepare peers.
+Fixture paths are private invocation state and are not written into project
+configuration. Git 2.54+ and the native compiler toolchain remain development
+prerequisites; Git tests use isolated temporary repositories and no remote push.
+Native Ladybug preparation follows the resolved Cargo dependency graph: selected
+packages that do not use `lbug` skip CMake and its build lock entirely. AST/App
+builds retain the lock that protects shared engine headers and ABI during linking.
+
 Pre-commit runs the staged whitespace check, `actionlint` and `cargo xtask check`.
 Pre-push runs `cargo xtask check`, strict all-target workspace Clippy through
 `cargo xtask cargo`, and `cargo test --locked -p xtask --bin xtask`. These checks
@@ -112,6 +136,11 @@ The [CI workflow](../../.github/workflows/ci.yml) keeps four independent jobs:
 - `rust-contracts`: Linux, macOS and Windows fetch the locked dependencies, then
   run the source checks, Clippy and workspace tests with Cargo offline. The standard job has no model
   download, model-server provisioning or external storage service setup.
+  Each native runner also executes `node --test scripts/test-opencode-plugin.mjs`:
+  this standard Node suite exercises the production plugin template, real child
+  processes and V2 callbacks without an OpenCode installation. Rust tests cover
+  the configuration renderer, publication and Graphit dispatcher separately;
+  they do not launch a hidden Node interpreter.
 - `ui-build`: Node.js 22 installs the UI dependencies, runs `node scripts/build-rust-ui.mjs` and checks that the three shipped assets have no diff. `make ui-lint` and `make ui-test` run the maintained lint and test scripts.
 - `workflow-lint`: the official actionlint 1.7.12 Linux binary is verified against its pinned SHA-256 before extraction, then runs `actionlint -no-color .github/workflows/*.yml`.
 - `native-packaging`: ShellCheck validates the maintained installer/packaging scripts and Node runs their existing package contracts.

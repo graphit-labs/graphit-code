@@ -364,26 +364,36 @@ async fn pending_input_observes_original_cancellation_real_revocation_and_deadli
 -> Result<(), Box<dyn Error>> {
     for case in 0..3 {
         let revoke = case == 1;
+        // Set up the real role before starting the short operation deadline.
+        let setup_cancel = Cancellation::default();
+        let setup = request(&setup_cancel);
+        let f = Fixture::new(&setup);
+        let issuer = f.issuer(&setup);
+        let caller = issuer.authenticate_runtime(&f.secret(), &setup)?;
+        let admin = issuer.bootstrap_admin(&caller)?;
+        let parent = issuer.admin_parent(&caller, &admin)?;
+        let (bearer, credential) = f.issue(&issuer, &parent);
         let cancel = Cancellation::default();
         let ctx = if case == 2 {
             request_deadline(&cancel, std::time::Instant::now() + Duration::from_secs(1))
         } else {
             request(&cancel)
         };
-        let f = Fixture::new(&ctx);
-        let issuer = f.issuer(&ctx);
-        let caller = issuer.authenticate_runtime(&f.secret(), &ctx)?;
-        let admin = issuer.bootstrap_admin(&caller)?;
-        let parent = issuer.admin_parent(&caller, &admin)?;
-        let (bearer, credential) = f.issue(&issuer, &parent);
         let grant = issuer.verify(bearer.expose_for_transport(), &credential, f.scope(), &ctx)?;
         let auth = ProjectRecordAuthority::new(&issuer);
         let read = auth.admit_read(&grant, &ctx, ProjectReadModule::Knowledge)?;
         let write = auth.admit_write(&grant, &ctx, ProjectWriteOperation::Knowledge)?;
         let source = capture(&f, ctx.snapshot()).await?;
+        let (entered, waiting) = tokio::sync::oneshot::channel();
+        let mut entered = Some(entered);
         let input = Box::pin(RecordBatchStreamAdapter::new(
             native_knowledge_source_schema(),
-            stream::pending::<Result<RecordBatch, DataFusionError>>(),
+            stream::poll_fn(move |_| {
+                if let Some(entered) = entered.take() {
+                    let _ = entered.send(());
+                }
+                std::task::Poll::<Option<Result<RecordBatch, DataFusionError>>>::Pending
+            }),
         ));
         let publish = publish_native_knowledge_source_stream(
             ctx.snapshot(),
@@ -394,10 +404,12 @@ async fn pending_input_observes_original_cancellation_real_revocation_and_deadli
             write_limits(),
         );
         let change = async {
+            waiting
+                .await
+                .expect("producer must be polled before interruption");
             if case == 2 {
                 return;
             }
-            tokio::time::sleep(Duration::from_millis(40)).await;
             if revoke {
                 issuer.revoke(&parent, &bearer).unwrap()
             } else {

@@ -1,6 +1,8 @@
 //! Real Auth/Core/Hub publication and compiled CLI journeys. ACP peers test transport,
 //! not installed Kiro model perception.
 #![cfg(unix)]
+#[path = "support/runtime_peer.rs"]
+mod runtime_peer;
 use graphit_app::{
     managed_roles::InstallResources,
     project_coordinator_install::{self, CoordinatorOutcome, CoordinatorRequest},
@@ -37,7 +39,6 @@ use serde_json::{Value, json};
 use std::{
     fs, io,
     num::{NonZeroU32, NonZeroUsize},
-    os::unix::fs::PermissionsExt,
     path::Path,
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -322,125 +323,14 @@ fn command(
     cmd
 }
 fn acp_fixture(bin: &Path, brand: &Brand, mandatory_body: &str) -> io::Result<()> {
-    let prefix = format!(
-        "BRAND={}\nMANDATORY_BODY={}\nMCP_ENV_VARS={}\n",
-        serde_json::to_string(brand.key())?,
-        serde_json::to_string(mandatory_body)?,
-        serde_json::to_string(&project_hook_install::client::mcp_environment_variables(
-            brand,
-            NativeBinding::Codex
-        )?)?
-    );
-    let body = r#"import json,os,sys,subprocess
-role=json.loads(os.environ["GRAPHIT_ROLE_REFERENCE"])["role"]
-cwd=None
-def send(message): print(json.dumps(message),flush=True)
-def response(child,ident):
-    for line in child.stdout:
-        message=json.loads(line)
-        if message.get("id")==ident:return message
-    raise RuntimeError("Role stdio closed")
-def request(child,method,params,ident):
-    message={"jsonrpc":"2.0","method":method,"params":params}
-    if ident is not None:message["id"]=ident
-    child.stdin.write(json.dumps(message)+"\n");child.stdin.flush()
-    if ident is not None:return response(child,ident)
-for line in sys.stdin:
-    message=json.loads(line);method=message.get("method");ident=message.get("id");params=message.get("params",{})
-    if method=="initialize":
-        send({"jsonrpc":"2.0","id":ident,"result":{"protocolVersion":1,"agentCapabilities":{}}})
-    elif method=="session/new":
-        cwd=params["cwd"]
-        assert sys.argv[1:]==["acp","--agent-engine=v3"]
-        assert params["_meta"]["kiro"]["modeId"]==BRAND+"-"+role
-        send({"jsonrpc":"2.0","id":ident,"result":{"sessionId":"hook-boundary"}})
-    elif method=="session/prompt":
-        assert os.environ.get("GRAPHIT_ROLE_BEARER") and os.environ.get("GRAPHIT_ROLE_REFERENCE") and os.environ.get("GRAPHIT_ROLE_SELECTION")
-        if role=="scribe":
-            with open(os.path.join(cwd,".kiro","settings","mcp.json")) as document:
-                server=json.load(document)["mcpServers"][BRAND]
-            assert server["command"]==BRAND
-            assert not any(arg in ["--project-dir","--project-version","--role"] for arg in server["args"])
-            with subprocess.Popen([server["command"],*server["args"]],cwd=cwd,env={key:value for key,value in os.environ.items() if key in ["PATH","HOME",*MCP_ENV_VARS]},stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True) as child:
-                assert "result" in request(child,"initialize",{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"hook-qualification","version":"1"}},1)
-                request(child,"notifications/initialized",{},None)
-                answer=request(child,"tools/call",{"name":BRAND+"_memory_insert","arguments":{"input":{"idempotency_key":"coordinator-native-mandatory-be6e","title":"PROJECT mandatory hook qualification","body":MANDATORY_BODY,"classification":"convention","mandatory":True,"important":False,"tags":[]}}},2)
-                assert "result" in answer and not answer["result"].get("isError",False)
-                child.stdin.close();assert child.wait(timeout=15)==0
-        send({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"hook-boundary","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Role hook boundary verified"}}}})
-        send({"jsonrpc":"2.0","id":ident,"result":{"stopReason":"end_turn"}})
-"#;
-    let script = format!("#!/usr/bin/env python3\n{prefix}{body}");
-    let file = bin.join("kiro-cli");
-    fs::write(&file, script)?;
-    fs::set_permissions(file, fs::Permissions::from_mode(0o700))
-}
-
-#[test]
-fn coordinator_real_sdk_publication_two_projects_current_binding_repeat_and_denials() {
-    let fixture = Fixture::new();
-    let cancel = Cancellation::default();
-    let ctx = request(&cancel);
-    for selected in 0..2 {
-        let root = fixture.projects[selected].0.root();
-
-        let input = fixture.input(selected);
-        let installed = fixture.install(&input, &fixture.raw, &ctx);
-        assert!(installed.cause.is_none(), "{:?}", installed.cause);
-        let profile = root.join(installed.outcome.profile.as_ref().unwrap());
-        let bytes = fs::read(&profile).unwrap();
-        let text = String::from_utf8(bytes.clone()).unwrap();
-        assert_portable_artifact(&text, root, &fixture.policy.installation);
-        assert!(!text.contains(&fixture.raw));
-        assert!(!text.contains("Standing context"));
-        assert!(!text.contains("GRAPHIT_ROLE_BEARER"));
-        assert!(!text.contains("MANDATORY-be6e"));
-        assert!(!text.contains("allowedTools"));
-        let mcp = root.join(".kiro/settings/mcp.json");
-        let config_text = fs::read_to_string(mcp).unwrap();
-        assert_portable_artifact(&config_text, root, &fixture.policy.installation);
-        let config: Value = serde_json::from_str(&config_text).unwrap();
-        let server = &config["mcpServers"][fixture.policy.installation.brand().key()];
-        assert_eq!(
-            server["command"],
-            fixture.policy.installation.brand().binary_name()
-        );
-        assert!(
-            !config
-                .to_string()
-                .contains(fixture.policy.installation.root().to_str().unwrap())
-        );
-        assert!(!config.to_string().contains(root.to_str().unwrap()));
-        assert_eq!(server["args"], json!(["mcp", "--stdio"]));
-        let header = text
-            .strip_prefix("---\n")
-            .unwrap()
-            .split_once("\n---\n")
-            .unwrap()
-            .0;
-        let document: Value = serde_saphyr::from_str(header).unwrap();
-        assert_eq!(document["permissions"]["rules"], json!([]));
-        let hooks = document["hooks"].as_array().unwrap();
-        assert_eq!(hooks.len(), 4);
-        assert_eq!(hooks[0]["trigger"], "SessionStart");
-        assert_eq!(hooks[1]["trigger"], "UserPromptSubmit");
-
-        let repeated = fixture.install(&input, &fixture.raw, &ctx);
-        assert!(repeated.cause.is_none(), "{:?}", repeated.cause);
-        assert_eq!(fs::read(profile).unwrap(), bytes);
-    }
-    let denied = fixture.install(&fixture.input(0), "invalid-runtime-credential", &ctx);
-    assert_eq!(
-        denied.cause.unwrap().kind(),
-        io::ErrorKind::PermissionDenied
-    );
-    assert!(denied.outcome.profile.is_none());
-    let cancelled = Cancellation::default();
-    let cancelled_request = request(&cancelled);
-    cancelled.cancel();
-    let stopped = fixture.install(&fixture.input(0), &fixture.raw, &cancelled_request);
-    assert_eq!(stopped.cause.unwrap().kind(), io::ErrorKind::Interrupted);
-    assert!(stopped.outcome.profile.is_none());
+    runtime_peer::install(
+        bin,
+        Some(serde_json::json!({
+            "fixture":"coordinator", "brand":brand.key(), "mandatory":mandatory_body,
+            "mcp_environment":project_hook_install::client::mcp_environment_variables(brand,NativeBinding::Codex)?
+        })),
+        &["kiro-cli"],
+    )
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -928,42 +818,78 @@ async fn coordinator_compiled_cli_publishes_root_mcp_and_delivers_current_projec
             brand.key()
         ));
         assert!(!fs::read_to_string(&plugin)?.contains("MANDATORY-be6e"));
-        let harness = temp.path().join("opencode-peer.mjs");
-        fs::write(&harness, OPENCODE_PEER)?;
-        let mut node = Command::new("node");
-        node.arg(&harness)
-            .arg(&plugin)
-            .arg(&root)
-            .current_dir(&home)
-            .env_clear()
-            .env("PATH", &path)
-            .env("HOME", &home)
-            .env(
-                brand.environment_variable("GLOBAL_DIR")?,
-                installation.root(),
-            );
-        let result = tokio::task::spawn_blocking(move || node.output()).await??;
-        assert!(
-            result.status.success(),
-            "{}",
-            String::from_utf8_lossy(&result.stderr)
-        );
-        let applied: Value = serde_json::from_slice(&result.stdout)?;
-        assert_eq!(
-            applied["system"][0],
-            json!({"type":"text","text":"foreign-system"})
-        );
-        assert_eq!(
-            applied["context"][0],
-            json!({"type":"text","text":"foreign-context"})
-        );
-        for field in ["system", "context"] {
+        // Execute the invocations emitted into the real published plugin.
+        // The standard Node suite owns setup, callbacks and subscription cleanup.
+        let plugin_text = fs::read_to_string(&plugin)?;
+        let configuration: Value = serde_json::from_str(
+            plugin_text
+                .split_once("const configuration = ")
+                .and_then(|(_, rest)| rest.split_once(";\n"))
+                .map(|(configuration, _)| configuration)
+                .ok_or(io::Error::from(io::ErrorKind::InvalidData))?,
+        )?;
+        for (field, event, context) in [
+            ("context", "context", true),
+            ("compaction", "compaction", true),
+            ("idle", "session.idle", false),
+            ("deleted", "session.deleted", false),
+        ] {
+            use tokio::io::AsyncWriteExt;
+            let invocation = &configuration[field];
+            let program = invocation["program"]
+                .as_str()
+                .ok_or(io::Error::from(io::ErrorKind::InvalidData))?;
+            assert_eq!(program, brand.binary_name());
+            let args: Vec<String> = serde_json::from_value(invocation["args"].clone())?;
+            let mut child =
+                tokio::process::Command::new(which::which_in(program, Some(&path), &root)?)
+                    .args(args)
+                    .current_dir(&root)
+                    .env_clear()
+                    .env("PATH", &path)
+                    .env("HOME", &home)
+                    .env(
+                        brand.environment_variable("GLOBAL_DIR")?,
+                        installation.root(),
+                    )
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .kill_on_drop(true)
+                    .spawn()?;
+            let mut input = child
+                .stdin
+                .take()
+                .ok_or(io::Error::from(io::ErrorKind::BrokenPipe))?;
+            input
+                .write_all(&serde_json::to_vec(&json!({
+                    "cwd": root, "hook_event_name": event
+                }))?)
+                .await?;
+            input.shutdown().await?;
+            drop(input);
+            let delivered = tokio::time::timeout(
+                Duration::from_millis(
+                    configuration["timeout"]
+                        .as_u64()
+                        .ok_or(io::Error::from(io::ErrorKind::InvalidData))?,
+                ),
+                child.wait_with_output(),
+            )
+            .await??;
             assert!(
-                applied[field][1]["text"]
-                    .as_str()
-                    .unwrap()
-                    .contains("MANDATORY-be6e literal {{ untrusted }}")
+                delivered.status.success(),
+                "published OpenCode {field} invocation failed"
             );
+            assert!(delivered.stderr.is_empty());
+            if context {
+                assert!(
+                    String::from_utf8(delivered.stdout)?
+                        .contains("MANDATORY-be6e literal {{ untrusted }}")
+                );
+            } else {
+                assert!(delivered.stdout.is_empty());
+            }
         }
         // Withdraw using the actual CLI, preserving a shared Kimi transport until the peer leaves.
         for (binding, selected_root) in NativeBinding::ALL
@@ -1255,85 +1181,6 @@ fn published_hook_command(
     Ok(commands.remove(0))
 }
 
-const OPENCODE_PEER: &str = r#"
-import assert from 'node:assert/strict';
-import { pathToFileURL } from 'node:url';
-const module = await import(pathToFileURL(process.argv[2]).href);
-const directory = process.argv[3];
-const hooks = new Map();
-let eventSignal, pending, acknowledged;
-const events = [];
-const deliver = () => {
-  if (!pending || !events.length) return;
-  const { event, ack } = events.shift();
-  const resolve = pending;
-  pending = undefined;
-  acknowledged = ack;
-  resolve({ value: event, done: false });
-};
-const emit = event => new Promise(resolve => { events.push({ event, ack: resolve }); deliver(); });
-const ctx = {
-  location: { directory },
-  session: {
-    hook: async (name, callback) => {
-      assert.ok(['context', 'compaction'].includes(name));
-      assert.ok(!hooks.has(name));
-      hooks.set(name, callback);
-      return { async dispose() { hooks.delete(name); } };
-    },
-    get: async ({ sessionID }, options) => {
-      assert.equal(sessionID, 'native-only');
-      assert.ok(options?.signal instanceof AbortSignal);
-      assert.equal(options.signal.aborted, false);
-      return { location: { directory } };
-    },
-  },
-  event: {
-    subscribe: ({ signal }) => {
-      eventSignal = signal;
-      let closed = false;
-      const close = () => {
-        closed = true;
-        pending?.({ done: true });
-        pending = undefined;
-        acknowledged?.();
-        acknowledged = undefined;
-      };
-      signal.addEventListener('abort', close, { once: true });
-      return {
-        [Symbol.asyncIterator]() { return this; },
-        next() {
-          acknowledged?.();
-          acknowledged = undefined;
-          if (closed || signal.aborted) return Promise.resolve({ done: true });
-          return new Promise(resolve => { pending = resolve; deliver(); });
-        },
-        return() { close(); return Promise.resolve({ done: true }); },
-      };
-    },
-  },
-};
-assert.equal(typeof module.default.setup, 'function');
-const cleanup = await module.default.setup(ctx);
-assert.equal(typeof cleanup, 'function');
-const system = { sessionID: 'native-only', agent: 'build', model: { providerID: 'fixture', id: 'literal' }, system: [{ type: 'text', text: 'foreign-system' }], messages: [{ role: 'user', content: 'foreign message' }], tools: { foreign: { description: 'Foreign tool', input: { type: 'object', properties: {} } } }, options: { literal: true } };
-const compacting = { sessionID: 'native-only', agent: 'build', model: { providerID: 'fixture', id: 'literal' }, system: [{ type: 'text', text: 'foreign-context' }], messages: [{ role: 'user', content: 'foreign message' }], tools: { foreign: { description: 'Foreign tool', input: { type: 'object', properties: {} } } }, options: { literal: true } };
-try {
-  for (const [name, event] of [['context', system], ['compaction', compacting]]) {
-    const before = JSON.stringify([event.messages, event.tools, event.options, event.result]);
-    await hooks.get(name)(event);
-    assert.equal(JSON.stringify([event.messages, event.tools, event.options, event.result]), before);
-  }
-  await emit({ type: 'session.idle', data: { sessionID: 'native-only' }, location: { directory } });
-  await emit({ type: 'session.deleted', data: { sessionID: 'native-only' }, location: { directory } });
-} finally {
-  await cleanup();
-}
-assert.equal(eventSignal.aborted, true);
-assert.equal(hooks.size, 0);
-assert.equal(Object.hasOwn(compacting, 'result'), false);
-console.log(JSON.stringify({ system: system.system, context: compacting.system }));
-"#;
 #[test]
 fn native_coordinator_reports_hooks_when_workspace_mcp_collides() {
     let fixture = Fixture::new();

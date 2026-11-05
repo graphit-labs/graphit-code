@@ -321,7 +321,7 @@ writing one generic format to every host. [Agent activation](agent_hook_activati
 events and host permission semantics. Run tests with controlled protocol peers; actual usage of a
 vendor model still needs that vendor's executable/account, but product tests do not require them.
 
-The installed Graphit package is the canonical source of builtin templates. Installed files are
+The installed Graphit package supplies the defaults. An active Broker can supply a lower-priority layer than project and personal overrides through [agent instruction sync](../architecture/rust-agent-instruction-templates.md#broker-instruction-overrides). Installed files are
 compared with the recorded content hash to detect user edits. There is no retained
 `owned-payloads` directory of duplicate rendered content. Remote artifacts can retain the verified
 canonical package/cache they actually need; removing that active cache is not harmless cleanup.

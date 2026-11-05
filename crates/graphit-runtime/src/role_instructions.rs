@@ -15,6 +15,7 @@ use std::{
 /// Raw defaults are included before rendering, never inserted as rendered text.
 pub struct RoleTemplateSet {
     entry: &'static str,
+    summary: &'static str,
     candidates: &'static [CapturedInstruction<'static>],
 }
 impl RoleTemplateSet {
@@ -26,9 +27,10 @@ impl RoleTemplateSet {
     }
 }
 macro_rules! role_set {
-    ($entry:literal) => {
+    ($entry:literal, $summary:literal) => {
         RoleTemplateSet {
             entry: $entry,
+            summary: $summary,
             candidates: &[
                 CapturedInstruction {
                     name: $entry,
@@ -36,6 +38,14 @@ macro_rules! role_set {
                     markdown: include_str!(concat!(
                         "../../../templates/agent-instructions/",
                         $entry
+                    )),
+                },
+                CapturedInstruction {
+                    name: $summary,
+                    origin: InstructionOrigin::CompiledDefault,
+                    markdown: include_str!(concat!(
+                        "../../../templates/agent-instructions/",
+                        $summary
                     )),
                 },
                 CapturedInstruction {
@@ -54,9 +64,9 @@ macro_rules! role_set {
 }
 pub fn role_templates(role: ManagedRole) -> RoleTemplateSet {
     match role {
-        ManagedRole::Scout => role_set!("roles/scout.md"),
-        ManagedRole::Tracker => role_set!("roles/tracker.md"),
-        ManagedRole::Scribe => role_set!("roles/scribe.md"),
+        ManagedRole::Scout => role_set!("roles/scout.md", "roles/scout-summary.md"),
+        ManagedRole::Tracker => role_set!("roles/tracker.md", "roles/tracker-summary.md"),
+        ManagedRole::Scribe => role_set!("roles/scribe.md", "roles/scribe-summary.md"),
     }
 }
 /// Names supplied by the effective MCP/skill configuration, not permissions.
@@ -68,6 +78,7 @@ pub struct RoleAliases<'a> {
 pub struct RenderedRole {
     role: ManagedRole,
     name: String,
+    summary: String,
     instruction: RenderedInstruction,
 }
 impl RenderedRole {
@@ -76,6 +87,9 @@ impl RenderedRole {
     }
     pub fn name(&self) -> &str {
         &self.name
+    }
+    pub fn summary(&self) -> &str {
+        &self.summary
     }
     pub fn body(&self) -> &str {
         self.instruction.body()
@@ -104,14 +118,15 @@ pub fn render_role(
             io::ErrorKind::InvalidInput.into(),
         ));
     }
-    let variables = [
+    let templates = role_templates(role);
+    let mut variables = vec![
+        InstructionVariable {
+            name: "brand",
+            value: InstructionValue::Text(brand.key()),
+        },
         InstructionVariable {
             name: "agent_name",
             value: InstructionValue::Text(&name),
-        },
-        InstructionVariable {
-            name: "role_summary",
-            value: InstructionValue::Text(role.summary()),
         },
         InstructionVariable {
             name: "mcp_tool_module_skill",
@@ -122,23 +137,33 @@ pub fn render_role(
             value: InstructionValue::TextList(aliases.skills),
         },
     ];
-    let instruction = render_instruction(
-        role_templates(role).entry(),
-        candidates,
-        &variables,
-        limits,
-        original,
-    )?;
+    let summary = if candidates.iter().any(|template| {
+        template.name == templates.summary && template.origin != InstructionOrigin::CompiledDefault
+    }) {
+        render_instruction(templates.summary, candidates, &variables, limits, original)?
+            .body()
+            .trim_end_matches('\n')
+            .to_owned()
+    } else {
+        role.summary().to_owned()
+    };
+    variables.push(InstructionVariable {
+        name: "role_summary",
+        value: InstructionValue::Text(&summary),
+    });
+    let instruction =
+        render_instruction(templates.entry(), candidates, &variables, limits, original)?;
     original.check().map_err(InstructionError::Request)?;
     Ok(RenderedRole {
         role,
         name,
+        summary,
         instruction,
     })
 }
 /// Defaults bound the small built-in bundle; installation uses its effective policy.
 pub(crate) const DEFAULT_ROLE_LIMITS: InstructionLimits = InstructionLimits {
-    max_templates: NonZeroUsize::new(3).unwrap(),
+    max_templates: NonZeroUsize::new(4).unwrap(),
     max_template_bytes: NonZeroUsize::new(65_536).unwrap(),
     max_values: NonZeroUsize::new(16).unwrap(),
     max_variable_bytes: NonZeroUsize::new(4096).unwrap(),

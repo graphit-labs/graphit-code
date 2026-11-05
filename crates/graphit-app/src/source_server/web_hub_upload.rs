@@ -714,20 +714,17 @@ mod tests {
             metadata(&mut multipart, 8192, &policy, &original)
                 .await
                 .unwrap();
-            let cancellation = cancel.clone();
-            let signal = tokio::spawn(async move {
-                if !deadline {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                    cancellation.cancel();
-                }
-            });
-            let error = tokio::time::timeout(
-                Duration::from_secs(5),
-                spool(&mut multipart, 8192, &original, &|| original.check(), None),
-            )
-            .await
-            .unwrap()
-            .unwrap_err();
+            let valid = || original.check();
+            let operation = spool(&mut multipart, 8192, &original, &valid, None);
+            tokio::pin!(operation);
+            if !deadline {
+                assert!(futures_util::poll!(&mut operation).is_pending());
+                cancel.cancel();
+            }
+            let error = tokio::time::timeout(Duration::from_secs(5), operation)
+                .await
+                .unwrap()
+                .unwrap_err();
             assert_eq!(
                 error.kind(),
                 if deadline {
@@ -736,7 +733,6 @@ mod tests {
                     io::ErrorKind::Interrupted
                 }
             );
-            signal.await.unwrap();
         }
     }
 }

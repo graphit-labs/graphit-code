@@ -602,7 +602,7 @@ async fn client(
     let client = ()
         .serve_with_lifecycle(
             StreamableHttpClientTransport::with_client(
-                reqwest::Client::new(),
+                crate::source_server::test_http_client(),
                 StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(headers),
             ),
             ClientLifecycleMode::Discover {
@@ -1060,9 +1060,8 @@ async fn actual_memory_fts_resolves_retained_version_without_crossing_project_id
 }
 
 #[tokio::test]
-async fn actual_memory_closed_wire_separate_service_permission_deadline_and_cancel_join() {
-    let mut f = Fixture::new(false).await;
-    Arc::get_mut(&mut f.source.server.0).unwrap().policy.timeout = Duration::from_millis(500);
+async fn actual_memory_closed_wire_separate_service_and_permission() {
+    let f = Fixture::new(false).await;
     let (runtime, serving) = client(&f.source.server, &f.source.raw, false).await;
     for value in [
         json!({"text":"","top_k":1}),
@@ -1105,6 +1104,20 @@ async fn actual_memory_closed_wire_separate_service_permission_deadline_and_canc
         "access_denied"
     );
     bad.cancel().await.unwrap();
+    runtime.cancel().await.unwrap();
+    local.cancel().await.unwrap();
+    f.source.server.shutdown().await.unwrap();
+    serving.await.unwrap().unwrap();
+    local_serving.await.unwrap().unwrap();
+    bad_serving.await.unwrap().unwrap();
+    f.close().await;
+}
+
+#[tokio::test]
+async fn actual_memory_deadline_and_cancel_join() {
+    let mut f = Fixture::new(false).await;
+    Arc::get_mut(&mut f.source.server.0).unwrap().policy.timeout = Duration::from_millis(500);
+    let (runtime, serving) = client(&f.source.server, &f.source.raw, false).await;
     // The registry protects retained handles, not semantic computation.
     let held = f.source.server.0.jobs.lock().await;
     assert_eq!(
@@ -1148,9 +1161,6 @@ async fn actual_memory_closed_wire_separate_service_permission_deadline_and_canc
         .unwrap();
     assert!(f.source.server.0.jobs.lock().await.tasks.is_empty());
     runtime.cancel().await.unwrap();
-    local.cancel().await.unwrap();
     serving.await.unwrap().unwrap();
-    local_serving.await.unwrap().unwrap();
-    bad_serving.await.unwrap().unwrap();
     f.close().await;
 }

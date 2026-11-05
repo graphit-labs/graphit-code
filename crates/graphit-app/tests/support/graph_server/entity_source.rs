@@ -185,7 +185,7 @@ async fn native_entity_source_mcp_cli_windows_types_and_raw_binding() {
     publish_entity_payload(&f, &graph, "entity-null", None).await;
     publish_entity_payload(&f, &graph, "entity-empty", Some("")).await;
     let (address, served) = source_socket(&f).await;
-    let client = reqwest::Client::new();
+    let client = source_client();
     let cancel = Cancellation::default();
     let original = RequestContext::new(
         content(),
@@ -508,7 +508,7 @@ async fn native_entity_source_same_original_auth_and_origin_guards() {
 async fn project_entity_source_mcp_and_cli_consume_live_graph_and_bound_raw() {
     let (f, graph) = super::web_source_fixture(true).await;
     let (address, served) = source_socket(&f).await;
-    let client = reqwest::Client::new();
+    let client = source_client();
     let cancellation = Cancellation::default();
     let original = RequestContext::new(
         content(),

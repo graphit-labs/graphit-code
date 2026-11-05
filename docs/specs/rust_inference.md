@@ -2,7 +2,7 @@
 title: Rust direct inference library
 description: Explicit OpenAI-shaped embedding requests with bounded transport, vectors and execution context.
 type: specification
-updated: 2026-10-17
+updated: 2026-11-05
 references:
   - target: {type: task, id: tsk-170b}
     relation: implements
@@ -123,111 +123,104 @@ or logged. Non-success bodies are not decoded as embeddings.
 
 ## Verification scope
 
-The suite/Clippy/measurement receipts below are historical qualification of the
-previous fixture revision. A later static review found that the second-batch
-deadline oracle also accepted renewal of only the HTTP deadline. The prepared
-correction keeps first/second bodies at 60/60ms with original deadline100ms: total
-arrival around120ms falls before a renewed HTTP deadline around160ms. Expected
-`Network(Deadline)` then distinguishes renewal, which would deliver the body and
-yield `Context(Deadline)` in the adapter. The adapter/API remains unchanged.
-The corrected case passed in the new coordinated Linux CPU window on
-2026-10-09: nine functional tests passed, including the 60/60ms oracle, and one
-measurement was ignored. Strict Clippy passed. The Root guard proof for this revised direct suite passed in `tsk-b96c`
-revision20; historical receipts below remain separate from the revised test.
+The ordinary inference tests run offline after the locked dependencies have
+been fetched. They use private temporary directories, ephemeral loopback ports,
+Cargo-built fixture programs and the pinned ACP SDK. They do not authenticate
+a vendor account, discover an installed provider, download weights or require
+an accelerator.
 
-The affected integration suite is
-`cargo test --locked -p graphit-ai --test direct_embeddings`. It uses real loopback
-TCP and the real bounded client: exact request/credential/model/extension rules,
-shuffled indices, batch splitting, zero effects, malformed shapes and f32 overflow,
-real status/transport failures, stalled-body cancellation, original deadlines and
-failure after a successful batch. It does not use a fake transport or external
-account. Run with the coordinator's CPU window and existing pins; strict Clippy
-covers all crate targets. The existing ranking suite must remain valid after the
-new exports/dependencies.
+| Boundary | Ordinary tests | Explicit additional qualification |
+| --- | --- | --- |
+| Direct OpenAI/compatible, Cohere, Google and Voyage embeddings | Actual bounded HTTP clients against owned loopback peers; document/query encoding, limits, batching, cancellation, deadlines and causal errors | Authenticated vendor inference and provider-specific model quality |
+| Cohere, Jina, Voyage and Graphit reranking | Actual HTTP clients, native scores and indices, service/lease admission and zero-send rejection | Authenticated provider inference |
+| Model artifacts, bindings and native workers | Private synthetic artifacts, metadata/recipe validation, original request guards and real thread/channel/join lifecycle; no fabricated numerical inference | Pinned GGUF CPU inference, CUDA, long input and retained upstream numerical references |
+| Codex, Claude, Cursor, Qwen, Grok, Antigravity, Kimi and Copilot CLI boundaries | Cargo-built or same-test-executable peers, actual subprocess cleanup and bounded protocol decoding | Installed and authenticated vendor executables |
+| Kiro V3 and OpenCode 2 ACP | Genuine pinned SDK dispatchers with private channels; App Ask/Conversation adds the workspace's actual native ACP fixture processes | Authenticated vendor sessions and host integration |
+| KnowledgeAsk and Conversation | Real Auth/Core/Knowledge stores, incoming credentials, progress, USER writers, source revalidation and joined service-owned children | External Broker deployment and vendor account behavior |
 
-`measure_direct_loopback_fixture` is an ignored precompiled Linux fixture with
-128 calls of eight texts and two dimensions. Its wall/p95 and process CPU/RSS
-measure the local debug transport/JSON/harness, not authenticated inference,
-provider latency or product throughput. On 2026-10-09 the coordinated Linux x86_64 run passed nine functional tests;
-the one measurement fixture was ignored in that suite. Strict Clippy over all
-crate targets also passed. The first compile failed with E0502 in the writer's
-reservation call; computing the additional capacity before borrowing the buffer
-fixed it, and the actual suite rerun passed. The original failure is preserved in
-`.build/rust-ai/direct-tests-attempt-01.log`; successful suite and Clippy logs/time
-receipts are `direct-tests-attempt-02` and `direct-clippy-attempt-01` in that folder.
-The suite command took 2.58 s including compilation, with 562728 KiB peak RSS;
-these are compiler/harness observations, not embedding-operation measurements.
+Run the package with
+`cargo xtask cargo test --locked --offline -p graphit-ai --all-targets`.
+The App protocol targets are `knowledge_{agent}_ask` and
+`knowledge_conversation`; use the same Xtask Cargo wrapper for those targets.
+Their controlled wire peers use the Cargo-emitted `app-agent-fixture` binary
+and raw-frame JSON scenarios, including intentionally malformed frames.
+They do not execute Python source or shell launchers. Kiro, OpenCode and
+Copilot reuse their existing workspace fixture executables. These App
+journeys remain Linux-specific where they inspect real Unix process groups,
+signals, permissions or `/proc`; portable AI protocol checks do not qualify
+those App journeys on Windows or macOS.
+Live's unit tests consume the absolute
+`GRAPHIT_TEST_KIRO_KNOWLEDGE_FIXTURE` path emitted by that wrapper from Cargo's
+compiler-artifact result. They neither infer a target directory nor consume a
+binary left by another test. Default Kimi suites start their ignored peer entry
+point themselves; that one entry point is not an omitted scenario.
 
-The precompiled fixture passed separately: 128 calls totaled 56872731 ns
-(56.872731 ms), with p95 470534 ns (0.470534 ms). Process wall time was 0.11 s,
-CPU user/system 0.07/0.01 s and peak RSS 11540 KiB, including the debug test
-harness, local server and its cleanup. The fixture log/time receipts are
-`.build/rust-ai/direct-fixture-attempt-01.{log,time}`. These numbers do not measure
-an external provider or establish product performance. The historical run preceded the coordinator's focused hook qualification; the
-current revised-suite proof is recorded below. Windows/macOS runtime, external inference
-and consumer integration are unverified.
+CLI control uses readiness and ACKs under the same Original. Stalled HTTP bodies
+remain gated until the caller returns its real error. Conversation concurrency
+uses private per-turn gates and observed authorization, rather than a fixed
+delay before assuming a second writer is waiting. Deliberate expiry tests still
+wait for the original finite deadline or the credential's real expiration;
+their waits are part of the behavior under test.
 
-The corrected suite used `cargo test --locked -p graphit-ai --test
-direct_embeddings -- --test-threads=2`, jobs2/incremental0. Suite command wall
-was 3.19 s including compilation, CPU user/system 2.29/0.63 s, peak RSS
-565728 KiB; this measures compiler/harness, not embedding operations. Strict
-Clippy for all AI targets took 1.17 s, CPU 1.26/0.40 s, peak RSS 206844 KiB.
+Real GGUF tests remain `--ignored --exact` qualifications. Embeddings require
+`GRAPHIT_EMBEDDINGGEMMA2_MODEL`; BGE requires
+`GRAPHIT_BGE_RERANKER_V2_M3_MODEL`, and reference comparisons additionally
+require their declared captured reference. CPU and CUDA qualifications are
+distinct. Select each native-root qualification in its own process because the
+SDK root has a single process lifetime. An ignored throughput measurement only
+measures its local harness, not a provider or a production SLA.
 
-Its separate precompiled fixture passed 128 calls × eight texts × two values:
-total 85150726 ns (85.150726 ms), sorted-sample p95 1058899 ns (1.058899 ms).
-Process wall was 0.15 s, CPU user/system 0.10/0.02 s, peak RSS 11740 KiB,
-including the debug harness, local TCP server and cleanup. New raw logs/time and
-hashes are under `.build/rust-ai/qualification-2026-10-09/`:
-`direct-tests-attempt-01`, `direct-fixture-attempt-01`, `clippy-attempt-01` and
-`execution-receipt.json`. These local results do not establish authenticated
-provider latency, product throughput or a performance gain. Source/API and own
-manifest hashes remained unchanged after execution. The dedicated direct-suite
-Root guard qualification passed below; consumer integration remains a separate
-delivery.
-
-
-## Dedicated direct-suite Git guard qualification
-
-`tsk-b96c` completed revision20 with six active checks PASS and final independent
-Tracker NOFAULT. Its one actual grouped command was:
+Strict lint uses the same wrapper and locked offline dependencies:
 
 ```text
-cargo xtask verify-fast-guards graphit-ai/direct_embeddings graphit-runtime/roles graphit-knowledge/staleness
+cargo xtask cargo clippy --locked --offline --no-deps -p graphit-ai --all-targets -- -D warnings
+cargo xtask cargo clippy --locked --offline -p graphit-app --all-targets --no-deps -- -D warnings
 ```
 
-Check `chk-413ea8ae7f4c` records compiled isolation1, baseline/restored positive
-checks, and an actual FAILED/panic marker plus nonzero Git pre-commit outcome
-for each of the three exact targets. Original source bytes were restored,
-freeze had zero mismatches and scratch was absent. This proves the matching
-`direct_embeddings` guard; it does not qualify Cohere, Voyage, Google, native
-rerank, the full native gate or product integration.
+The App checks cover captured authentication Originals, provisioning,
+ACP/Kiro process ownership and BrowserLive. Native Live cases use the module
+filter `knowledge_live::tests::native::` and cover queued cancellation.
+BrowserLive exercises the actual main stdio/HTTP consumer and requires a
+completed outcome, joined work and owned cleanup. Its four AST calls request
+`ai_optimized:false`: the Live HTTP adapter consumes that presentation flag
+before parsing and retains JSON `structured_content`, including Source's
+`selection.source`. This endpoint's result is distinct from Root AST Source's
+plain-text presentation.
 
-The grouped command took 177.025779242 s. Raw log
-`.build/rust-kernel-fast-guard-2026-10-09/attempt-2-profile-input-closure/selected-kernel-guards.log`
-has SHA-256 `fc1d95d8aadc6665f18b18adcc743f66bd76cd3fa0e62d5fed46128db95cfdab`.
-This is a combined isolated compilation/Git/harness measurement, not an embedding
-operation cost. The preceding root fast check took 8.80746917 s and observed 143
-PASS executions plus two ignored tests across 17 harness rows, rather than 143
-unique cases. Its raw hash is
-`d48b14b60f2f8d9d7835adc06f9b46ac2c1c4e29d40e11d0ecd071b4c59e49af`.
-The first failed isolation attempt is preserved by b96c and is not a successful
-Git proof. Only Linux was exercised; Windows/macOS and authenticated inference
-remain unverified. No shared manifest, lockfile or guard source was changed by
-the direct-provider owner for this completion.
+Auxiliary ACP and Kiro process tests reuse the same Cargo fixture's raw-process
+scenario. It can retain actual stdin, pipes and a child of its own executable
+without decoding a product prompt. PID/readiness, release files and observed
+TERM markers establish custody; Unix group and Windows Job/EOF assertions remain
+the retirement evidence. The Kiro SDK fixture also has an explicit
+`answer_exit_gate` case for a complete response followed by a retained,
+TERM-resistant child; the journal records actual TERM and driver-close events.
+KnowledgeQuestion's dedicated fixture case reads its actual stdin in the child,
+checks the literal selected Paris body and derives its answer from that admitted
+prompt. Constructing a request for authorization does not parse an empty parent
+stdin or fabricate the later native response. Cancel/deadline cases retain the
+child after `turn.started` until the actual owner retires it.
 
+The absolute batch-deadline oracle keeps first/second bodies at 600/600ms
+with an original deadline of 1s. Total arrival around 1.2s falls before a renewed
+HTTP deadline around 1.6s. Expected `Network(Deadline)` distinguishes renewal,
+which would deliver the body and yield `Context(Deadline)` in the adapter.
+The scheduling margin adds no elapsed-time SLA.
 
-## Historical guarded consumer qualification
+Run the direct integration suite with
+`cargo xtask cargo test --locked --offline -p graphit-ai --test direct_embeddings`.
+It uses real loopback TCP and the real bounded client: exact request,
+credential, model and extension rules, shuffled indices, batch splitting,
+zero effects, malformed shapes and f32 overflow, real status/transport failures,
+stalled-body cancellation, original deadlines and failure after a successful
+batch. It does not use a fake transport or external account. Keep the existing
+pins; strict Clippy covers all crate targets.
 
-The shared guarded SDK and real captured Auth composition are exercised in
-`tsk-0f32`. Its affected Linux run passed all 41 functional tests (including
-10 tests in this SDK suite), with two historical measurement fixtures ignored. Selected strict Clippy
-also passed for the library and all four affected test targets.
-The [Direct lease qualification](rust_direct_embedding_leases.md#qualification)
-records the command, scope and actual queue/build/harness costs. No live vendor
-authentication, product factory, Broker/Local integration or Windows/macOS
-execution is inferred from these local fixtures.
+`measure_direct_loopback_fixture` is an ignored local Linux measurement fixture.
+Its wall/p95 and process CPU/RSS include the debug harness, local TCP server and
+cleanup. These measurements do not establish authenticated provider latency,
+product throughput, a performance gain or a production SLA.
 
-The subsequent tsk-170b providers04 run passed all five affected suites. The Google
-optional-dimension focal passed one test in 0.55 s across both families and
-single/batch routes; the bounded wire suite passed three tests. These focused
-results do not qualify the entire Broker composition or additional platforms.
+The [Direct service-lease consumer](rust_direct_embedding_leases.md) covers the
+shared guarded SDK and captured Auth composition. SDK and lease fixtures prove
+their own boundaries; authenticated vendor inference, installed host behavior
+and each additional platform require their explicit qualifications.

@@ -346,6 +346,13 @@ fn execute(
             });
         }
     }
+    let broker = crate::instruction_overrides::BrokerInstructions::load(
+        state.auth.issuer(),
+        state.policy.installation.root(),
+        original,
+    )
+    .map_err(|_| "Broker instruction layer unavailable")?;
+    candidates.extend(broker.candidates(set.candidates()));
     let brand = state.policy.installation.brand();
     let mut values = BTreeMap::from([
         ("tool_transport".to_owned(), "root".to_owned()),

@@ -26,7 +26,6 @@ use std::{
     ffi::OsString,
     io,
     num::NonZeroUsize,
-    os::unix::fs::PermissionsExt,
     process::{Command, Stdio},
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -397,15 +396,7 @@ impl McpHarness {
 const ANSWER: &str = "Native Copilot documentary answer 🦀\n";
 fn native_peer(f: &fixture_support::Fixture) {
     let program = f.temp.path().join("copilot");
-    let quoted = format!(
-        "'{}'",
-        env!("CARGO_BIN_EXE_app-copilot-fixture").replace('\'', "'\"'\"'")
-    );
-    let script = format!(
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$COPILOT_NATIVE_ARGS\"\nexec {quoted} \"$@\"\n"
-    );
-    std::fs::write(&program, script).unwrap();
-    std::fs::set_permissions(program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::copy(env!("CARGO_BIN_EXE_app-copilot-fixture"), program).unwrap();
 }
 fn captured(f: &fixture_support::Fixture, mode: &str) -> Vec<(OsString, OsString)> {
     let mut environment = vec![

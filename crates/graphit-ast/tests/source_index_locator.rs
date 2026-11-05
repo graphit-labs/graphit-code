@@ -20,7 +20,10 @@ use graphit_core::{
     text_slice::Request,
     version_context::VersionContext,
 };
-use graphit_data::{lance_branch_store::LanceBranchStore, lance_module_store::LanceModuleStore};
+use graphit_data::{
+    lance_branch_store::{BranchError, LanceBranchStore, cleanup_ast_corpus},
+    lance_module_store::LanceModuleStore,
+};
 use std::{
     error::Error,
     fs, io,
@@ -345,6 +348,66 @@ async fn selected_default_inherited_named_and_old_generations_are_read_only() ->
 }
 
 #[tokio::test]
+async fn source_snapshots_lease_history_until_the_last_reader_drops() -> TestResult {
+    let request = original();
+    let fixture = Fixture::new(&request)?;
+    let base = publish(&fixture, 0, &[("same", Some("A"))]).await?;
+    let default = fixture.available(0, false, &request).await?;
+    let retained = default.read("same", &request).await?;
+    let encoded = fixture.projects[0].named.lance_branch();
+    let path = fixture.corpus(0);
+    let store = LanceBranchStore::open(path.to_str().unwrap(), source_schema(), None).await?;
+    let named = store
+        .capture_target(Some(&encoded))
+        .await?
+        .materialize()
+        .await?;
+    named
+        .prepare_merge(vec![batch(&[("same", Some("named"))])], vec!["path".into()])
+        .await?
+        .commit()
+        .await?;
+    base.snapshot()
+        .prepare_replace(vec![batch(&[("same", Some("B"))])])
+        .await?
+        .commit()
+        .await?;
+    drop((base, named, store));
+    assert!(cleanup_ast_corpus(&path, &request).await?.is_none());
+    drop(default);
+    assert!(cleanup_ast_corpus(&path, &request).await?.is_none());
+    assert_eq!(retained.source(&request)?, IndexedSource::Available("A"));
+    drop(retained);
+    let cleaned = cleanup_ast_corpus(&path, &request)
+        .await?
+        .expect("all readers dropped");
+    assert!(
+        cleaned
+            .iter()
+            .any(|(before, after)| before.manifests > after.manifests)
+    );
+    assert!(
+        cleaned
+            .iter()
+            .all(|(before, after)| before.head == after.head)
+    );
+    let current = fixture.available(0, false, &request).await?;
+    let current_named = fixture.available(0, true, &request).await?;
+    assert_eq!(
+        current.read("same", &request).await?.source(&request)?,
+        IndexedSource::Available("B")
+    );
+    assert_eq!(
+        current_named
+            .read("same", &request)
+            .await?
+            .source(&request)?,
+        IndexedSource::Available("named")
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn wrong_kind_and_corrupt_observed_corpus_are_errors_with_causes() -> TestResult {
     let request = original();
     let fixture = Fixture::new(&request)?;
@@ -372,8 +435,13 @@ async fn wrong_kind_and_corrupt_observed_corpus_are_errors_with_causes() -> Test
     .await
     .err()
     .unwrap();
-    assert!(matches!(error, SourceIndexError::Storage(_)));
-    assert!(error.source().is_some());
+    let SourceIndexError::Operation(cause) = &error else {
+        panic!("expected retained SDK acquisition failure: {error}");
+    };
+    let retained = cause
+        .get_ref()
+        .and_then(|cause| cause.downcast_ref::<BranchError>());
+    assert!(matches!(retained, Some(BranchError::Sdk(_))));
     Ok(())
 }
 

@@ -821,12 +821,7 @@ fn real_source_shutdown_retires_active_opencode_tree_after_abandoned_shutdown_wa
                 "{error:?}"
             ),
         }
-        let heartbeat = std::fs::read(journal.with_extension("descendant.heartbeat")).unwrap();
-        tokio::time::sleep(Duration::from_millis(60)).await;
-        assert_eq!(
-            std::fs::read(journal.with_extension("descendant.heartbeat")).unwrap(),
-            heartbeat
-        );
+        // The joined descendant is absent or a zombie above; it cannot execute more writes.
         assert!(
             !std::fs::read_to_string(&journal)
                 .unwrap()

@@ -246,7 +246,11 @@ mod tests {
         let (input, _held) = tokio::io::duplex(16);
         cancel.cancel();
         assert_eq!(
-            read(&mut args, input, &original).await.unwrap_err().kind(),
+            tokio::time::timeout(Duration::from_secs(8), read(&mut args, input, &original))
+                .await
+                .expect("cancelled hook input remained pending")
+                .unwrap_err()
+                .kind(),
             io::ErrorKind::Interrupted
         );
     }

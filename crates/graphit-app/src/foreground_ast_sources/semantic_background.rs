@@ -1,5 +1,5 @@
 //! Infer missing vectors from current rows of the single AST Lance corpus.
-use super::progressive::{corpus_snapshot, file_rows, write_fence};
+use super::progressive::{clean_corpus_history, corpus_snapshot, file_rows, write_fence};
 use super::*;
 use crate::foreground_memory_jobs::{MemoryJobResources, background_embedding_request};
 use arrow_array::Array;
@@ -97,23 +97,10 @@ impl ForegroundAstSources {
                     write.recheck().map_err(err)?;
                     Ok(())
                 };
-                if ended {
-                    // EOF releases the last operation, but does not bypass its
-                    // final current PROJECT/version authorization check.
-                    recheck()?;
-                    return Ok(version);
-                }
                 recheck()?;
-                let cohort = self
-                    .live
-                    .capture_cohort(
-                        self.auth.installation(),
-                        project_capture,
-                        self.native,
-                        original,
-                        true,
-                    )?
-                    .ok_or(io::ErrorKind::NotFound)?;
+                if ended && version.is_none() {
+                    return Ok(None);
+                }
                 if corpus_location.is_none() {
                     let relative = graphit_core::local_corpus::resolve(
                         project_capture.scope.live,
@@ -134,6 +121,24 @@ impl ForegroundAstSources {
                     recheck()?;
                     corpus_directory.revalidate(original)
                 };
+                if ended {
+                    let pin =
+                        corpus_snapshot(corpus_path, corpus_directory, project_capture, original)
+                            .await?;
+                    clean_corpus_history(corpus_path, corpus_directory, pin, original, &recheck)
+                        .await?;
+                    return Ok(version);
+                }
+                let cohort = self
+                    .live
+                    .capture_cohort(
+                        self.auth.installation(),
+                        project_capture,
+                        self.native,
+                        original,
+                        true,
+                    )?
+                    .ok_or(io::ErrorKind::NotFound)?;
                 let fence = cohort.fence();
                 let recheck = &recheck;
                 if inspect_existing {
@@ -281,6 +286,23 @@ impl ForegroundAstSources {
                     return Err(io::ErrorKind::BrokenPipe.into());
                 }
                 published?;
+                // The FILE's reuse snapshot is no longer needed. Do not pin its
+                // fragments until the remaining project's embeddings finish.
+                drop(snapshot);
+                {
+                    let _publication = write_fence(fence, original).await?;
+                    recheck()?;
+                    let pin =
+                        corpus_snapshot(corpus_path, corpus_directory, project_capture, original)
+                            .await?;
+                    if let Err(error) = pin.maintain_ast_indices(original, recheck).await {
+                        recheck()?;
+                        tracing::warn!(%error, "AST index maintenance deferred");
+                    }
+                }
+                let pin = corpus_snapshot(corpus_path, corpus_directory, project_capture, original)
+                    .await?;
+                clean_corpus_history(corpus_path, corpus_directory, pin, original, recheck).await?;
                 path
             };
             #[cfg(all(test, target_os = "linux"))]

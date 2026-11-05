@@ -45,11 +45,14 @@ with no implicit batch shell.
 
 Compilation of the composed consumers and native host execution are separate
 proofs. The cab0 platform receipt records their actual state; Windows and macOS
-native execution remain unqualified by Linux results. Existing Unix fixtures
-remain in `acp_process::tests`; the Windows-only
-`acp_process::windows::tests` uses controlled Python peers and real native
-pipes/descendants for duplex bytes, normal EOF, leader exit, cancellation,
-deadline, service stop and batch rejection. No vendor binary or account is
+native execution remain unqualified by Linux results. Unix fixtures remain in
+`acp_process::tests`; Windows-only cases remain in
+`acp_process::windows::tests`. Both consume the Cargo-emitted Rust
+`app-agent-fixture`, including a child of that same executable with inherited
+pipes and process group or Job membership. Private PID/readiness markers and
+release gates preserve duplex bytes, normal EOF, leader exit, cancellation,
+deadline and service stop. The batch-rejection case still denies the literal
+untrusted batch path before birth. No interpreter, vendor binary or account is
 required. A selector that runs no cases on another OS is not platform evidence.
 
 ## Driver boundary

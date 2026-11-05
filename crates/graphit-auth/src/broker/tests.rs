@@ -559,15 +559,27 @@ async fn cache_ttls_do_not_cache_authorized_users() {
     let mut policy = limits();
     policy.metadata_ttl = Duration::from_secs(1);
     policy.key_ttl = Duration::from_millis(20);
+    let ttls = (policy.metadata_ttl, policy.key_ttl);
     let verifier = fixture.verifier(policy);
     let raw = token(&key, "one", &fixture.claims());
+    let started = Instant::now();
     assert!(
         verifier
             .verify(&raw, BrokerRequestContext::new(&context(&cancel)))
             .await
             .is_ok()
     );
-    tokio::time::sleep(Duration::from_millis(30)).await;
+    {
+        let completed = Instant::now();
+        let mut cache = verifier.cache.lock().unwrap();
+        let entry = cache.entry.as_ref().unwrap();
+        for (until, ttl) in [(entry.metadata_until, ttls.0), (entry.keys_until, ttls.1)] {
+            assert!((started + ttl..=completed + ttl).contains(&until));
+        }
+        Arc::get_mut(cache.entry.as_mut().unwrap())
+            .unwrap()
+            .keys_until = Instant::now();
+    }
     assert!(
         verifier
             .verify(&raw, BrokerRequestContext::new(&context(&cancel)))
@@ -576,7 +588,12 @@ async fn cache_ttls_do_not_cache_authorized_users() {
     );
     assert_eq!(fixture.count("/keys"), 2);
     assert_eq!(fixture.count("/.well-known/graphit-broker"), 1);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    {
+        let mut cache = verifier.cache.lock().unwrap();
+        Arc::get_mut(cache.entry.as_mut().unwrap())
+            .unwrap()
+            .metadata_until = Instant::now();
+    }
     assert!(
         verifier
             .metadata(BrokerRequestContext::new(&context(&cancel)))
@@ -606,6 +623,7 @@ async fn rotation_reloads_once_for_new_and_reused_kid() {
     let new = pair();
     *fixture.state.keys.lock().unwrap() = key_set(&new, "two");
     let raw = token(&new, "two", &fixture.claims());
+    let refresh_started = Instant::now();
     assert!(
         verifier
             .verify(&raw, BrokerRequestContext::new(&context(&cancel)))
@@ -613,6 +631,12 @@ async fn rotation_reloads_once_for_new_and_reused_kid() {
             .is_ok()
     );
     assert_eq!(fixture.count("/keys"), 2);
+    let refresh_completed = Instant::now();
+    let cooldown = verifier.limits.unknown_key_cooldown;
+    assert!(
+        (refresh_started + cooldown..=refresh_completed + cooldown)
+            .contains(&verifier.cache.lock().unwrap().next_forced.unwrap())
+    );
     for _ in 0..20 {
         assert!(
             verifier
@@ -625,7 +649,7 @@ async fn rotation_reloads_once_for_new_and_reused_kid() {
         );
     }
     assert_eq!(fixture.count("/keys"), 2);
-    tokio::time::sleep(Duration::from_millis(110)).await;
+    verifier.cache.lock().unwrap().next_forced = Some(Instant::now());
     let replacement = pair();
     *fixture.state.keys.lock().unwrap() = key_set(&replacement, "two");
     assert!(
@@ -676,7 +700,7 @@ async fn failed_or_cancelled_forced_refresh_consumes_shared_cooldown() {
     }
     assert_eq!(fixture.count("/keys"), 2);
     assert_eq!(fixture.count("/userinfo"), 0);
-    tokio::time::sleep(Duration::from_millis(110)).await;
+    verifier.cache.lock().unwrap().next_forced = Some(Instant::now());
     *fixture.state.jwks_status.lock().unwrap() = 200;
     *fixture.state.jwks_delay.lock().unwrap() = Duration::from_secs(2);
     let cloned = verifier.clone();
@@ -701,7 +725,7 @@ async fn failed_or_cancelled_forced_refresh_consumes_shared_cooldown() {
         );
     }
     assert_eq!(fixture.count("/keys"), 3);
-    tokio::time::sleep(Duration::from_millis(110)).await;
+    verifier.cache.lock().unwrap().next_forced = Some(Instant::now());
     let cloned = verifier.clone();
     let raw = unknown.clone();
     let pending = tokio::spawn(async move {

@@ -923,15 +923,15 @@ async fn cancellation_and_deadline_during_preparation_prevent_socket_effects() {
     );
     assert_eq!(fixture.count.load(Ordering::SeqCst), 0);
     let cancellation = Cancellation::default();
-    client.before_send = Some(Box::new(|| std::thread::sleep(Duration::from_millis(30))));
+    let deadline = Instant::now() + Duration::from_millis(20);
+    client.before_send = Some(Box::new(move || {
+        std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+    }));
     error(
         client
             .execute(
                 get(&fixture.url, &HeaderMap::new()),
-                NetworkRequestContext::new(
-                    Instant::now() + Duration::from_millis(20),
-                    &cancellation,
-                ),
+                NetworkRequestContext::new(deadline, &cancellation),
             )
             .await,
         NetworkError::Deadline,

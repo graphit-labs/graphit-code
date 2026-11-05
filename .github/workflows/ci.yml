@@ -120,6 +120,8 @@ jobs:
           key: code-ci-1.98-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked
+      - name: Test OpenCode plugin runtime contracts offline
+        run: node --test scripts/test-opencode-plugin.mjs
       - name: Check offline Rust sources
         env:
           CARGO_NET_OFFLINE: "true"

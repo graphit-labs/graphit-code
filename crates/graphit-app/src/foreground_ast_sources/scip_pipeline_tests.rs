@@ -648,6 +648,8 @@ async fn scenario(mode: Docker) -> TestResult {
         id: selected.1,
         version: selected.2.clone(),
     };
+    let background = Cancellation::default();
+    let mut job = None;
     let outcome = std::panic::AssertUnwindSafe(async {
         assert!(
             ast.index(
@@ -668,13 +670,12 @@ async fn scenario(mode: Docker) -> TestResult {
             let project = selected.0.clone();
             let execution = Arc::clone(&resources);
             let job_cancellation = cancellation.clone();
-            let background = Cancellation::default();
             let job_background = background.clone();
-            let job = tokio::spawn(async move {
+            job = Some(tokio::spawn(async move {
                 producer.index_semantic(project, context, Some(execution), None, std::collections::BTreeSet::new(), false, job_background, job_cancellation).await
-            });
+            }));
             tokio::time::timeout(Duration::from_secs(30), first).await??;
-            assert!(!job.is_finished(), "SCIP compiler is held before completion");
+            assert!(!job.as_ref().unwrap().is_finished(), "SCIP compiler is held before completion");
             let headers = HeaderMap::from_iter([
                 (header::AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {credential}"))?),
                 (header::HeaderName::from_static("x-graphit-auth-origin"), HeaderValue::from_static("runtime")),
@@ -682,7 +683,7 @@ async fn scenario(mode: Docker) -> TestResult {
             let selection = json!({
                 "project_dir":NativePath::new(selected.0.root().to_owned())?,
                 "project_version":selected.2.version(),
-                "query":"MATCH (n:Function) WHERE n.name='alpha' RETURN n.uid,n.data_key,n.raw_version,n.source_sha256,n.scip_symbols_json",
+                "query":"MATCH (n:Function) WHERE n.name='alpha' RETURN n.uid,n.data_key,n.source_sha256,n.scip_symbols_json",
             });
             let syntax = source.graph_server().call_mcp(
                 CallToolRequestParams::new("graphit_ast_query").with_arguments(selection.as_object().unwrap().clone()),
@@ -712,7 +713,9 @@ async fn scenario(mode: Docker) -> TestResult {
             // parser facts or completed vectors. The next batch changes B only.
             background.cancel();
             release_parser.send(()).unwrap();
-            let progress = job.await??;
+            let progress = job.as_mut().unwrap().await;
+            job = None;
+            let progress = progress??;
             assert!(progress.version.is_some());
             let mut pending_files = progress.pending_files;
             assert!(pending_files.contains("model.tsql"), "the yielded structural tail must remain pending");
@@ -723,6 +726,38 @@ async fn scenario(mode: Docker) -> TestResult {
                 paths:BTreeSet::from([selected.0.root().join("calls.js")]), ..Default::default()
             }, &cancellation).await?;
             pending_files.insert("calls.js".into());
+            // A durable parser payload may outlive its Source FILE. Only that
+            // stale enrichment must yield; the unrelated B work still finishes.
+            let changed_a = format!("{RUST}\n// changed A before compiler replay\n");
+            fs::write(selected.0.root().join("code.rs"), &changed_a)?;
+            ast.index(&selected.0, &context, ChangeBatch {
+                paths:BTreeSet::from([selected.0.root().join("code.rs")]), ..Default::default()
+            }, &cancellation).await?;
+            let mut current_compiler = Index::parse_from_bytes(&compiler_index()?)?;
+            current_compiler.documents[0].text = changed_a;
+            fs::write(docker.path().join("compiler.scip"), current_compiler.write_to_bytes()?)?;
+            let stale = ast.index_semantic(selected.0.clone(), context.clone(), Some(Arc::clone(&resources)),
+                Some(pending_files.clone()), BTreeSet::from(["calls.js".into()]), false,
+                cancellation.clone(), cancellation.clone()).await
+                .map_err(|error| format!("SCIP stale FILE replay must yield only old enrichment: {error:?}"))?;
+            assert!(stale.pending_files.contains("code.rs"), "current FILE remains eligible for normal processing");
+            let unchanged = source.graph_server().call_mcp(
+                CallToolRequestParams::new("graphit_ast_query").with_arguments(selection.as_object().unwrap().clone()),
+                headers.clone(), CancellationToken::new(),
+            ).await;
+            assert_ne!(unchanged.is_error, Some(true), "{unchanged:?}");
+            assert_eq!(syntax["rows"], unchanged.structured_content.unwrap()["rows"], "stale enrichment must preserve the old parser FILE");
+            let stale_vectors = live_vectors(&owner, &selected, &resources).await?;
+            for (identity, vector) in &parser_vectors {
+                assert_eq!(stale_vectors.get(identity), Some(vector), "stale replay cannot invalidate completed parser vectors");
+            }
+            // Restoring the exact admitted bytes makes the original payload
+            // usable again despite the intervening global Raw generations.
+            fs::write(selected.0.root().join("code.rs"), RUST)?;
+            fs::write(docker.path().join("compiler.scip"), compiler_index()?)?;
+            ast.index(&selected.0, &context, ChangeBatch {
+                paths:BTreeSet::from([selected.0.root().join("code.rs")]), ..Default::default()
+            }, &cancellation).await?;
             ast.index_semantic(selected.0.clone(), context, Some(Arc::clone(&resources)),
                 Some(pending_files), BTreeSet::from(["calls.js".into()]), false,
                 cancellation.clone(), cancellation.clone()).await
@@ -734,8 +769,8 @@ async fn scenario(mode: Docker) -> TestResult {
             assert_ne!(enriched.is_error, Some(true), "{enriched:?}");
             let enriched = enriched.structured_content.unwrap();
             assert!(serde_json::to_string(&enriched)?.contains(COMPILER_ALPHA));
-            for column in 0..4 {
-                assert_eq!(syntax["rows"][0][column], enriched["rows"][0][column], "resumed SCIP enrichment keeps A's UID/data_key and historical Source without reparsing it");
+            for column in 0..3 {
+                assert_eq!(syntax["rows"][0][column], enriched["rows"][0][column], "resumed SCIP enrichment keeps A's UID/data_key and FILE SHA after an unrelated Source commit without reparsing it");
             }
             let compiled_vectors=live_vectors(&owner,&selected,&resources).await
                 .map_err(|error| format!("SCIP enriched NN observation: {error:?}"))?;
@@ -795,6 +830,21 @@ async fn scenario(mode: Docker) -> TestResult {
     })
     .catch_unwind()
     .await;
+    cancellation.cancel();
+    background.cancel();
+    let producer_cleanup = if let Some(task) = job.as_mut() {
+        tokio::time::timeout(Duration::from_secs(5), task)
+            .await
+            .map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "SCIP fixture producer did not join after cancellation",
+                )
+            })
+            .and_then(|joined| joined.map(|_| ()).map_err(std::io::Error::other))
+    } else {
+        Ok(())
+    };
     let compiler_cleanup = ast.shutdown().await;
     let task_cleanup = tasks.shutdown().await;
     drop(resources);
@@ -804,6 +854,7 @@ async fn scenario(mode: Docker) -> TestResult {
         Err(panic) => std::panic::resume_unwind(panic),
         Ok(result) => result?,
     }
+    producer_cleanup?;
     compiler_cleanup?;
     task_cleanup?;
     source_cleanup?;
@@ -815,6 +866,453 @@ async fn default_scip_source_cli_mcp_preserves_compiler_and_both_syntax_fallback
     for mode in [Docker::Compiler, Docker::Absent, Docker::Failed] {
         scenario(mode).await?;
     }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn grammar_failure_acknowledgement_preserves_source_and_recovers_without_models() -> TestResult
+{
+    use graphit_ast::indexed_source::{read_branch_source, source_schema};
+    use graphit_ast::source_inspection::IndexedSource;
+    use graphit_auth::{ProjectCapture, ScopeCapture};
+    use graphit_core::artifact_store::CapturedPublicationScope;
+    use graphit_data::lance_branch_store::{LanceBranchStore, col, lit};
+
+    type Selected = (
+        graphit_core::project_paths::ProjectPaths,
+        graphit_core::project_identity::ProjectId,
+        graphit_core::version_context::VersionContext,
+    );
+
+    async fn productive(
+        ast: &Arc<ForegroundAstSources>,
+        selected: &Selected,
+        resources: &Arc<MemoryJobResources>,
+        controls_changed: bool,
+        lifetime: &Cancellation,
+    ) -> std::io::Result<()> {
+        let context = ProjectContext {
+            id: selected.1,
+            version: selected.2.clone(),
+        };
+        let preemption = Cancellation::default();
+        let background = Cancellation::default();
+        let work = ast.index_productive(
+            &selected.0,
+            &context,
+            ChangeBatch {
+                rescan: true,
+                controls_changed,
+                ..Default::default()
+            },
+            Some(Arc::clone(resources)),
+            None,
+            false,
+            &preemption,
+            &background,
+            lifetime,
+        );
+        match tokio::time::timeout(Duration::from_secs(30), work).await {
+            Ok(result) => result.map(|_| ()),
+            Err(_) => {
+                lifetime.cancel();
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "productive AST job did not settle",
+                ))
+            }
+        }
+    }
+
+    async fn provenance(
+        owner: &ForegroundSource,
+        selected: &Selected,
+        resources: &MemoryJobResources,
+        headers: &HeaderMap,
+        expected_raw: &str,
+        expected_nn: &str,
+        source_address: std::net::SocketAddr,
+        source_client: &reqwest::Client,
+    ) -> TestResult {
+        let cancellation = Cancellation::default();
+        let request = owner
+            .policy
+            .request_context(Instant::now(), &cancellation)?;
+        let original = request.snapshot();
+        let captured =
+            CapturedPublicationScope::project(&selected.0, selected.1, owner.scope, original)?;
+        let record = captured.binding()?;
+        let project = ProjectCapture {
+            scope: ScopeCapture {
+                live: &captured,
+                record: &record,
+            },
+            version: &selected.2,
+        };
+        let relative = graphit_core::local_corpus::resolve(
+            &captured,
+            selected.2.version(),
+            "ast",
+            "source.lance",
+            owner.native,
+            original,
+        )?;
+        let branch = selected.2.lance_branch();
+        let raw = LanceBranchStore::open(
+            captured.runtime_root().join(relative).to_str().unwrap(),
+            source_schema(),
+            None,
+        )
+        .await?
+        .capture_target((!branch.is_empty()).then_some(branch.as_str()))
+        .await?;
+        let current = read_branch_source(&raw, "code.rs", original).await?;
+        assert!(
+            matches!(current.source(original)?, IndexedSource::Available(text) if text == expected_raw),
+            "Source must expose this PROJECT's actual Raw bytes"
+        );
+        let graphit_ast::native_nn_index_locator::NativeNnIndexPresence::Available(index) =
+            graphit_ast::native_nn_index_locator::open_local_native_nn_index(
+                owner.auth.installation(),
+                project,
+                original,
+                owner.native,
+            )
+            .await?
+        else {
+            return Err("Native NN corpus missing".into());
+        };
+        let model = crate::ast_semantic::expected_native_nn_model(
+            &resources.local.as_ref().unwrap().expected,
+        )?;
+        let mut scan = index.snapshot(original)?.scan();
+        scan.filter_expr(col("path").eq(lit("code.rs")));
+        let mut stream = scan.try_into_stream().await?;
+        let mut count = 0;
+        while let Some(batch) = stream.try_next().await? {
+            let batch = graphit_ast::corpus::vectors(&batch, &model, original)?;
+            graphit_ast::native_nn::validate_native_nn(&batch, &model, original)?;
+            let versions = batch
+                .column_by_name("raw_version")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap();
+            let hashes = batch
+                .column_by_name("full_source_sha256")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<FixedSizeBinaryArray>()
+                .unwrap();
+            for row in 0..batch.num_rows() {
+                let version = versions.value(row);
+                assert!(version > 0 && version <= raw.version());
+                assert_eq!(
+                    hashes.value(row),
+                    Sha256::digest(expected_nn.as_bytes()).as_slice()
+                );
+                count += 1;
+            }
+        }
+        assert!(count > 0, "the controlled RPC must publish actual NN rows");
+        drop(stream);
+        drop(index);
+        let graph = owner.server.as_ref().unwrap().graph_server().call_mcp(
+            CallToolRequestParams::new("graphit_ast_query").with_arguments(json!({
+                "project_dir": NativePath::new(selected.0.root().to_owned())?,
+                "project_version": selected.2.version(),
+                "query": "MATCH (n:AstFileObservation) WHERE n.path = 'code.rs' RETURN n.raw_version,n.source_sha256",
+            }).as_object().unwrap().clone()),
+            headers.clone(), CancellationToken::new(),
+        ).await;
+        assert_ne!(graph.is_error, Some(true), "{graph:?}");
+        let graph = graph
+            .structured_content
+            .ok_or("Graph observation response missing")?;
+        let rows = graph["rows"]
+            .as_array()
+            .ok_or("Graph observation rows missing")?;
+        assert_eq!(
+            rows.len(),
+            1,
+            "one retained observation for the actual FILE"
+        );
+        let version: u64 = rows[0][0]["value"]
+            .as_str()
+            .ok_or("Graph Raw pin missing")?
+            .parse()?;
+        assert!(version > 0 && version <= raw.version());
+        assert_eq!(
+            gix::hash::ObjectId::from_hex(
+                rows[0][1]["value"]
+                    .as_str()
+                    .ok_or("Graph Source digest missing")?
+                    .as_bytes()
+            )?
+            .as_bytes(),
+            Sha256::digest(expected_nn.as_bytes()).as_slice()
+        );
+        let mut entity_arguments = json!({"project_dir": selected.0.root().to_str().unwrap(), "project_version": selected.2.version(), "path":"code.rs"});
+        entity_arguments["entity"] = json!("alpha");
+        entity_arguments["entity_type"] = json!("Function");
+        let entity_arguments =
+            serde_json::from_value::<crate::ast_source::SourceArguments>(entity_arguments)?;
+        let entity_source = crate::ast_source::call_source_result(
+            &owner.server.as_ref().unwrap().policy().installation,
+            source_address,
+            source_client,
+            &entity_arguments,
+            owner.native,
+            &request,
+        )
+        .await?;
+        if expected_raw == expected_nn {
+            assert_ne!(
+                entity_source.is_error,
+                Some(true),
+                "matching FILE SHA must remain readable: {entity_source:?}"
+            );
+        } else {
+            assert_eq!(
+                entity_source.is_error,
+                Some(true),
+                "stale entity extents must reject current changed Source: {entity_source:?}"
+            );
+            let current_arguments = serde_json::from_value::<crate::ast_source::SourceArguments>(
+                json!({
+                    "project_dir": selected.0.root().to_str().unwrap(), "project_version": selected.2.version(), "path":"code.rs",
+                }),
+            )?;
+            let current_source = crate::ast_source::call_source_result(
+                &owner.server.as_ref().unwrap().policy().installation,
+                source_address,
+                source_client,
+                &current_arguments,
+                owner.native,
+                &request,
+            )
+            .await?;
+            assert_ne!(
+                current_source.is_error,
+                Some(true),
+                "the same admission must read current Source without stale entity extents: {current_source:?}"
+            );
+        }
+        Ok(())
+    }
+
+    let (fixture, owner, tasks, credential, _) = support::browser_search_fixture().await;
+    let projects = owner.projects.as_ref().unwrap().to_vec();
+    assert_eq!(projects.len(), 2);
+    let source = owner.server.as_ref().unwrap().clone();
+    let lifetime = Cancellation::default();
+    for selected in &projects {
+        let settings = ConfigStore::project(&selected.0)?;
+        for (key, value) in [
+            ("modules.ast", true),
+            ("modules.embedding", true),
+            ("ast.index_source", true),
+        ] {
+            settings.set(
+                ConfigKey::new(key)?,
+                json!(value),
+                Duration::from_secs(5),
+                &lifetime,
+            )?;
+        }
+        fs::write(selected.0.root().join("code.rs"), RUST)?;
+    }
+    let empty_path = tempfile::tempdir()?;
+    let request = owner.policy.request_context(Instant::now(), &lifetime)?;
+    let ast = Arc::new(ForegroundAstSources::new(
+        Arc::clone(&owner.auth),
+        ForegroundAstSourceConfig {
+            live: source.graph_server().live_ast(),
+            installation: source.policy().installation.clone(),
+            base: ConfigSnapshot::new(source.policy().installation.brand(), [])?,
+            policy: owner.policy.clone(),
+            scope: owner.scope,
+            native: owner.native,
+            binding: NativeBinding::KiroV3,
+            environment: vec![("PATH".into(), empty_path.path().as_os_str().to_owned())],
+        },
+        request.snapshot(),
+    )?);
+    let resources = owner
+        .memory_job_resources
+        .upgrade()
+        .ok_or("controlled model RPC missing")?;
+    let headers = HeaderMap::from_iter([
+        (
+            header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {credential}"))?,
+        ),
+        (
+            header::HeaderName::from_static("x-graphit-auth-origin"),
+            HeaderValue::from_static("runtime"),
+        ),
+    ]);
+    let listener = graphit_core::tcp_listener::reserve(
+        graphit_core::tcp_listener::Options {
+            address: std::net::Ipv4Addr::LOCALHOST.into(),
+            ports: graphit_core::tcp_listener::PortSelection::Ephemeral,
+            timeout: Duration::from_secs(5),
+        },
+        &lifetime,
+    )?;
+    let source_address = listener.address();
+    let serving_source = source.clone();
+    let source_server = tokio::spawn(async move { serving_source.serve(listener).await });
+    let source_client = reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(5))
+        .read_timeout(Duration::from_secs(30))
+        .build()?;
+    let outcome = std::panic::AssertUnwindSafe(async {
+        for selected in &projects {
+            productive(&ast, selected, &resources, false, &lifetime).await?;
+            provenance(
+                &owner,
+                selected,
+                &resources,
+                &headers,
+                RUST,
+                RUST,
+                source_address,
+                &source_client,
+            )
+            .await?;
+        }
+        let before_a = live_vectors(&owner, &projects[0], &resources).await?;
+        let directory = projects[0].0.brand_directory().join("ast/queries");
+        fs::create_dir_all(&directory)?;
+        let profile = directory.join("rust.yaml");
+        let stock = include_str!("../../../graphit-ast/profiles/queries/rust.yaml");
+        fs::write(
+            &profile,
+            stock.replace(
+                "grammar: tree-sitter-rust",
+                "grammar: tree-sitter-not-distributed",
+            ),
+        )?;
+        let changed_a = RUST.replace("7 }", "9 }");
+        assert_ne!(changed_a, RUST);
+        fs::write(projects[0].0.root().join("code.rs"), &changed_a)?;
+        let raw_error = ast.observe_next_raw_error();
+        let failure = productive(&ast, &projects[0], &resources, true, &lifetime)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            failure.kind(),
+            std::io::ErrorKind::Unsupported,
+            "{failure:?}"
+        );
+        assert!(
+            failure.to_string().contains("unsupported builtin grammar"),
+            "{failure:?}"
+        );
+        if failure
+            .get_ref()
+            .is_some_and(|cause| cause.is::<crate::foreground_ast_sources::RawPublicationFailure>())
+        {
+            let observed = tokio::time::timeout(Duration::from_secs(5), raw_error).await??;
+            assert_eq!(observed, std::io::ErrorKind::Unsupported);
+        }
+        provenance(
+            &owner,
+            &projects[0],
+            &resources,
+            &headers,
+            &changed_a,
+            RUST,
+            source_address,
+            &source_client,
+        )
+        .await?;
+        assert_eq!(
+            live_vectors(&owner, &projects[0], &resources).await?,
+            before_a
+        );
+
+        let changed_b = RUST.replace("7 }", "11 }");
+        fs::write(projects[1].0.root().join("code.rs"), &changed_b)?;
+        productive(&ast, &projects[1], &resources, false, &lifetime).await?;
+        provenance(
+            &owner,
+            &projects[1],
+            &resources,
+            &headers,
+            &changed_b,
+            &changed_b,
+            source_address,
+            &source_client,
+        )
+        .await?;
+        provenance(
+            &owner,
+            &projects[0],
+            &resources,
+            &headers,
+            &changed_a,
+            RUST,
+            source_address,
+            &source_client,
+        )
+        .await?;
+        let updated_b = live_vectors(&owner, &projects[1], &resources).await?;
+        assert_eq!(
+            live_vectors(&owner, &projects[0], &resources).await?,
+            before_a
+        );
+
+        fs::write(&profile, stock)?;
+        productive(&ast, &projects[0], &resources, true, &lifetime).await?;
+        provenance(
+            &owner,
+            &projects[0],
+            &resources,
+            &headers,
+            &changed_a,
+            &changed_a,
+            source_address,
+            &source_client,
+        )
+        .await?;
+        provenance(
+            &owner,
+            &projects[1],
+            &resources,
+            &headers,
+            &changed_b,
+            &changed_b,
+            source_address,
+            &source_client,
+        )
+        .await?;
+        assert_eq!(
+            live_vectors(&owner, &projects[1], &resources).await?,
+            updated_b
+        );
+        Ok::<(), Box<dyn std::error::Error>>(())
+    })
+    .catch_unwind()
+    .await;
+    lifetime.cancel();
+    let producer_cleanup = ast.shutdown().await;
+    let task_cleanup = tasks.shutdown().await;
+    drop(resources);
+    drop(ast);
+    let source_cleanup = owner.shutdown().await;
+    let server_cleanup = source_server.await.map_err(std::io::Error::other)?;
+    drop(fixture);
+    match outcome {
+        Err(panic) => std::panic::resume_unwind(panic),
+        Ok(result) => result?,
+    }
+    producer_cleanup?;
+    task_cleanup?;
+    source_cleanup?;
+    server_cleanup?;
     Ok(())
 }
 
@@ -1466,10 +1964,15 @@ async fn custom_image_journey(real_docker: bool) -> TestResult {
         let uri = format!("http://{}/mcp", listener.address());
         let serving = source.clone();
         let server = tokio::spawn(async move { serving.serve(listener).await });
-        let client = ()
-            .serve_with_lifecycle(
+        let client = tokio::time::timeout(
+            Duration::from_secs(30),
+            ().serve_with_lifecycle(
                 StreamableHttpClientTransport::with_client(
-                    reqwest::Client::new(),
+                    reqwest::Client::builder()
+                        .no_proxy()
+                        .connect_timeout(Duration::from_secs(5))
+                        .read_timeout(Duration::from_secs(30))
+                        .build()?,
                     StreamableHttpClientTransportConfig::with_uri(uri).custom_headers(
                         headers
                             .iter()
@@ -1480,8 +1983,9 @@ async fn custom_image_journey(real_docker: bool) -> TestResult {
                 ClientLifecycleMode::Discover {
                     preferred_versions: vec![rmcp::model::ProtocolVersion::LATEST],
                 },
-            )
-            .await?;
+            ),
+        )
+        .await??;
         (Some(client), Some(server))
     } else {
         (None, None)
@@ -1559,9 +2063,9 @@ async fn custom_image_journey(real_docker: bool) -> TestResult {
         }
         if let Some(client) = &mcp_client {
             for path in ["code.rs", "unknown.exm"] {
-                let text = client.call_tool(CallToolRequestParams::new("graphit_ast_source").with_arguments(
+                let text = tokio::time::timeout(Duration::from_secs(30), client.call_tool(CallToolRequestParams::new("graphit_ast_source").with_arguments(
                     json!({"project_dir":NativePath::new(selected.0.root().to_owned())?,
-                        "project_version":selected.2.version(),"path":path}).as_object().unwrap().clone())).await?;
+                        "project_version":selected.2.version(),"path":path}).as_object().unwrap().clone()))).await??;
                 assert_ne!(text.is_error, Some(true), "{text:?}");
                 let expected = if path == "unknown.exm" { format!("{RUST}// incremental δ\n") } else { RUST.to_owned() };
                 assert_eq!(text.content[0].as_text().ok_or("Source text content missing")?.text, expected,

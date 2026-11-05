@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 //! Compiled FILE documents through Knowledge and the real Auth/Data producers.
 use graphit_auth::*;
 use graphit_auth::{profile::ProfileLimits, store::AuthStore};

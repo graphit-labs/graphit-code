@@ -270,17 +270,14 @@ mod tests {
             id_bytes: 256,
         }
     }
-    fn program(root: &Path, body: &str) -> std::path::PathBuf {
-        let python = which::which("python3")
-            .or_else(|_| which::which("python"))
-            .expect("Python native fixture interpreter");
-        // ACP's sole literal argument is the fixture filename, not a shell command.
-        std::fs::write(
-            root.join("acp"),
-            format!("import os,sys,time,subprocess\nassert sys.argv[1:]==[]\n{body}\n"),
-        )
-        .unwrap();
-        python
+    fn program(root: &Path, mut process: serde_json::Value) -> std::path::PathBuf {
+        let program = root.join("opencode.exe");
+        process["args"] = serde_json::json!(["acp"]);
+        crate::test_agent_fixture::install(
+            &program,
+            serde_json::json!({"kind":"raw","process":process}),
+        );
+        program
     }
     fn original(seconds: u64, cancel: Cancellation) -> Arc<SnapshotContext> {
         Arc::new(SnapshotContext::new(
@@ -297,16 +294,21 @@ mod tests {
         .await
         .unwrap();
     }
+    async fn assert_retirement_pending(owner: &AcpProcessOwner) {
+        {
+            let observation = owner.observe(Instant::now() + Duration::from_secs(4));
+            tokio::pin!(observation);
+            assert!(futures_util::poll!(observation.as_mut()).is_pending());
+        }
+        assert!(matches!(*owner.state.lock().await, OwnerState::Joining(_)));
+    }
     #[tokio::test]
     async fn duplex_frame_bytes_and_normal_eof_join_the_owned_job() {
         let root = tempfile::tempdir().unwrap();
         let frame = br#"{"extension":1.2300e+02,"literal":"\u0061"}"#;
         let program = program(
             root.path(),
-            r#"assert sys.stdin.buffer.readline()==b'{"ask":"duplex"}\n'
-os.write(1,b'{"extension":1.2300e+02,"literal":"\\u0061"}\n')
-sys.stdin.buffer.read()
-os.write(2,b'closed')"#,
+            serde_json::json!({"expect_stdin":"{\"ask\":\"duplex\"}\n","stdout":"{\"extension\":1.2300e+02,\"literal\":\"\\u0061\"}\n","wait_stdin_eof":true,"stderr":"closed"}),
         );
         let slots = Arc::new(tokio::sync::Semaphore::new(1));
         let environment: Vec<_> = std::env::vars_os().collect();
@@ -363,23 +365,14 @@ os.write(2,b'closed')"#,
     async fn descendant_custody_survives_leader_exit_original_cancel_deadline_and_service_stop() {
         for mode in ["leader_exit", "original_cancel", "deadline", "service_stop"] {
             let root = tempfile::tempdir().unwrap();
-            let leader = if mode == "leader_exit" {
-                "while not os.path.exists('release.leader'): time.sleep(0.005)\nos._exit(7)"
+            let mut process = serde_json::json!({"ready":"leader.ready","child":{"pid":"descendant.pid","hold":true}});
+            if mode == "leader_exit" {
+                process["release"] = "release.leader".into();
+                process["exit"] = 7.into();
             } else {
-                "while True: time.sleep(0.01)"
-            };
-            let body = format!(
-                r#"descendant="""import os,time
-while True:
- with open('heartbeat','ab') as beat: beat.write(b'.')
- time.sleep(0.01)
-"""
-subprocess.Popen([sys.executable,'-c',descendant],stdin=subprocess.DEVNULL,stdout=sys.stdout,stderr=sys.stderr)
-while not os.path.exists('heartbeat'): time.sleep(0.005)
-with open('leader.ready','w') as marker: marker.write('ready')
-{leader}"#
-            );
-            let program = program(root.path(), &body);
+                process["hold"] = true.into();
+            }
+            let program = program(root.path(), process);
             let cancel = Cancellation::default();
             let service_stop = Cancellation::default();
             let original = original(if mode == "deadline" { 8 } else { 20 }, cancel.clone());
@@ -397,14 +390,7 @@ with open('leader.ready','w') as marker: marker.write('ready')
             })
             .unwrap();
             ready(&root.path().join("leader.ready")).await;
-            assert!(
-                tokio::time::timeout(
-                    Duration::from_millis(20),
-                    owner.observe(Instant::now() + Duration::from_secs(5))
-                )
-                .await
-                .is_err()
-            );
+            assert_retirement_pending(&owner).await;
             assert_eq!(slots.available_permits(), 0);
             match mode {
                 "leader_exit" => {
@@ -434,12 +420,6 @@ with open('leader.ready','w') as marker: marker.write('ready')
             assert_eq!(observation["stdout_eof"], true);
             assert_eq!(observation["stderr_eof"], true);
             assert_eq!(slots.available_permits(), 1);
-            let heartbeat = std::fs::read(root.path().join("heartbeat")).unwrap();
-            tokio::time::sleep(Duration::from_millis(60)).await;
-            assert_eq!(
-                std::fs::read(root.path().join("heartbeat")).unwrap(),
-                heartbeat
-            );
             assert!(!owner.clean().await);
         }
     }

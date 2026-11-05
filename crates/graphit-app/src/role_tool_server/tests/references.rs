@@ -181,7 +181,9 @@ async fn role_task_references_native_pages_keep_foreign_targets_unresolved() {
     let id = task_with_references(&server, &raw).await;
     let mut cursor = Value::Null;
     let mut edges = Vec::new();
-    loop {
+    let mut reached_eof = false;
+    // The structural session edge and two authored edges, plus an optional EOF page.
+    for _ in 0..4 {
         let value = call(
             &client,
             "graphit_task_references",
@@ -192,12 +194,22 @@ async fn role_task_references_native_pages_keep_foreign_targets_unresolved() {
         let page = &value["published"]["outgoing"];
         let rows = page["results"].as_array().unwrap();
         assert!(rows.len() <= 1);
+        for row in rows {
+            assert!(!edges.contains(row), "reference repeated across pages");
+        }
         edges.extend(rows.iter().cloned());
-        cursor = page["next_cursor"].clone();
-        if cursor.is_null() {
+        assert!(edges.len() <= 3, "the fixture has exactly three references");
+        let next = page["next_cursor"].clone();
+        if next.is_null() {
+            reached_eof = true;
             break;
         }
+        assert_ne!(next, cursor, "reference cursor must advance");
+        cursor = next;
     }
+    assert!(reached_eof, "the fixture traversal must reach EOF");
+    assert_eq!(edges.len(), 3);
+    assert_eq!(edges[0]["reference"]["relation"], "session");
     assert!(
         edges
             .iter()

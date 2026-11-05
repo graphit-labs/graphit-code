@@ -12,7 +12,7 @@ use crate::{
     knowledge_conversation::{
         ConversationCustodyEntry, ConversationDeletion, ConversationPersistence,
     },
-    knowledge_question::{KnowledgeQuestionModel, prepare_knowledge_codex},
+    knowledge_question::KnowledgeQuestionModel,
 };
 use graphit_ai::{
     cli_codex::{CodexSink, CodexStreamLimits, run_codex},
@@ -574,6 +574,11 @@ async fn execute(
         } => (query, selected_slugs),
         _ => unreachable!(),
     };
+    let instruction =
+        match crate::knowledge_question::capture_question_instruction(issuer, paths, &original) {
+            Ok(instruction) => instruction,
+            Err(_) => return failure("Knowledge conversation instruction unavailable"),
+        };
     if conversation_engine == ConversationEngine::OpenCode {
         return opencode::execute(opencode::Invocation {
             service,
@@ -588,6 +593,7 @@ async fn execute(
             model,
             query,
             selected_slugs,
+            instruction: &instruction,
             cwd: paths.root(),
             project_id: id.to_string(),
             project_version: version.version(),
@@ -609,6 +615,7 @@ async fn execute(
             model,
             query,
             selected_slugs,
+            instruction: &instruction,
             cwd: paths.root(),
             project_id: id.to_string(),
             project_version: version.version(),
@@ -630,6 +637,7 @@ async fn execute(
             model,
             query,
             selected_slugs,
+            instruction: &instruction,
             cwd: paths.root(),
             project_id: id.to_string(),
             project_version: version.version(),
@@ -651,6 +659,7 @@ async fn execute(
             model,
             query,
             selected_slugs,
+            instruction: &instruction,
             cwd: paths.root(),
             project_id: id.to_string(),
             project_version: version.version(),
@@ -672,6 +681,7 @@ async fn execute(
             model,
             query,
             selected_slugs,
+            instruction: &instruction,
             cwd: paths.root(),
             project_id: id.to_string(),
             project_version: version.version(),
@@ -693,6 +703,7 @@ async fn execute(
             model,
             query,
             selected_slugs,
+            instruction: &instruction,
             cwd: paths.root(),
             project_id: id.to_string(),
             project_version: version.version(),
@@ -714,6 +725,7 @@ async fn execute(
             model,
             query,
             selected_slugs,
+            instruction: &instruction,
             cwd: paths.root(),
             project_id: id.to_string(),
             project_version: version.version(),
@@ -735,6 +747,7 @@ async fn execute(
             model,
             query,
             selected_slugs,
+            instruction: &instruction,
             cwd: paths.root(),
             project_id: id.to_string(),
             project_version: version.version(),
@@ -752,6 +765,7 @@ async fn execute(
             model,
             service.policy.completion.max_model_id_bytes,
             service.policy.question,
+            &instruction,
         )
         .await
         {
@@ -940,22 +954,27 @@ async fn execute(
         Err(e) => return failure(&format!("Knowledge conversation host: {:?}", e.kind())),
     };
     let slugs: Vec<_> = selected_slugs.iter().map(String::as_str).collect();
-    let prepared = match prepare_knowledge_codex(
+    let prepared = match crate::knowledge_question::prepare_documentary_question(
         original.snapshot(),
         &project_read,
         query,
         &slugs,
-        KnowledgeQuestionModel {
-            requested_model: model,
-            wire_limits: &service.policy.wire,
-            completion_limits: service.policy.completion,
-        },
+        model,
+        service.policy.completion.max_model_id_bytes,
         service.policy.question,
+        &instruction,
     )
     .await
     {
-        Ok(v) => v,
-        Err(e) => return failure(&e.to_string()),
+        Ok(value) => match value.into_codex(KnowledgeQuestionModel {
+            requested_model: model,
+            wire_limits: &service.policy.wire,
+            completion_limits: service.policy.completion,
+        }) {
+            Ok(value) => value,
+            Err(error) => return failure(&error.to_string()),
+        },
+        Err(error) => return failure(&error.to_string()),
     };
     let Some(documents) = prepared.documents() else {
         let response = match prepared.complete_without_execution() {

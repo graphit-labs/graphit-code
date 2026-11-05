@@ -141,7 +141,7 @@ async fn role_knowledge_log_and_root_cli_read_actual_commit_history_without_mode
     .unwrap();
     crate::mcp_output::json_call(&mut prepared);
     assert_eq!(prepared.name, "graphit_wiki_log");
-    let http = reqwest::Client::new();
+    let http = super::loopback_client();
     let connection = crate::ast_source::connect_source(
         &roles.0.policy.source.installation,
         address,

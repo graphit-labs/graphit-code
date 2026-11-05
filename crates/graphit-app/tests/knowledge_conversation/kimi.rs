@@ -2,17 +2,20 @@ use super::*;
 #[path = "../../../graphit-ai/tests/support/kimi_peer.rs"]
 mod peer;
 #[test]
-#[ignore = "native subprocess peer; invoked only by focused Conversation tests"]
+#[ignore = "subprocess entry point launched by the default Kimi Conversation tests"]
 fn native_kimi_conversation_peer() {
     peer::run();
 }
 impl Fixture {
     async fn start_kimi(&self, broker: &Broker, deadline: Option<u64>) -> ForegroundSource {
         let program = self.temp.path().join("kimi");
-        let executable = std::env::current_exe().unwrap();
-        let quoted = format!("'{}'", executable.to_str().unwrap().replace('\'', "'\\''"));
-        std::fs::write(&program, format!("#!/bin/sh\n[ \"$*\" = 'web --no-open --host 127.0.0.1 --port 0 --log-level error' ] || exit 81\nexec {quoted} --ignored --exact kimi::native_kimi_conversation_peer --nocapture --format terse\n")).unwrap();
-        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+        agent_fixture::install(
+            &program,
+            json!({
+                "kind":"kimi","program":std::env::current_exe().unwrap(),
+                "test":"kimi::native_kimi_conversation_peer"
+            }),
+        );
         if !self.temp.path().join("kimi-mode").exists() {
             self.kimi_mode("answer");
         }

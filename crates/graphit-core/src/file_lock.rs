@@ -293,6 +293,65 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_waiter_acquires_after_the_holder_releases() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("wait.lock");
+        let held = FileLock::try_acquire(&path).unwrap();
+        std::thread::scope(|scope| {
+            let (ready, observed) = std::sync::mpsc::channel();
+            let lock_path = &path;
+            let waiter = scope.spawn(move || {
+                BEFORE_WAIT.with(|hook| {
+                    *hook.borrow_mut() = Some(Box::new(move || ready.send(()).unwrap()))
+                });
+                FileLock::acquire(lock_path, Duration::from_secs(3), &Cancellation::default())
+                    .unwrap()
+            });
+            observed.recv_timeout(Duration::from_secs(3)).unwrap();
+            drop(held);
+            let acquired = waiter.join().unwrap();
+            assert!(FileLock::is_locked(&path).unwrap());
+            drop(acquired);
+        });
+    }
+
+    #[test]
+    fn cancellation_wakes_all_waiters_before_their_deadline() {
+        let fixture = tempfile::tempdir().unwrap();
+        let path = fixture.path().join("cancel.lock");
+        let held = FileLock::try_acquire(&path).unwrap();
+        let token = Cancellation::default();
+        std::thread::scope(|scope| {
+            let (ready, observed) = std::sync::mpsc::channel();
+            let waiters: Vec<_> = (0..4)
+                .map(|_| {
+                    let ready = ready.clone();
+                    let (path, token) = (&path, &token);
+                    scope.spawn(move || {
+                        BEFORE_WAIT.with(|hook| {
+                            *hook.borrow_mut() = Some(Box::new(move || ready.send(()).unwrap()))
+                        });
+                        FileLock::acquire(path, Duration::from_secs(30), token)
+                            .unwrap_err()
+                            .kind()
+                    })
+                })
+                .collect();
+            for _ in 0..4 {
+                observed.recv_timeout(Duration::from_secs(3)).unwrap();
+            }
+            let start = Instant::now();
+            token.clone().cancel();
+            for waiter in waiters {
+                assert_eq!(waiter.join().unwrap(), io::ErrorKind::Interrupted);
+            }
+            assert!(start.elapsed() < Duration::from_secs(2));
+        });
+        assert!(FileLock::is_locked(&path).unwrap());
+        drop(held);
+    }
+
+    #[test]
     fn existing_parent_acquisition_never_recreates_a_missing_control_directory() {
         let fixture = tempfile::tempdir().unwrap();
         let parent = fixture.path().join("missing");

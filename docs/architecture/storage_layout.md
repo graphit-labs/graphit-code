@@ -150,6 +150,33 @@ opening a query does not rebuild an index or create a publication. A small corpu
 may use the SDK's exact vector scan until a usable native index is available;
 this does not suppress valid vectors or postpone textual availability.
 
+### AST search maintenance
+
+A FILE publication replaces only that path's corpus rows. The Source and graph
+publish independently, and embeddings are filled in by background checkpoints.
+The existing indexes and Lance's scan of uncovered fragments both participate in
+queries while new fragments await maintenance. The lexical query still uses the
+code tokenizer, including for the first files of a new corpus. A small edit
+does not create separate commits for the three lookup and two text indexes.
+
+The AST producer checks for accumulated uncovered fragments, small index
+segments and deletion work between batches. It uses Lance compaction and
+grouped index optimization after the FILEs are visible. Native branches select
+the current state for each project version. Git checkout and merge reconcile
+the current files and retain compatible embeddings for unchanged inputs.
+The structural producer releases its corpus snapshot at EOF rather than retaining
+it while all pending embeddings finish. Each completed NN FILE also checks the
+same batched index and history maintenance, after releasing its reuse snapshot.
+Maintenance therefore does not wait for the project's entire embedding backlog.
+
+Obsolete internal history in local `ast/corpus.lance` is reclaimed in batches
+through Lance. The cleanup runs only when it can acquire exclusive access to
+the corpus; live queries, writers and exports retain shared access for their
+captured snapshots. Lance retains the current state of each branch, native
+tags and files still referenced by shallow descendants. Source revisions used
+by graph export and the functional histories of Memory and Task have their
+own retention rules.
+
 ## Remote storage
 
 When authorized Broker discovery enables S3, Memory and Task obtain scoped

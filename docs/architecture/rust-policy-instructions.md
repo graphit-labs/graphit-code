@@ -100,7 +100,7 @@ Router additionally includes RouterPreamble and requires its brand_display and r
 admitted USER lane. It does not reuse PROJECT authority or create a generic Dream module skill.
 [Dream records](../specs/rust_dream_records.md) define the paired write and recovery boundary.
 
-`ProjectHookContext` selects `policy/hooks/project-hook-context.md`, including Header, ProjectVersionNotice, Router/preamble and CoreInvariant. Its App consumer supplies reserved `module_mandates`, `project_memory_state` and `project_memory_json` from the actual PROJECT admission and Memory read. It is compiled-only and qualifies separately from the 25 legacy fragment snapshots; see [PROJECT hook context](../specs/rust_project_hook_context.md).
+`ProjectHookContext` selects `policy/hooks/project-hook-context.md`, including Header, ProjectVersionNotice, Router/preamble and CoreInvariant. Its App consumer supplies reserved `module_mandates`, `project_memory_state` and `project_memory_json` from the actual PROJECT admission and Memory read. The production hook renders the current project and global overrides, the active Broker layer and the compiled defaults. See [PROJECT hook context](../specs/rust_project_hook_context.md).
 
 The caller renders each selected module mandate, wraps its already rendered body with ModuleWrapper, and supplies the list in Task → Memory → AST → Hub → Knowledge order to Router. This stage preserves supplied order; it does not consult ModuleSettings or silently filter unsupported modules. Empty module_mandates renders an empty body. module_content is literal data, so native tokens or braces inside it are not evaluated again.
 

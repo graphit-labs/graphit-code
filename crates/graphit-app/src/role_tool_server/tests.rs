@@ -523,17 +523,35 @@ async fn connect_at_with_binding(
             axum::http::HeaderValue::from_str(&serde_json::to_string(&selection).unwrap()).unwrap(),
         );
     }
-    ().serve_with_lifecycle(
-        StreamableHttpClientTransport::with_client(
-            reqwest::Client::new(),
-            StreamableHttpClientTransportConfig::with_uri(uri.to_owned()).custom_headers(headers),
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        ().serve_with_lifecycle(
+            StreamableHttpClientTransport::with_client(
+                reqwest::Client::builder()
+                    .no_proxy()
+                    .connect_timeout(Duration::from_secs(5))
+                    .read_timeout(Duration::from_secs(30))
+                    .build()
+                    .unwrap(),
+                StreamableHttpClientTransportConfig::with_uri(uri.to_owned())
+                    .custom_headers(headers),
+            ),
+            rmcp::service::ClientLifecycleMode::Discover {
+                preferred_versions: vec![rmcp::model::ProtocolVersion::LATEST],
+            },
         ),
-        rmcp::service::ClientLifecycleMode::Discover {
-            preferred_versions: vec![rmcp::model::ProtocolVersion::LATEST],
-        },
     )
     .await
     .unwrap()
+    .unwrap()
+}
+fn loopback_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(5))
+        .read_timeout(Duration::from_secs(30))
+        .build()
+        .unwrap()
 }
 fn typed_value(result: &CallToolResult) -> Value {
     result
@@ -549,10 +567,13 @@ async fn call(
 ) -> Value {
     let mut arguments = args.as_object().unwrap().clone();
     arguments.insert("ai_optimized".into(), Value::Bool(false));
-    let result = client
-        .call_tool(CallToolRequestParams::new(name.to_owned()).with_arguments(arguments))
-        .await
-        .unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_secs(30),
+        client.call_tool(CallToolRequestParams::new(name.to_owned()).with_arguments(arguments)),
+    )
+    .await
+    .expect("Role MCP tool response deadline")
+    .unwrap();
     let value: Value = typed_value(&result);
     assert_eq!(
         result.is_error,
@@ -1385,12 +1406,22 @@ async fn actual_role_cancel_eof_and_confirmed_memory_delivery() {
     })
     .await
     .unwrap();
-    let draining = server.clone();
-    let waiter = tokio::spawn(async move { draining.shutdown().await });
-    tokio::task::yield_now().await;
-    assert!(!waiter.is_finished());
-    waiter.abort();
-    let _ = waiter.await;
+    let mut waiter = Box::pin(server.shutdown());
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(waiter.as_mut(), cx).is_pending());
+            if server.0.jobs.try_lock().is_err() {
+                std::task::Poll::Ready(())
+            } else {
+                std::task::Poll::Pending
+            }
+        }),
+    )
+    .await
+    .unwrap();
+    // Cancel shutdown only after it is actually joining the retained job.
+    drop(waiter);
     release.send(()).unwrap();
     server.shutdown().await.unwrap();
     serving.await.unwrap().unwrap();
@@ -1457,7 +1488,7 @@ async fn run_proxy_stdio_keeps_real_role_grants_and_never_accepts_runtime() {
     );
     let proxy = crate::role_proxy::RoleProxy::new(
         address,
-        reqwest::Client::new(),
+        loopback_client(),
         policy,
         (
             SecretString::from(bearer.expose_for_transport().to_owned()),
@@ -1472,7 +1503,7 @@ async fn run_proxy_stdio_keeps_real_role_grants_and_never_accepts_runtime() {
     assert!(
         crate::role_proxy::RoleProxy::new(
             address,
-            reqwest::Client::new(),
+            loopback_client(),
             policy,
             (SecretString::from(raw.clone()), &encoded, None, None),
             &original
@@ -1483,7 +1514,7 @@ async fn run_proxy_stdio_keeps_real_role_grants_and_never_accepts_runtime() {
     assert!(
         crate::role_proxy::RoleProxy::new(
             address,
-            reqwest::Client::new(),
+            loopback_client(),
             policy,
             (SecretString::from(String::new()), &encoded, None, None),
             &original
@@ -1542,93 +1573,30 @@ async fn run_proxy_stdio_keeps_real_role_grants_and_never_accepts_runtime() {
 }
 
 #[cfg(unix)]
+fn native_role_peer(temp: &std::path::Path, case: Value) -> std::path::PathBuf {
+    let program = temp.join("role-peer");
+    if !program.exists() {
+        let source = std::env::var_os("GRAPHIT_TEST_APP_RUNTIME_FIXTURE")
+            .expect("prepare the Cargo Runtime fixture through cargo xtask cargo test");
+        std::fs::copy(source, &program).unwrap();
+    }
+    std::fs::write(temp.join("case.json"), serde_json::to_vec(&case).unwrap()).unwrap();
+    program
+}
+#[cfg(unix)]
 fn acp_role_child(
     temp: &std::path::Path,
     address: std::net::SocketAddr,
     phase: Option<std::net::SocketAddr>,
 ) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    let program = temp.join("kiro-fixture");
-    let script = r#"#!/usr/bin/env python3
-import json,os,sys,urllib.request,socket
-stage="startup"
-endpoint = "__ENDPOINT__"
-phase = "__PHASE__"
-session_headers = {}
-def rpc(method,params,ident):
-    headers = {"Content-Type":"application/json","Accept":"application/json, text/event-stream",
-        "Authorization":"Bearer "+os.environ["GRAPHIT_ROLE_BEARER"],
-        "x-graphit-auth-origin":"role","x-graphit-role-reference":os.environ["GRAPHIT_ROLE_REFERENCE"],
-        "x-graphit-role-selection":os.environ["GRAPHIT_ROLE_SELECTION"]}
-    headers.update(session_headers)
-    body = json.dumps({"jsonrpc":"2.0","id":ident,"method":method,"params":params}).encode()
-    with urllib.request.urlopen(urllib.request.Request(endpoint,data=body,headers=headers),timeout=10) as response:
-        if ident is None:
-            return None
-        if response.headers.get("mcp-session-id"):
-            session_headers["mcp-session-id"] = response.headers["mcp-session-id"]
-        if response.headers.get("Content-Type","").startswith("application/json"):
-            return json.loads(response.read())
-        for line in response:
-            if line.startswith(b"data: "):
-                payload = line[6:].strip()
-                if not payload: continue
-                message = json.loads(payload)
-                if message.get("id") == ident:
-                    return message
-    raise RuntimeError("missing Role response")
-def send(message):
-    print(json.dumps(message),flush=True)
-for line in sys.stdin:
-    message = json.loads(line)
-    method = message.get("method")
-    ident = message.get("id")
-    params = message.get("params",{})
-    stage=method
-    if method == "initialize":
-        send({"jsonrpc":"2.0","id":ident,"result":{"protocolVersion":1,"agentCapabilities":{}}})
-    elif method == "session/new":
-        assert sys.argv[1:] == ["acp", "--agent-engine=v3"]
-        assert params["_meta"]["kiro"]["modeId"] == "graphit-scout"
-        send({"jsonrpc":"2.0","id":ident,"result":{"sessionId":"owned-role"}})
-    elif method == "session/prompt":
-        if phase:
-            host,port = phase.rsplit(":",1)
-            with socket.create_connection((host,int(port))) as signal:
-                signal.sendall(b"R")
-                signal.recv(1)
-        else:
-            stage="http-initialize"
-            rpc("initialize",{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"actual-child","version":"1"}},1)
-            stage="http-initialized"
-            rpc("notifications/initialized",{},None)
-            stage="http-source"
-            result = rpc("tools/call",{"name":"graphit_ast_source","arguments":{"input":{"path":"raw"}}},2)
-            assert not result.get("error")
-            assert not result["result"].get("isError",False)
-            assert "actual native payload" in json.dumps(result)
-        answer = "actual Role source " + os.environ["GRAPHIT_ROLE_BEARER"]
-        send({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"owned-role","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":answer}}}})
-        send({"jsonrpc":"2.0","id":ident,"result":{"stopReason":"end_turn"}})
-"#;
-    let script = script
-        .replace("__ENDPOINT__", &format!("http://{address}/roles/mcp"))
-        .replace(
-            "__PHASE__",
-            &phase.map(|value| value.to_string()).unwrap_or_default(),
-        );
-    let (before, loop_body) = script.split_once("for line in sys.stdin:").unwrap();
-    let body = format!("for line in sys.stdin:{loop_body}");
-    let guarded = format!(
-        "{before}\ntry:\n{}\nexcept BaseException as error:\n    with open({},'w') as failure:\n        json.dump({{\"stage\":stage,\"class\":type(error).__name__,\"status\":getattr(error,'code',None)}},failure)\n    sys.exit(1)\n",
-        body.lines()
-            .map(|line| format!("    {line}\n"))
-            .collect::<String>(),
-        serde_json::to_string(&temp.join("acp-failure.json").to_str().unwrap()).unwrap()
-    );
-    std::fs::write(&program, guarded).unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
-    program
+    native_role_peer(
+        temp,
+        json!({
+            "fixture":"role-http", "binding":"kiro-v3", "role":"scout", "brand":"graphit",
+            "endpoint":format!("http://{address}/roles/mcp"),
+            "phase":phase.map(|address|address.to_string())
+        }),
+    )
 }
 #[cfg(unix)]
 fn launch_input(server: &RoleToolServer) -> crate::managed_role_run::RunRequest {
@@ -1761,14 +1729,27 @@ async fn run_owned_acp_cancel_closes_current_run_and_preserves_sibling() {
         &program,
     );
     let stop = async {
-        let (mut phase, _) = phase.accept().await.unwrap();
-        let mut byte = [0];
-        phase.read_exact(&mut byte).await.unwrap();
-        assert_eq!(byte, [b'R']);
+        let observed = tokio::time::timeout(Duration::from_secs(10), async {
+            let (mut phase, _) = phase.accept().await?;
+            let mut byte = [0];
+            phase.read_exact(&mut byte).await?;
+            if byte != *b"R" {
+                return Err(io::Error::from(io::ErrorKind::InvalidData));
+            }
+            cancel.cancel();
+            phase.write_all(b"C").await
+        })
+        .await;
+        // Even a missing phase must cancel and join the actual operation.
         cancel.cancel();
-        phase.write_all(b"C").await.unwrap();
+        observed.map_err(|_| io::Error::from(io::ErrorKind::TimedOut))?
     };
-    let (execution, ()) = tokio::join!(run, stop);
+    let (execution, phase) = tokio::join!(run, stop);
+    if let Err(error) = phase {
+        server.shutdown().await.unwrap();
+        serving.await.unwrap().unwrap();
+        panic!("ACP child prompt phase failed: {error:?}");
+    }
     assert!(execution.native.is_some());
     assert!(execution.outcome.run_closed);
     assert!(execution.residual.is_none());
@@ -2270,36 +2251,24 @@ async fn seed_role_prompt_memory(
     mandatory
 }
 #[cfg(unix)]
-fn role_prompt_peer(temp: &std::path::Path, expected: &Value) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-    let program = temp.join("prompt-peer.py");
-    let script = format!(
-        r#"#!/usr/bin/env python3
-import json,sys
-expected=json.loads({})
-def send(value): print(json.dumps(value),flush=True)
-for line in sys.stdin:
-    message=json.loads(line); method=message.get("method"); ident=message.get("id"); params=message.get("params",{{}})
-    if method=="initialize": send({{"jsonrpc":"2.0","id":ident,"result":{{"protocolVersion":1,"agentCapabilities":{{}}}}}})
-    elif method=="session/new": send({{"jsonrpc":"2.0","id":ident,"result":{{"sessionId":"context-recipient"}}}})
-    elif method=="session/prompt":
-        text=''.join(block["text"] for block in params["prompt"] if block["type"]=="text")
-        if expected is None:
-            assert text=="Read the actual native source"
-        else:
-            prefix="[Standing context]\nPROJECT mandatory Memory:\n"
-            assert text.startswith(prefix)
-            payload,suffix=text[len(prefix):].split("\n\n",1)
-            assert json.loads(payload)==expected
-            assert suffix=="Read the actual native source"
-        send({{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"context-recipient","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"context verified"}}}}}}}})
-        send({{"jsonrpc":"2.0","id":ident,"result":{{"stopReason":"end_turn"}}}})
-"#,
-        serde_json::to_string(&expected.to_string()).unwrap()
-    );
-    std::fs::write(&program, script).unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
-    program
+fn role_prompt_peer(
+    temp: &std::path::Path,
+    expected: &Value,
+    role: crate::managed_roles::ManagedRoleName,
+) -> std::path::PathBuf {
+    use crate::managed_roles::ManagedRoleName;
+    let role = match role {
+        ManagedRoleName::Scout => "scout",
+        ManagedRoleName::Scribe => "scribe",
+        ManagedRoleName::Tracker => "tracker",
+    };
+    native_role_peer(
+        temp,
+        json!({
+            "fixture":"role-prompt", "binding":"kiro-v3", "role":role, "brand":"graphit",
+            "expected_context":expected
+        }),
+    )
 }
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2369,7 +2338,7 @@ async fn run_bootstrap_project_memory_uses_captured_per_project_gates_and_recipi
         );
         let mut read = context.memory_limits();
         read.max_query_bytes = n(1);
-        let program = role_prompt_peer(temp.path(), &payload);
+        let program = role_prompt_peer(temp.path(), &payload, role);
         let execution = crate::managed_role_run::execute_with_program(
             crate::managed_roles::InstallResources {
                 auth: &server.0.auth,
@@ -2516,7 +2485,14 @@ async fn run_bootstrap_failure_preserves_causes_and_closes_before_native_child()
         if cancelled {
             signal.cancel();
         } else {
-            tokio::time::sleep(Duration::from_millis(30)).await;
+            tokio::time::sleep_until(
+                original
+                    .snapshot()
+                    .deadline()
+                    .expect("finite Original")
+                    .into(),
+            )
+            .await;
         }
         let execution = crate::managed_role_run::execute_with_program(
             crate::managed_roles::InstallResources {
@@ -2574,7 +2550,7 @@ async fn run_bootstrap_http_requires_attached_context_and_preserves_attachment_b
             .with_graceful_shutdown(stopping.cancelled_owned())
             .await
     });
-    let response = reqwest::Client::new()
+    let response = loopback_client()
         .post(format!("http://{address}/admin/roles/run"))
         .header("x-graphit-auth-origin", "runtime")
         .bearer_auth(&raw)
@@ -2628,8 +2604,12 @@ async fn run_bootstrap_http_requires_attached_context_and_preserves_attachment_b
 #[cfg(unix)]
 fn git_fixture_command(root: &std::path::Path, args: &[&str]) -> Vec<u8> {
     let output = std::process::Command::new("git")
+        .args(["-c", "init.templateDir="])
         .args(args)
         .current_dir(root)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", root)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -2645,7 +2625,7 @@ fn git_fixture_command(root: &std::path::Path, args: &[&str]) -> Vec<u8> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn git_inspection_native_sdk_socket_preserves_scope_formats_and_no_helpers() {
     use base64::{Engine, engine::general_purpose::STANDARD};
-    use std::os::unix::{ffi::OsStrExt, fs::PermissionsExt};
+    use std::os::unix::fs::PermissionsExt;
     let (temp, server, raw) = fixture();
     let helper = temp.path().join("clean-helper");
     let marker = temp.path().join("helper-executed");
@@ -2690,13 +2670,18 @@ async fn git_inspection_native_sdk_socket_preserves_scope_formats_and_no_helpers
         std::fs::write(root.join("tracked"), b"bravo\n").unwrap();
         std::fs::write(root.join("binary"), [0, 2, 3, 4]).unwrap();
         std::fs::write(root.join("untracked"), b"untracked").unwrap();
+        #[cfg(target_os = "linux")]
         if index == 0 {
+            use std::os::unix::ffi::OsStrExt;
             let path = root.join(std::ffi::OsStr::from_bytes(b"non-utf8-\xff"));
             std::fs::write(&path, b"before\n").unwrap();
             let out = std::process::Command::new("git")
                 .args(["add", "--"])
                 .arg(&path)
                 .current_dir(root)
+                .env_clear()
+                .env("PATH", std::env::var_os("PATH").unwrap())
+                .env("HOME", root)
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
                 .env("GIT_CONFIG_NOSYSTEM", "1")
                 .output()
@@ -2772,6 +2757,7 @@ async fn git_inspection_native_sdk_socket_preserves_scope_formats_and_no_helpers
                 |p| STANDARD.decode(p["path_base64"].as_str().unwrap()).unwrap() == b"untracked"
             )
         );
+        #[cfg(target_os = "linux")]
         if selected == 0 {
             assert!(patches.iter().any(|p| {
                 STANDARD.decode(p["path_base64"].as_str().unwrap()).unwrap() == b"non-utf8-\xff"
@@ -2910,13 +2896,24 @@ async fn git_inspection_whole_response_bounds_and_owned_cancel_join() {
     let original_cancel = entered.recv_timeout(Duration::from_secs(5)).unwrap();
     token.cancel();
     assert_eq!(call.await.unwrap().is_error, Some(true));
-    let owner = server.clone();
-    let stopping = tokio::spawn(async move { owner.shutdown().await });
-    tokio::time::sleep(Duration::from_millis(20)).await;
-    assert!(!stopping.is_finished());
+    let mut stopping = Box::pin(server.shutdown());
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        std::future::poll_fn(|cx| {
+            assert!(std::future::Future::poll(stopping.as_mut(), cx).is_pending());
+            // shutdown retains this guard while joining the actual gated job.
+            if server.0.jobs.try_lock().is_err() {
+                std::task::Poll::Ready(())
+            } else {
+                std::task::Poll::Pending
+            }
+        }),
+    )
+    .await
+    .unwrap();
     assert!(original_cancel.is_cancelled());
     release.send(()).unwrap();
-    stopping.await.unwrap().unwrap();
+    stopping.await.unwrap();
     assert!(server.0.jobs.lock().await.is_empty());
 }
 
@@ -3258,6 +3255,9 @@ async fn git_inspection_nested_linked_scope_revocation_and_deadline() {
     let mut child = Command::new("git")
         .args(["update-index", "--index-info"])
         .current_dir(&root)
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("HOME", &root)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .stdin(Stdio::piped())
@@ -3724,7 +3724,7 @@ async fn run_bootstrap_http_live_context_add_switch_versions_and_current_modules
     )
     .unwrap();
     assert_eq!(selected.2, feature);
-    let published = reqwest::Client::new()
+    let published = loopback_client()
         .post(format!("http://{address}/admin/roles"))
         .header("x-graphit-auth-origin", "runtime")
         .bearer_auth(&raw)
@@ -3752,7 +3752,7 @@ async fn run_bootstrap_http_live_context_add_switch_versions_and_current_modules
         assert_eq!(modules[1].enabled(Module::Memory), enabled);
         assert_eq!(modules[2].enabled(Module::Memory), enabled);
         let payload = if enabled { &expected } else { &Value::Null };
-        let program = role_prompt_peer(temp.path(), payload);
+        let program = role_prompt_peer(temp.path(), payload, input.role);
         let execution = crate::managed_role_run::execute_with_program(
             crate::managed_roles::InstallResources {
                 auth: &server.0.auth,
@@ -3787,7 +3787,7 @@ async fn run_bootstrap_http_live_context_add_switch_versions_and_current_modules
     }
     assert_eq!(captured.0.projects.len(), 3);
     assert!(captured.1[1].enabled(Module::Memory));
-    let retained_program = role_prompt_peer(temp.path(), &expected);
+    let retained_program = role_prompt_peer(temp.path(), &expected, input.role);
     let retained = crate::managed_role_run::execute_with_program(
         crate::managed_roles::InstallResources {
             auth: &server.0.auth,
@@ -3818,7 +3818,7 @@ async fn run_bootstrap_http_live_context_add_switch_versions_and_current_modules
     assert_eq!(retained.outcome.answer.as_deref(), Some("context verified"));
     live.retire_checkout(projects[1].1, projects[1].0.root())
         .unwrap();
-    let denied = reqwest::Client::new()
+    let denied = loopback_client()
         .post(format!("http://{address}/admin/roles"))
         .header("x-graphit-auth-origin", "runtime")
         .bearer_auth(&raw)
@@ -3963,6 +3963,7 @@ fn role_hook_v3_factory_credential(
         &input,
         &server.0.policy.source,
         &parent,
+        issuer,
         &original,
     )
     .unwrap();
@@ -4295,7 +4296,7 @@ async fn role_hook_v3_original_cancel_drop_and_transport_owner_join() {
     for mode in ["cancel", "drop", "deadline"] {
         let proxy = crate::role_proxy::RoleProxy::new(
             address,
-            reqwest::Client::new(),
+            loopback_client(),
             (
                 server.0.task.content,
                 hub.projection(),
@@ -4398,7 +4399,7 @@ async fn role_hook_v3_run_pins_selected_version_when_input_omits_it() {
     input.install.project_version = None;
     let expected =
         json!({"project_version":feature.version(),"memory_state":"no_corpus","memories":[]});
-    let peer = role_prompt_peer(temp.path(), &expected);
+    let peer = role_prompt_peer(temp.path(), &expected, input.role);
     let result = crate::managed_role_run::execute_with_program(
         crate::managed_roles::InstallResources {
             auth: &server.0.auth,

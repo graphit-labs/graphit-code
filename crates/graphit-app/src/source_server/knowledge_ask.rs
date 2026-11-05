@@ -334,6 +334,14 @@ async fn execute(
         },
         None => None,
     };
+    let instruction = match crate::knowledge_question::capture_question_instruction(
+        state.auth.issuer(),
+        paths,
+        &original,
+    ) {
+        Ok(instruction) => instruction,
+        Err(_) => return failure("Knowledge Ask instruction unavailable"),
+    };
     execute_admitted(
         service,
         &original,
@@ -342,6 +350,7 @@ async fn execute(
         &input.input,
         QuestionRetrieval {
             content: state.policy.content,
+            instruction: &instruction,
             model: resources.as_deref().zip(embedding_service.as_mut()).map(
                 |(resources, service)| crate::foreground_knowledge::search::QuestionModel {
                     resources,
@@ -356,6 +365,7 @@ async fn execute(
 }
 
 pub(crate) struct QuestionRetrieval<'a, 'lease> {
+    pub(crate) instruction: &'a str,
     pub(crate) content: graphit_hub::native::ContentLimits,
     pub(crate) model: Option<crate::foreground_knowledge::search::QuestionModel<'a, 'lease>>,
 }
@@ -424,6 +434,7 @@ pub(crate) async fn execute_admitted(
             &input.query,
             documents,
             service.policy.question,
+            retrieval.instruction,
         ) {
             Ok(prepared) => prepared,
             Err(error) => return failure(&error.to_string()),
@@ -445,6 +456,7 @@ pub(crate) async fn execute_admitted(
             &input.model,
             service.policy.completion.max_model_id_bytes,
             service.policy.question,
+            retrieval.instruction,
         )
         .await
         {

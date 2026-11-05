@@ -1,5 +1,5 @@
 //! Real Native publication, logical target adapter and live read boundaries.
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 #[path = "../../graphit-data/tests/support/knowledge_reference_fixture.rs"]
 mod support;
 use graphit_auth::{ProjectReadModule, ProjectRecordAuthority, ProjectWriteOperation};

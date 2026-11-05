@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", windows))]
 //! Complete desired corpus through the real Auth/Core selection producers.
 use graphit_auth::*;
 use graphit_auth::{profile::ProfileLimits, store::AuthStore};
@@ -744,6 +744,7 @@ fn rename_and_slug_collision_obey_literal_or_default_identity() {
 }
 
 #[test]
+#[cfg(target_os = "linux")] // Enumerating raw names requires a filesystem accepting them.
 fn native_non_utf8_filename_is_rejected_without_replacement() {
     use std::{ffi::OsString, os::unix::ffi::OsStringExt};
     let cancel = Cancellation::default();

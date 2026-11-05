@@ -9,11 +9,14 @@ use graphit_http::client::{BoundedClient, ClientPolicy, Limits, NetworkError};
 use http::StatusCode;
 use secrecy::SecretString;
 use serde_json::{Value, json};
-use std::time::{Duration, Instant};
-use tokio::net::TcpListener;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::{net::TcpListener, sync::Semaphore};
 #[path = "support/rerank_http.rs"]
 mod rerank_http;
-use rerank_http::{Reply, fixture, reply};
+use rerank_http::{Reply, fixture, fixture_with_barriers, reply};
 
 fn limits() -> NativeRerankLimits {
     NativeRerankLimits::new(10000, 200, 200000, 200000, 400000).unwrap()
@@ -431,12 +434,8 @@ async fn later_batch_failure_discards_scores_and_stops_before_third_request() {
 #[tokio::test]
 async fn stalled_body_preserves_signal_and_discriminates_absolute_batch_deadline() {
     for cancelled in [true, false] {
-        let fixture = fixture(vec![Reply {
-            status: 200,
-            body: rows(1).to_string(),
-            delay: Duration::from_millis(120),
-        }])
-        .await;
+        let release = Arc::new(Semaphore::new(0));
+        let fixture = fixture_with_barriers(vec![reply(rows(1))], vec![Arc::clone(&release)]).await;
         let client = client(&fixture.origin);
         let endpoint = format!("{}/v1/rerank", fixture.origin);
         let cancel = Cancellation::default();
@@ -448,8 +447,12 @@ async fn stalled_body_preserves_signal_and_discriminates_absolute_batch_deadline
                 signal.cancel();
             }
         });
-        let ctx = InferenceContext::new(&cancel, Instant::now() + Duration::from_millis(70));
-        let started = Instant::now();
+        let budget = if cancelled {
+            Duration::from_secs(5)
+        } else {
+            Duration::from_millis(250)
+        };
+        let ctx = InferenceContext::new(&cancel, Instant::now() + budget);
         let e = error(
             adapter(&client, &endpoint, limits())
                 .score("q", &["x"], &key(), ctx)
@@ -463,21 +466,22 @@ async fn stalled_body_preserves_signal_and_discriminates_absolute_batch_deadline
                 NetworkError::Deadline
             })
         );
-        assert!(started.elapsed() < Duration::from_millis(120));
         redacted(e);
+        release.add_permits(1);
+        assert_eq!(fixture.server.await.unwrap().len(), 1);
         trigger.await.unwrap();
-        fixture.server.await.unwrap();
     }
+    // Body arrival crosses the original budget, before a renewed second one.
     let mut first = reply(rows(1));
-    first.delay = Duration::from_millis(60);
+    first.delay = Duration::from_millis(600);
     let mut second = reply(rows(1));
-    second.delay = Duration::from_millis(60);
+    second.delay = Duration::from_millis(600);
     let fixture = fixture(vec![first, second]).await;
     let client = client(&fixture.origin);
     let endpoint = format!("{}/v1/rerank", fixture.origin);
     let cancel = Cancellation::default();
     let policy = NativeRerankLimits::new(3, 1, 100, 1000, 1000).unwrap();
-    let ctx = InferenceContext::new(&cancel, Instant::now() + Duration::from_millis(100));
+    let ctx = InferenceContext::new(&cancel, Instant::now() + Duration::from_secs(1));
     assert_eq!(
         error(
             adapter(&client, &endpoint, policy)

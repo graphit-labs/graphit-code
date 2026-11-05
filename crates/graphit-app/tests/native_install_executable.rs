@@ -34,10 +34,55 @@ fn journey(work: impl Future<Output = ()> + Send + 'static) {
         .join()
         .unwrap();
 }
-fn install(f: &Fixture, cwd: &Path, zip: &Path, id: &str, version: &str, args: &[&str]) -> Output {
-    install_command(f, cwd, zip, id, version, args)
-        .output()
-        .unwrap()
+async fn child_output(mut child: tokio::process::Child) -> Output {
+    use tokio::io::AsyncReadExt;
+    async fn read(pipe: Option<impl tokio::io::AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = pipe {
+            pipe.read_to_end(&mut bytes).await?;
+        }
+        Ok(bytes)
+    }
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    match tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::try_join!(child.wait(), read(stdout), read(stderr))
+    })
+    .await
+    {
+        Ok(Ok((status, stdout, stderr))) => Output {
+            status,
+            stdout,
+            stderr,
+        },
+        result => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            panic!("compiled command did not complete: {result:?}");
+        }
+    }
+}
+async fn output(command: Command) -> Output {
+    child_output(
+        tokio::process::Command::from(command)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap(),
+    )
+    .await
+}
+async fn install(
+    f: &Fixture,
+    cwd: &Path,
+    zip: &Path,
+    id: &str,
+    version: &str,
+    args: &[&str],
+) -> Output {
+    output(install_command(f, cwd, zip, id, version, args)).await
 }
 fn install_command(
     f: &Fixture,
@@ -138,7 +183,7 @@ impl Drop for Daemon {
         }
     }
 }
-fn project(f: &Fixture, ctx: &graphit_hub::policy::RequestContext<'_>) -> std::path::PathBuf {
+async fn project(f: &Fixture, ctx: &graphit_hub::policy::RequestContext<'_>) -> std::path::PathBuf {
     let root = f.temp.path().join("project");
     fs::create_dir(&root).unwrap();
     let paths = ProjectPaths::at(&root, &f.paths).unwrap();
@@ -163,35 +208,35 @@ fn project(f: &Fixture, ctx: &graphit_hub::policy::RequestContext<'_>) -> std::p
             "initial",
         ],
     ] {
+        let mut command = Command::new("git");
+        command
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap())
+            .env("HOME", f.temp.path())
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args([
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "commit.gpgsign=false",
+                "-c",
+                "tag.gpgsign=false",
+                "-c",
+                "gc.auto=0",
+                "-c",
+                "maintenance.auto=false",
+                "-c",
+                "core.fsmonitor=false",
+            ])
+            .args(args)
+            .current_dir(&root);
+        let result = output(command).await;
         assert!(
-            Command::new("git")
-                .env_clear()
-                .env("PATH", std::env::var_os("PATH").unwrap())
-                .env("HOME", f.temp.path())
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .env("GIT_CONFIG_SYSTEM", "/dev/null")
-                .env("GIT_CONFIG_NOSYSTEM", "1")
-                .args([
-                    "-c",
-                    "core.hooksPath=/dev/null",
-                    "-c",
-                    "commit.gpgsign=false",
-                    "-c",
-                    "tag.gpgsign=false",
-                    "-c",
-                    "gc.auto=0",
-                    "-c",
-                    "maintenance.auto=false",
-                    "-c",
-                    "core.fsmonitor=false"
-                ])
-                .args(args)
-                .current_dir(&root)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .unwrap()
-                .success()
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
         );
     }
     fs::write(root.join("sibling"), "sibling actual FILE").unwrap();
@@ -204,7 +249,7 @@ fn compiled_active_install_then_exact_cli_mcp_and_independent_versions() {
         let ctx = fixture::original(&cancel);
         let broker = Broker::start().await;
         let f = Fixture::new(&broker, &ctx, false);
-        let root = project(&f, &ctx);
+        let root = project(&f, &ctx).await;
         let ast = f.package("first", PackageKind::Ast, false, &ctx).await;
         let ast2 = f.package("second", PackageKind::Ast, false, &ctx).await;
         let knowledge = f
@@ -225,24 +270,22 @@ fn compiled_active_install_then_exact_cli_mcp_and_independent_versions() {
                 PackageKind::Knowledge,
             ),
         ] {
-            let installed = outcome(&install(&f, &root, zip, id, version, &[]), 0);
+            let installed = outcome(&install(&f, &root, zip, id, version, &[]).await, 0);
             assert!(installed.succeeded());
             assert_eq!(installed.kind, Some(kind));
             assert!(installed.destination.unwrap().is_dir());
         }
         assert_eq!(f.registry.load().unwrap().entries().count(), 3);
         for (version, name) in [("release-1", "first"), ("release-2", "second")] {
-            let output = f
-                .command(&root)
-                .args([
-                    "ast",
-                    "source",
-                    "file.any",
-                    "--context",
-                    &format!("vendor/context@{version}"),
-                ])
-                .output()
-                .unwrap();
+            let mut command = f.command(&root);
+            command.args([
+                "ast",
+                "source",
+                "file.any",
+                "--context",
+                &format!("vendor/context@{version}"),
+            ]);
+            let output = output(command).await;
             assert!(
                 output.status.success(),
                 "{}",
@@ -254,7 +297,7 @@ fn compiled_active_install_then_exact_cli_mcp_and_independent_versions() {
             );
         }
         let duplicate = outcome(
-            &install(&f, &root, &ast, "vendor/context", "release-1", &[]),
+            &install(&f, &root, &ast, "vendor/context", "release-1", &[]).await,
             1,
         );
         assert_eq!(
@@ -333,7 +376,7 @@ fn compiled_offline_absence_actual_native_and_rejections_preserve_effects() {
         let zip = f.package("offline", PackageKind::Ast, false, &ctx).await;
         let authdoc = fs::read(f.paths.root().join("auth.json")).unwrap();
         let installed = outcome(
-            &install(&f, f.temp.path(), &zip, "vendor/offline", "v1", &[]),
+            &install(&f, f.temp.path(), &zip, "vendor/offline", "v1", &[]).await,
             0,
         );
         assert!(installed.succeeded());
@@ -349,19 +392,20 @@ fn compiled_offline_absence_actual_native_and_rejections_preserve_effects() {
                 "vendor/mismatch",
                 "v1",
                 &["--kind", "knowledge"],
-            ),
+            )
+            .await,
             1,
         );
         assert_eq!(mismatch.payload, PayloadEffect::NotPublished);
         assert_eq!(mismatch.registry, RegistryEffect::NotAttempted);
         let bad = f.package("bad-schema", PackageKind::Ast, true, &ctx).await;
         let rejected = outcome(
-            &install(&f, f.temp.path(), &bad, "vendor/bad", "v1", &[]),
+            &install(&f, f.temp.path(), &bad, "vendor/bad", "v1", &[]).await,
             1,
         );
         assert_eq!(rejected.failure.unwrap().category, FailureCategory::Lance);
         let lock = FileLock::try_acquire(f.paths.root().join("daemon.pid")).unwrap();
-        let occupied = install(&f, f.temp.path(), &zip, "vendor/occupied", "v1", &[]);
+        let occupied = install(&f, f.temp.path(), &zip, "vendor/occupied", "v1", &[]).await;
         assert_eq!(occupied.status.code(), Some(1));
         assert!(occupied.stdout.is_empty());
         assert!(!f.paths.root().join("daemon/mcp.key").exists());
@@ -371,7 +415,7 @@ fn compiled_offline_absence_actual_native_and_rejections_preserve_effects() {
             b"{\"pid\":1,\"address\":\"127.0.0.1:9\"}".as_slice(),
         ] {
             fs::write(f.paths.root().join("daemon/mcp.json"), body).unwrap();
-            let failed = install(&f, f.temp.path(), &zip, "vendor/discovery", "v1", &[]);
+            let failed = install(&f, f.temp.path(), &zip, "vendor/discovery", "v1", &[]).await;
             assert_eq!(failed.status.code(), Some(1));
             assert!(failed.stdout.is_empty());
             assert!(!f.paths.root().join("daemon/mcp.key").exists());
@@ -387,7 +431,7 @@ fn compiled_offline_absence_actual_native_and_rejections_preserve_effects() {
         )
         .unwrap();
         fs::write(f.paths.root().join("daemon/mcp.key"), b"invalid-key").unwrap();
-        let badkey = install(&f, f.temp.path(), &zip, "vendor/bad-key", "v1", &[]);
+        let badkey = install(&f, f.temp.path(), &zip, "vendor/bad-key", "v1", &[]).await;
         assert_eq!(badkey.status.code(), Some(1));
         assert!(badkey.stdout.is_empty());
         assert_eq!(
@@ -401,7 +445,7 @@ fn compiled_offline_absence_actual_native_and_rejections_preserve_effects() {
         permissions.set_readonly(true);
         fs::set_permissions(f.registry.path(), permissions).unwrap();
         let partial = outcome(
-            &install(&f, f.temp.path(), &zip, "vendor/readonly", "v1", &[]),
+            &install(&f, f.temp.path(), &zip, "vendor/readonly", "v1", &[]).await,
             1,
         );
         fs::set_permissions(f.registry.path(), restored).unwrap();
@@ -411,7 +455,7 @@ fn compiled_offline_absence_actual_native_and_rejections_preserve_effects() {
         assert!(partial.destination.unwrap().exists());
         f.activate(&broker, &ctx, "wrong-audience", false);
         let denied = outcome(
-            &install(&f, f.temp.path(), &zip, "vendor/denied", "v1", &[]),
+            &install(&f, f.temp.path(), &zip, "vendor/denied", "v1", &[]).await,
             1,
         );
         assert_eq!(
@@ -449,7 +493,7 @@ fn compiled_cancel_deadline_and_stdout_failure_keep_published_effects() {
             ),
         ] {
             let lock = FileLock::try_acquire(f.registry.lock_path()).unwrap();
-            let mut child = install_command(
+            let mut command = tokio::process::Command::from(install_command(
                 &f,
                 f.temp.path(),
                 &zip,
@@ -464,11 +508,13 @@ fn compiled_cancel_deadline_and_stdout_failure_keep_published_effects() {
                             .key
                     ),
                 ],
-            )
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            ));
+            let mut child = command
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
+                .unwrap();
             let destination = graphit_hub::SourceRef::hub_cache(
                 &f.paths,
                 "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap(),
@@ -491,15 +537,16 @@ fn compiled_cancel_deadline_and_stdout_failure_keep_published_effects() {
             if signal {
                 assert!(
                     Command::new("kill")
-                        .args(["-INT", &child.id().to_string()])
+                        .args([
+                            "-INT",
+                            &child.id().expect("installer must be running").to_string()
+                        ])
                         .status()
                         .unwrap()
                         .success()
                 );
             }
-            let result = tokio::task::spawn_blocking(move || child.wait_with_output().unwrap())
-                .await
-                .unwrap();
+            let result = child_output(child).await;
             let known = outcome(&result, code);
             assert_eq!(known.payload, PayloadEffect::Published);
             assert_eq!(known.registry, RegistryEffect::NotAttempted);
@@ -508,7 +555,15 @@ fn compiled_cancel_deadline_and_stdout_failure_keep_published_effects() {
             assert!(!f.paths.root().join("daemon/mcp.key").exists());
             drop(lock);
         }
-        let output = install_command(&f, f.temp.path(), &zip, "vendor/output", "v1", &[])
+        let mut command = tokio::process::Command::from(install_command(
+            &f,
+            f.temp.path(),
+            &zip,
+            "vendor/output",
+            "v1",
+            &[],
+        ));
+        let child = command
             .stdout(
                 fs::OpenOptions::new()
                     .write(true)
@@ -516,8 +571,10 @@ fn compiled_cancel_deadline_and_stdout_failure_keep_published_effects() {
                     .unwrap(),
             )
             .stderr(Stdio::piped())
-            .output()
+            .kill_on_drop(true)
+            .spawn()
             .unwrap();
+        let output = child_output(child).await;
         assert_eq!(output.status.code(), Some(1));
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert!(
@@ -529,8 +586,8 @@ fn compiled_cancel_deadline_and_stdout_failure_keep_published_effects() {
         broker.shutdown().await;
     });
 }
-#[test]
-fn compiled_install_rejects_cli_before_initialization_and_physical_commands_remain() {
+#[tokio::test]
+async fn compiled_install_rejects_cli_before_initialization_and_physical_commands_remain() {
     let directory = tempfile::tempdir().unwrap();
     let installation = directory.path().join("missing-installation");
     let base = [
@@ -551,16 +608,16 @@ fn compiled_install_rejects_cli_before_initialization_and_physical_commands_rema
         vec!["--unexpected"],
         vec!["--project-version", "main"],
     ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_graphit"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_graphit"));
+        command
             .env_clear()
             .env("HOME", directory.path())
             .current_dir(directory.path())
             .arg("--global-dir")
             .arg(&installation)
             .args(base)
-            .args(args)
-            .output()
-            .unwrap();
+            .args(args);
+        let output = output(command).await;
         assert_eq!(
             output.status.code(),
             Some(2),
@@ -571,27 +628,27 @@ fn compiled_install_rejects_cli_before_initialization_and_physical_commands_rema
         assert!(!installation.exists());
     }
     for sub in ["install", "export", "inspect", "import"] {
-        let output = Command::new(env!("CARGO_BIN_EXE_graphit"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_graphit"));
+        command
             .env_clear()
             .current_dir(directory.path())
-            .args(["package", sub, "--help"])
-            .output()
-            .unwrap();
+            .args(["package", sub, "--help"]);
+        let output = output(command).await;
         assert!(output.status.success());
         assert!(!installation.exists());
     }
     for (index, value) in [(5, "not-project"), (7, "../alias"), (9, "")] {
         let mut arguments = base.to_vec();
         arguments[index] = value;
-        let output = Command::new(env!("CARGO_BIN_EXE_graphit"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_graphit"));
+        command
             .env_clear()
             .env("HOME", directory.path())
             .current_dir(directory.path())
             .arg("--global-dir")
             .arg(&installation)
-            .args(arguments)
-            .output()
-            .unwrap();
+            .args(arguments);
+        let output = output(command).await;
         assert_eq!(
             output.status.code(),
             Some(2),
@@ -674,7 +731,7 @@ fn compiled_client_closed_listener_and_real_ingress_terminal_failure_never_fall_
         drop(listener);
         let key = fs::read(f.paths.root().join("daemon/mcp.key")).unwrap();
         let discovery = fs::read(f.paths.root().join("daemon/mcp.json")).unwrap();
-        let connection = install(&f, f.temp.path(), &zip, "vendor/closed", "v1", &[]);
+        let connection = install(&f, f.temp.path(), &zip, "vendor/closed", "v1", &[]).await;
         assert_eq!(connection.status.code(), Some(1));
         assert!(connection.stdout.is_empty());
         assert!(String::from_utf8_lossy(&connection.stderr).contains("MayHaveApplied"));
@@ -707,7 +764,7 @@ fn compiled_client_closed_listener_and_real_ingress_terminal_failure_never_fall_
                 .unwrap()
         });
         let id = format!("vendor/{}/{}", "x".repeat(150), "y".repeat(150));
-        let lost = install(&f, f.temp.path(), &zip, &id, "v1", &[]);
+        let lost = install(&f, f.temp.path(), &zip, &id, "v1", &[]).await;
         assert_eq!(lost.status.code(), Some(1));
         assert!(lost.stdout.is_empty());
         assert!(String::from_utf8_lossy(&lost.stderr).contains("MayHaveApplied"));
