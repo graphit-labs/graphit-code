@@ -1,6 +1,8 @@
+#[cfg(target_os = "linux")]
 #[path = "../../tests/support/finite_cli.rs"]
 mod finite_cli;
 use super::*;
+#[cfg(target_os = "linux")]
 use finite_cli::FiniteOutput;
 use graphit_auth::{
     AdminSessionPolicy, IssuerAuthorityPolicy, IssuerLimits, ServiceAdmissionLimits,

@@ -17,25 +17,48 @@ const deferred = () => {
   return { promise, resolve, reject };
 };
 
-async function fixture(t, { mode = 'normal', timeout = 5000, idle, deleted, maxInput = 8192 } = {}) {
+async function fixture(t, { mode = 'normal', timeout = 5000, idle, deleted, maxInput = 8192, expectedTransportFailure } = {}) {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'graphit plugin é ')));
-  const connections = new Set(), children = new Set(), arrivals = new Map(), waiting = new Map();
-  let cleanup;
+  const connections = new Set(), arrivals = new Map(), waiting = new Map();
+  const transportErrors = [], resets = new Set(), transportFailure = deferred();
+  // Every transport failure is checked below even when no readiness waiter exists.
+  transportFailure.promise.catch(() => {});
+  let cleanup, children = new Map();
   t.after(async () => {
-    try { await cleanup?.(); } finally {
-      for (const pid of children) {
-        try { process.kill(pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+    let cleanupError;
+    try { await cleanup?.(); } catch (error) { cleanupError = error; } finally {
+      for (const {child} of children.values()) {
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
       }
+      await Promise.all([...children.values()].map(peer => peer.closed));
+      await Promise.all([...resets].map(peer => peer.closed));
       for (const socket of connections) socket.destroy();
       await new Promise(resolve => server.close(resolve));
       await rm(directory, { recursive: true, force: true });
     }
+    if (expectedTransportFailure) {
+      assert.equal(transportErrors.length, 1);
+      assert.equal(transportErrors[0].code, expectedTransportFailure);
+    } else if (transportErrors.length) {
+      if (cleanupError) throw new AggregateError([cleanupError, ...transportErrors]);
+      throw transportErrors[0];
+    }
+    if (cleanupError) throw cleanupError;
   });
   const server = createServer(socket => {
     connections.add(socket);
     const closed = deferred();
-    let pid;
-    socket.once('close', () => { connections.delete(socket); children.delete(pid); closed.resolve(); });
+    let peer;
+    socket.on('error', error => {
+      // Windows can reset this barrier when the actual owner kills its peer.
+      // A reset before readiness or before that kill remains a fixture failure.
+      if (error.code === 'ECONNRESET' && peer?.child.killed) resets.add(peer);
+      else {
+        transportErrors.push(error);
+        transportFailure.reject(error);
+      }
+    });
+    socket.once('close', () => { connections.delete(socket); closed.resolve(); });
     let input = '';
     socket.on('data', chunk => {
       input += chunk;
@@ -44,8 +67,9 @@ async function fixture(t, { mode = 'normal', timeout = 5000, idle, deleted, maxI
       const ready = JSON.parse(input.slice(0, line));
       ready.closed = closed.promise;
       input = input.slice(line + 1);
-      pid = ready.pid;
-      children.add(pid);
+      peer = children.get(ready.pid);
+      assert.ok(peer, 'readiness belongs to an actual fixture child');
+      socket.write('ready\n');
       const pending = waiting.get(ready.event);
       if (pending) { waiting.delete(ready.event); pending.resolve(ready); }
       else arrivals.set(ready.event, ready);
@@ -59,22 +83,43 @@ async function fixture(t, { mode = 'normal', timeout = 5000, idle, deleted, maxI
   const peer = join(directory, 'peer.mjs');
   await writeFile(peer, `
 import { createConnection } from 'node:net';
+import { once } from 'node:events';
 let bytes = '';
 for await (const chunk of process.stdin) bytes += chunk;
 const input = JSON.parse(bytes);
 if (input.cwd !== process.cwd() || !input.hook_event_name) process.exit(9);
 const mode = process.argv[2];
-if (mode === 'slow' || mode === 'lifecycle') {
+if (mode === 'slow' || mode === 'lifecycle' || mode.startsWith('reset-')) {
   const socket = createConnection({host:'127.0.0.1',port:Number(process.argv[4])});
-  await new Promise((resolve,reject)=>{socket.once('connect',resolve);socket.once('error',reject);});
-  socket.write(JSON.stringify({event:input.hook_event_name,pid:process.pid})+'\\n');
-  if (mode === 'slow' || input.hook_event_name === 'session.idle') {
+  await once(socket, 'connect');
+  const hold = mode === 'slow' || input.hook_event_name === 'session.idle';
+  if (hold) {
     process.on('SIGTERM',()=>{});
-    process.stdout.write('incomplete');
-    // The live socket is the readiness barrier and keeps the peer alive until
-    // the plugin cancels it. No arbitrary timeout creates the pending state.
-    await new Promise(resolve=>socket.once('close',resolve));
-  } else socket.end();
+    await new Promise((resolve,reject)=>process.stdout.write('incomplete',error=>error ? reject(error) : resolve()));
+  }
+  if (mode === 'reset-before-ready') socket.resetAndDestroy();
+  else {
+    const acknowledged = new Promise((resolve,reject)=>{
+      let reply = '';
+      const received = chunk => {
+        reply += chunk;
+        if (reply.length < 6) return;
+        socket.off('data',received);
+        socket.off('error',reject);
+        reply === 'ready\\n' ? resolve() : reject(new Error('invalid readiness ACK'));
+      };
+      socket.on('data',received);
+      socket.once('error',reject);
+    });
+    socket.write(JSON.stringify({event:input.hook_event_name,pid:process.pid})+'\\n');
+    await acknowledged;
+    if (mode === 'reset-after-ready') socket.resetAndDestroy();
+    else if (hold) {
+      // The live socket keeps the peer alive until the plugin cancels it.
+      // No arbitrary timeout creates the pending state.
+      await once(socket, 'close');
+    } else socket.end();
+  }
 }
 if (mode === 'failure') { process.stdout.write('incomplete'); process.exit(7); }
 if (mode === 'oversize') process.stdout.write('x'.repeat(65536));
@@ -88,8 +133,21 @@ else if (mode !== 'empty') process.stdout.write('runtime-context:'+input.hook_ev
     timeout, max_input_bytes: maxInput, max_output_bytes: 8192,
   };
   const file = join(directory, 'plugin.mjs');
-  await writeFile(file, `import { execFile } from 'node:child_process';\nimport { resolve } from 'node:path';\nconst configuration = ${JSON.stringify(configuration)};\n${template}`);
-  const plugin = (await import(pathToFileURL(file))).default;
+  await writeFile(file, `
+import { execFile as nativeExecFile } from 'node:child_process';
+import { resolve } from 'node:path';
+export const fixtureChildren = new Map();
+const execFile = (...args) => {
+  const child = nativeExecFile(...args);
+  const closed = new Promise(resolve => child.once('close', resolve));
+  if (child.pid !== undefined) fixtureChildren.set(child.pid, {child, closed});
+  return child;
+};
+const configuration = ${JSON.stringify(configuration)};
+${template}`);
+  const loaded = await import(pathToFileURL(file));
+  const plugin = loaded.default;
+  children = loaded.fixtureChildren;
   const hooks = {}, queue = [];
   const lookup = deferred();
   let lookupAborted = false, streamStopped = false, streamFailure, waking;
@@ -131,10 +189,12 @@ else if (mode !== 'empty') process.stdout.write('runtime-context:'+input.hook_ev
   assert.equal(typeof cleanup, 'function');
   return {
     directory, hooks, lookup: lookup.promise, lookupAborted: () => lookupAborted,
+    transportFailure: transportFailure.promise,
     ready(event) {
       if (arrivals.has(event)) { const value = arrivals.get(event); arrivals.delete(event); return Promise.resolve(value); }
       assert.equal(waiting.has(event), false, 'only one readiness waiter per event');
-      const pending = deferred(); waiting.set(event, pending); return pending.promise;
+      const pending = deferred(); waiting.set(event, pending);
+      return Promise.race([pending.promise, transportFailure.promise]);
     },
     async emit(type, sessionID = 'A', location = directory) {
       const done = deferred(); queue.push({event: {type, data: {sessionID}, location: {directory: location}}, done});
@@ -149,6 +209,17 @@ else if (mode !== 'empty') process.stdout.write('runtime-context:'+input.hook_ev
 
 const options = { timeout: 10000 };
 describe('OpenCode 2 production plugin runtime', { concurrency: true }, () => {
+  for (const mode of ['reset-before-ready', 'reset-after-ready']) {
+    test(`${mode} is an observed fixture failure before owner retirement`, options, async t => {
+      const f = await fixture(t, {mode, expectedTransportFailure:'ECONNRESET'});
+      const output = {sessionID:'A',system:['foreign']};
+      const invoked = f.hooks.context(output);
+      await assert.rejects(f.transportFailure, {code:'ECONNRESET'});
+      await invoked;
+      assert.deepEqual(output.system, ['foreign',{type:'text',text:'runtime-context:context:'+literal}]);
+    });
+  }
+
   test('context/compaction preserve foreign arrays, literal argv and location boundaries', options, async t => {
     const f = await fixture(t, {idle:'lifecycle', deleted:'lifecycle'});
     const messages = [{role:'user',parts:[]}], tools = {foreign:{}}, extra = {foreign:true};

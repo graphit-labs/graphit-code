@@ -4833,6 +4833,7 @@ dependencies = [
  "ksni",
  "lance",
  "lance-io",
+ "nix 0.31.3",
  "object_store 0.14.2",
  "open",
  "parquet",

@@ -76,10 +76,9 @@ mod tests {
         #[cfg(unix)]
         {
             let fifo = dir.path().join("cursor.fifo");
-            rustix::fs::mkfifoat(
-                rustix::fs::CWD,
+            nix::unistd::mkfifo(
                 &fifo,
-                rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+                nix::sys::stat::Mode::S_IRUSR | nix::sys::stat::Mode::S_IWUSR,
             )
             .unwrap();
             assert_eq!(

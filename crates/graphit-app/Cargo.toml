@@ -132,6 +132,9 @@ axum = { version = "=0.8.9", default-features = false, features = ["ws"] }
 parquet-graph-fixture = { package = "parquet", version = "=60.0.0", default-features = false, features = ["zstd"] }
 aws-lc-rs = "=1.18.1"
 
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["fs"] }
+
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 rustix = { workspace = true, features = ["pty", "termios"] }
 

@@ -187,6 +187,15 @@ before parsing and retains JSON `structured_content`, including Source's
 `selection.source`. This endpoint's result is distinct from Root AST Source's
 plain-text presentation.
 
+Run the OpenCode plugin's native Node fixture with
+`node --test scripts/test-opencode-plugin.mjs`. Its TCP readiness barrier
+observes the actual `ChildProcess` returned by `execFile`. A connection reset is
+accepted only after its owner has successfully sent a kill signal to the identified
+peer; cleanup then awaits the child's real `close` event. Earlier resets and other socket errors fail
+the fixture. The peer flushes partial output before readiness and receives an
+explicit ACK; cancellation, deadlines and output checks retain their real plugin
+oracles. Windows process and TCP termination require the native Windows CI run.
+
 Auxiliary ACP and Kiro process tests reuse the same Cargo fixture's raw-process
 scenario. It can retain actual stdin, pipes and a child of its own executable
 without decoding a product prompt. PID/readiness, release files and observed
