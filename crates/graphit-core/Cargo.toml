@@ -7,6 +7,7 @@ license.workspace = true
 publish = false
 
 [features]
+test-util = []
 auth-test-support = []
 async-cancel = ["dep:tokio"]
 

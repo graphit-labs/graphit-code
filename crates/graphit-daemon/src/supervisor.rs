@@ -564,10 +564,12 @@ mod tests {
         let (release_parse, parse_wait) = oneshot::channel();
         let mut first = Some((cancelled_tx, parse_wait));
         let mut calls = 0;
-        let owner = ProjectSupervisor::start_controlled(
+        // Control the exact FILE event; native SDK coalescing is covered by
+        // administrative_rescan_and_native_change_reconcile_after_owned_cleanup.
+        let (watcher, native_events) = ProjectWatcher::channel_fixture();
+        let owner = ProjectSupervisor::supervise(
             context(dir.path(), "feature"),
-            config(dir.path()),
-            crate::watcher::ExternalControls::default(),
+            watcher,
             move |_, batch, lifetime, _, background, source_preemption| {
                 calls += 1;
                 let number = calls;
@@ -592,9 +594,7 @@ mod tests {
                     Ok(())
                 }
             },
-        )
-        .await
-        .unwrap();
+        );
         let (number, initial) = timeout(Duration::from_secs(8), entered.recv())
             .await
             .unwrap()
@@ -602,6 +602,13 @@ mod tests {
         assert_eq!(number, 1);
         assert!(initial.rescan);
         std::fs::write(&changed, "fn changed() {}\n").unwrap();
+        native_events
+            .send(ChangeBatch {
+                paths: [changed.clone()].into(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
         timeout(Duration::from_secs(8), cancelled)
             .await
             .unwrap()

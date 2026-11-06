@@ -339,10 +339,11 @@ async fn admission_and_bootstrap_failures_are_real() {
         if mode == "blocked" {
             assert_eq!(error.reason, Reason::TimedOut);
         } else {
-            assert!(matches!(
-                error.reason,
-                Reason::Io(graphit_process::Stage::Input, _)
-            ));
+            assert!(
+                matches!(error.reason, Reason::Io(graphit_process::Stage::Input, _)),
+                "broken bootstrap cause: {:?}",
+                error.reason
+            );
         }
         cleanup(error.cleanup);
         assert!(error.status.is_some());

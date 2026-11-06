@@ -213,7 +213,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: target/native/ladybug
-          key: code-native-v1-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/ci.yml') }}
+          key: code-native-v2-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/graphit-ast/Cargo.toml', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/ci.yml') }}
       - name: Restore compiled Rust artifacts
         id: rust-cache
         uses: actions/cache/restore@v4
@@ -232,8 +232,8 @@ jobs:
             target/debug/deps/xtask-*
             target/debug/xtask
             target/debug/xtask.exe
-          key: code-rust-v1-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'crates/*/build.rs', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/ci.yml') }}-${{ github.sha }}
-          restore-keys: code-rust-v1-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'crates/*/build.rs', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/ci.yml') }}-
+          key: code-rust-v2-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/graphit-ast/Cargo.toml', 'crates/*/build.rs', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/ci.yml') }}-${{ hashFiles('crates/*/Cargo.toml') }}-${{ github.sha }}
+          restore-keys: code-rust-v2-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/graphit-ast/Cargo.toml', 'crates/*/build.rs', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/ci.yml') }}-
       - name: Test OpenCode plugin runtime contracts offline
         run: node --test scripts/test-opencode-plugin.mjs
       - name: Check offline Rust sources

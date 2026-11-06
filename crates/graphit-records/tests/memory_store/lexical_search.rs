@@ -716,18 +716,74 @@ async fn lexical_search_real_120_physical_candidates_multibatch_collapse() {
     admissions!(
         f, ctx, issuer, authority, grant, read, write, _bearer, _reference, _admin
     );
-    let mut ids = Vec::new();
-    for n in 0..60 {
+    let mut authored = input("eof-0");
+    authored.body = "allcandidatekeyword".into();
+    authored.attributes.mandatory = false;
+    let seed = NativeMemoryStore::create(ctx.snapshot(), &write, authored, write_limits())
+        .await
+        .unwrap();
+    let seed_pin = sdk::pin(&f).await;
+    let seed_rows = sdk::all(&seed_pin).await;
+    assert_eq!(seed_rows.num_rows(), 3);
+    let creation: serde_json::Value =
+        serde_json::from_str(sdk::string(&sdk::select(&seed_rows, "creation"), 17, 0)).unwrap();
+    let references: serde_json::Value =
+        serde_json::from_str(sdk::string(&sdk::select(&seed_rows, "references"), 17, 0)).unwrap();
+    // Search needs 60 complete chains, not 60 independent creation transactions.
+    // Keep the real seed's schema, actor, project/version and index; publish the
+    // other 177 rows together through the same SDK merge used by other fixtures.
+    let mut ids = vec![seed.id];
+    let mut batches = Vec::new();
+    for n in 1..60 {
         let mut v = input(&format!("eof-{n}"));
         v.body = "allcandidatekeyword".into();
         v.attributes.mandatory = n == 59;
-        ids.push(
-            NativeMemoryStore::create(ctx.snapshot(), &write, v, write_limits())
-                .await
-                .unwrap()
-                .id,
-        );
+        let id = MemoryId::new(std::num::NonZeroU128::new(n).unwrap());
+        assert_ne!(id, seed.id);
+        let mut memory = seed.clone();
+        memory.id = id;
+        memory.attributes = v.attributes;
+        let mut event = creation.clone();
+        event["input"] = serde_json::to_value(&v).unwrap();
+        event["memory"] = serde_json::to_value(&memory).unwrap();
+        let mut projection = references.clone();
+        projection["source"] = serde_json::to_value(id).unwrap();
+        let mut keys = Vec::new();
+        let mut attempts = Vec::new();
+        let mut payloads = Vec::new();
+        for row in 0..seed_rows.num_rows() {
+            let kind = sdk::string(&seed_rows, 1, row);
+            let payload = match kind {
+                "head" => serde_json::to_string(&memory).unwrap(),
+                "creation" => serde_json::to_string(&event).unwrap(),
+                "references" => serde_json::to_string(&projection).unwrap(),
+                other => panic!("unexpected seed row: {other}"),
+            };
+            keys.push(if kind == "references" {
+                format!("references/{id}/1")
+            } else {
+                format!("{kind}/{id}")
+            });
+            attempts.push(if kind == "references" {
+                String::new()
+            } else {
+                v.idempotency_key.clone()
+            });
+            payloads.push(payload);
+        }
+        let rows = sdk::text_column(&seed_rows, 0, keys);
+        let rows = sdk::text_column(&rows, 2, vec![id.to_string(); 3]);
+        let rows = sdk::text_column(&rows, 5, attempts);
+        batches.push(sdk::text_column(&rows, 17, payloads));
+        ids.push(id);
     }
+    seed_pin
+        .prepare_merge(batches, vec!["row_key".into()])
+        .await
+        .unwrap()
+        .commit()
+        .await
+        .unwrap();
     let pin = sdk::pin(&f).await;
     let matched =
         MatchQuery::new("body,str,allcandidatekeyword;memory.body,str,allcandidatekeyword".into())

@@ -82,20 +82,36 @@ Native option families `GGML_*`, `LLAMA_*`, `CMAKE_*`, `CARGO_PROFILE_*`, `CUDA*
 `CUDNN*` and `LBUG_*` also contribute when present. Their values are hashed without
 printing them; logs show tool versions and option names.
 
-The keys additionally hash explicit repository inputs: the root and member
-manifests, lockfile, Rust toolchain, Cargo configuration and this workflow. Native
-preparation also hashes `xtask/src/ladybug.rs`, which selects the engine options.
-The compiled Rust key and its restore prefix include that selector and member
-`build.rs` files as well, so changed native build choices cannot reuse an older
-binding/build-script cache prefix.
+The native key hashes the lockfile, root, xtask and `graphit-ast` manifests
+(the latter selects the Ladybug binding),
+Rust toolchain, Cargo configuration, this workflow and `xtask/src/ladybug.rs`,
+which selects the engine options. Other member manifests do not select the native
+engine build. Changing a test feature in Core or Daemon therefore leaves that
+key unchanged when the native inputs remain the same.
+
+The compiled Rust key has a compatibility digest containing those same inputs
+plus member `build.rs` files. Its exact key additionally hashes every member
+manifest and the source revision. The restore prefix ends after the compatibility
+digest: changes to ordinary member manifests can restore existing dependencies,
+then Cargo's fingerprints select which features, dependencies and sources need
+rebuilding. Native binding, build-script, lockfile, configuration, toolchain and
+ABI changes still invalidate that prefix.
 Generated headers, `target`, temporary fixtures and build outputs are not inputs
 to `hashFiles`.
 
 Native and Windows package caches require their exact keys. Rust's primary key
-also contains the source revision; its restore prefix stops after the same
-platform, ABI and manifest/configuration digest. A newer source revision can reuse
-that compatible build, and Cargo decides which source changes require rebuilding.
+can restore a compatible build from a different source revision or ordinary
+member manifest. The v2 native/Rust key formats start a new cache population;
+there is no restore path to the earlier v1 compiled entries.
 There is no restore prefix that crosses a toolchain, target or ABI change.
+
+The [native preparer](../../xtask/src/ladybug.rs) still resolves the fixed official
+Ladybug package, configures and builds CMake, checks the selected compiler and
+requires the archive and headers on every run. It has no complete ABI stamp;
+ELF/COFF archive isolation uses modification times. The native selector and ABI
+inputs therefore remain mandatory cache boundaries. Cargo freshness checks do
+not certify external native ABI, and restoring a cache never skips preparation
+or compilation checks.
 
 Cargo sources are keyed separately by OS, architecture and lockfile. These are
 sources rather than compiled binaries. Keeping their unpacked files also retains

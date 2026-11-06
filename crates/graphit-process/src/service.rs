@@ -382,7 +382,11 @@ async fn spawn_service_inner(
         } },
         _ = startup.cancellation().cancelled() => Err(Reason::Cancelled),
         _ = sleep_until(deadline.into()) => Err(Reason::TimedOut),
-        _ = control.closed() => Err(control.reason().unwrap_or(Reason::Stopped)),
+        _ = control.closed() => match receiver.try_recv() {
+            // It may have been sent after this select polled the receiver Pending.
+            Ok(initial) => initial,
+            Err(_) => Err(control.reason().unwrap_or(Reason::Stopped)),
+        },
     };
     let initial = initial.and_then(|pipes| {
         supervisor::check(startup)?;
@@ -561,10 +565,9 @@ async fn drive_service(
     // No record, native owner or driver keeps the first RPC's Arc after handover.
     drop(startup);
     let initial = result.map(|()| (pid, stdout, stderr));
-    if initial.is_err() {
-        control.close();
-    }
-    if ready.send(initial).is_err() {
+    let failed = initial.is_err();
+    // Publish the causal result before waking the caller's closed branch.
+    if ready.send(initial).is_err() || failed {
         control.close();
     }
     let supervision = supervisor::supervise(owner, limits, None, observations).await;

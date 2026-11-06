@@ -2,6 +2,8 @@
 //! Synchronous native I/O checks the request between bounded chunks.
 use crate::file_lock::Cancellation;
 use sha2::{Digest, Sha256};
+#[cfg(any(test, feature = "test-util"))]
+use std::sync::{Mutex, OnceLock};
 use std::{
     fs::File,
     io::{self, Read},
@@ -14,6 +16,8 @@ pub struct SnapshotContext {
     identity: RequestIdentity,
     deadline: Option<Instant>,
     cancellation: Cancellation,
+    #[cfg(any(test, feature = "test-util"))]
+    test_clock: OnceLock<Arc<Mutex<Instant>>>,
 }
 impl SnapshotContext {
     pub fn new(deadline: Instant, cancellation: Cancellation) -> Self {
@@ -21,6 +25,8 @@ impl SnapshotContext {
             identity: RequestIdentity(Arc::new(())),
             deadline: Some(deadline),
             cancellation,
+            #[cfg(any(test, feature = "test-util"))]
+            test_clock: OnceLock::new(),
         }
     }
     /// A continuous service has cancellation but no artificial expiry.
@@ -29,7 +35,15 @@ impl SnapshotContext {
             identity: RequestIdentity(Arc::new(())),
             deadline: None,
             cancellation,
+            #[cfg(any(test, feature = "test-util"))]
+            test_clock: OnceLock::new(),
         }
+    }
+    /// Installs deadline-check time once for tests, before Auth admission or capture.
+    /// Identity, deadline and cancellation stay unchanged; SDK timers remain real.
+    #[cfg(any(test, feature = "test-util"))]
+    pub fn set_test_clock(&self, now: Arc<Mutex<Instant>>) -> Result<(), Arc<Mutex<Instant>>> {
+        self.test_clock.set(now)
     }
     pub fn deadline(&self) -> Option<Instant> {
         self.deadline
@@ -53,11 +67,19 @@ impl SnapshotContext {
     }
     pub fn check(&self) -> io::Result<()> {
         crate::local_files::check_cancelled(&self.cancellation)?;
-        if self
-            .deadline
-            .is_some_and(|deadline| Instant::now() >= deadline)
-        {
-            return Err(io::ErrorKind::TimedOut.into());
+        if let Some(deadline) = self.deadline {
+            #[cfg(any(test, feature = "test-util"))]
+            let now = match self.test_clock.get() {
+                Some(clock) => *clock
+                    .lock()
+                    .map_err(|_| io::Error::other("test clock poisoned"))?,
+                None => Instant::now(),
+            };
+            #[cfg(not(any(test, feature = "test-util")))]
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
         }
         Ok(())
     }
@@ -329,6 +351,112 @@ pub(crate) mod native_io_tests {
         );
         assert!(original.same_request(&clone));
         assert!(!original.same_request(&fresh));
+    }
+    #[test]
+    fn test_clock_advances_shared_request_without_changing_identity_or_deadline() {
+        let deadline = Instant::now();
+        let now = Arc::new(Mutex::new(deadline - Duration::from_secs(1)));
+        let original = Arc::new(SnapshotContext::new(deadline, Cancellation::default()));
+        let identity = original.request_identity();
+        original.set_test_clock(Arc::clone(&now)).unwrap();
+        let replacement = Arc::new(Mutex::new(deadline + Duration::from_secs(1)));
+        let rejected = original
+            .set_test_clock(Arc::clone(&replacement))
+            .unwrap_err();
+        assert!(Arc::ptr_eq(&rejected, &replacement));
+        let captured = Arc::clone(&original);
+        assert_eq!(original.required_deadline().unwrap(), deadline);
+        captured.check().unwrap();
+        assert!(identity.matches(&captured));
+        *now.lock().unwrap() = deadline;
+        assert_eq!(
+            captured.check().unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        *now.lock().unwrap() = deadline + Duration::from_secs(1);
+        assert_eq!(
+            original.check().unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        assert_eq!(original.deadline(), Some(deadline));
+        assert!(original.same_request(&captured));
+        assert!(identity.matches(&captured));
+    }
+    #[test]
+    fn test_clock_expiry_keeps_cancellation_cause_first() {
+        let deadline = Instant::now();
+        let now = Arc::new(Mutex::new(deadline));
+        let original = SnapshotContext::new(deadline, Cancellation::default());
+        original.set_test_clock(Arc::clone(&now)).unwrap();
+        assert_eq!(
+            original.check().unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _guard = now.lock().unwrap();
+                panic!("poison the request-local test clock");
+            })
+            .is_err()
+        );
+        assert_eq!(original.check().unwrap_err().kind(), io::ErrorKind::Other);
+        original.cancellation().cancel();
+        assert_eq!(
+            original.check().unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
+        assert_eq!(
+            original.required_deadline().unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
+    }
+    #[test]
+    fn service_context_does_not_consult_test_clock() {
+        let now = Arc::new(Mutex::new(Instant::now()));
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _guard = now.lock().unwrap();
+                panic!("poison the request-local test clock");
+            })
+            .is_err()
+        );
+        let service = SnapshotContext::service(Cancellation::default());
+        service.set_test_clock(now).unwrap();
+        service.check().unwrap();
+        assert_eq!(service.deadline(), None);
+        assert_eq!(
+            service.required_deadline().unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        service.cancellation().cancel();
+        assert_eq!(
+            service.check().unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
+    }
+    #[test]
+    fn test_clocks_are_local_to_each_request() {
+        let deadline = Instant::now();
+        let before = deadline - Duration::from_secs(1);
+        let first_now = Arc::new(Mutex::new(before));
+        let second_now = Arc::new(Mutex::new(before));
+        let first = SnapshotContext::new(deadline, Cancellation::default());
+        first.set_test_clock(Arc::clone(&first_now)).unwrap();
+        let second = SnapshotContext::new(deadline, Cancellation::default());
+        second.set_test_clock(Arc::clone(&second_now)).unwrap();
+        first.check().unwrap();
+        second.check().unwrap();
+        assert!(!first.same_request(&second));
+        *first_now.lock().unwrap() = deadline;
+        assert_eq!(first.check().unwrap_err().kind(), io::ErrorKind::TimedOut);
+        second.check().unwrap();
+        let real_time = SnapshotContext::new(deadline, Cancellation::default());
+        assert_eq!(
+            real_time.check().unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        *second_now.lock().unwrap() = deadline;
+        assert_eq!(second.check().unwrap_err().kind(), io::ErrorKind::TimedOut);
     }
     #[test]
     fn cancellation_and_deadline_reject_normal_native_work() {

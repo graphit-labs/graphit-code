@@ -557,9 +557,9 @@ fn captured_selection_ten_bindings_real_create_noop_update_remove_and_sources() 
         ] {
             let id = format!("org/{binding}-{}", kind.as_str());
             let source = f.seed(kind, &id, "Feature/α-v1", b'a');
-            // Each artifact journey has its own deadline; all its phases share this writer.
-            let mut writer = f.writer();
-            let change = writer
+            // Each public operation has one request; fixture setup precedes its deadline.
+            let change = f
+                .writer()
                 .publish(request(&source, selected.binding, None), copy(), None)
                 .unwrap();
             if kind == ArtifactType::Agent
@@ -578,7 +578,8 @@ fn captured_selection_ten_bindings_real_create_noop_update_remove_and_sources() 
             assert_payload(&source, &dest, b'a');
             let metadata = fs::read(f.registry().path()).unwrap();
             let manifest = fs::read(f.store().manifest_path()).unwrap();
-            let repeat = writer
+            let repeat = f
+                .writer()
                 .publish(request(&source, binding, None), copy(), None)
                 .unwrap();
             assert_eq!(repeat.change, PublicationChange::VerifiedUnchanged);
@@ -586,6 +587,7 @@ fn captured_selection_ten_bindings_real_create_noop_update_remove_and_sources() 
             assert_eq!(fs::read(f.registry().path()).unwrap(), metadata);
             assert_eq!(fs::read(f.store().manifest_path()).unwrap(), manifest);
             let new = f.seed(kind, &id, "feature/β-V2", b'b');
+            let mut writer = f.writer();
             writer
                 .publish(request(&new, binding, Some("renamed")), copy(), None)
                 .unwrap();
@@ -602,7 +604,10 @@ fn captured_selection_ten_bindings_real_create_noop_update_remove_and_sources() 
                 f.producer_identity.id()
             );
             assert_eq!(installed.original_source.version().as_str(), "feature/β-V2");
-            writer.remove(&key(&new, binding)).unwrap();
+            drop(writer);
+            let remove_key = key(&new, binding);
+            let mut writer = f.writer();
+            writer.remove(&remove_key).unwrap();
             assert!(!new_dest.exists());
             assert!(
                 writer

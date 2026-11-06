@@ -1916,10 +1916,9 @@ mod tests {
             child: Box<dyn ChildWrapper>,
             _: &CommandWrap,
         ) -> io::Result<Box<dyn ChildWrapper>> {
-            use std::io::Read;
             // The real child is already owned by the production recovery wrapper.
             // Readiness proves it executed before the SDK fault drops ownership.
-            let mut peer = loop {
+            let peer = loop {
                 match self.listener.accept() {
                     Ok((peer, _)) => break peer,
                     Err(error)
@@ -1931,16 +1930,7 @@ mod tests {
                     Err(error) => return Err(error),
                 }
             };
-            let remaining = self
-                .endpoint
-                .saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
-                return Err(io::ErrorKind::TimedOut.into());
-            }
-            peer.set_read_timeout(Some(remaining))?;
-            let mut ready = [0];
-            peer.read_exact(&mut ready)?;
-            assert_eq!(ready, *b"R");
+            let peer = ready_peer(peer, self.endpoint)?;
             match self.fault {
                 SetupFault::AfterError => Err(io::ErrorKind::PermissionDenied.into()),
                 SetupFault::AfterPanic => panic!("static post-birth fixture panic"),
@@ -2278,7 +2268,6 @@ mod tests {
         let late = matches!(observed, RepairObservation::Pending { .. });
         (observed, late)
     }
-    #[cfg(unix)]
     fn ready_peer(
         mut peer: std::net::TcpStream,
         endpoint: std::time::Instant,

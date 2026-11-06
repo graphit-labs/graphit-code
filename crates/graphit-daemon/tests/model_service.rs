@@ -992,8 +992,11 @@ async fn interruption_before_first_client_poll_preserves_context_error_without_c
     drop(borrow);
     for expire in [false, true] {
         let cancel = Cancellation::default();
-        let deadline = Instant::now() + Duration::from_millis(500);
+        let now = Instant::now();
+        let deadline = now + Duration::from_secs(30);
+        let clock = Arc::new(std::sync::Mutex::new(now));
         let ctx = auth::request(&cancel, deadline);
+        ctx.snapshot().set_test_clock(Arc::clone(&clock)).unwrap();
         let caller = issuer
             .authenticate_runtime(std::str::from_utf8(runtime_secret.as_ref()).unwrap(), &ctx)
             .unwrap();
@@ -1001,11 +1004,26 @@ async fn interruption_before_first_client_poll_preserves_context_error_without_c
             .capture_service(&caller, ServicePurpose::Embedding)
             .unwrap();
         let lease = selection.local().unwrap();
+        assert!(Arc::ptr_eq(
+            ctx.snapshot(),
+            lease.original().unwrap().snapshot()
+        ));
+        assert_eq!(ctx.snapshot().deadline(), Some(deadline));
+        ctx.check().unwrap();
         if expire {
-            tokio::time::sleep_until(deadline.into()).await;
+            // Expire the captured Original without advancing the RPC's real timer.
+            *clock.lock().unwrap() = deadline + Duration::from_nanos(1);
         } else {
             cancel.cancel();
         }
+        assert_eq!(
+            ctx.check().unwrap_err().kind(),
+            if expire {
+                std::io::ErrorKind::TimedOut
+            } else {
+                std::io::ErrorKind::Interrupted
+            }
+        );
         let polled = std::sync::atomic::AtomicBool::new(false);
         let connect = async {
             polled.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -1020,7 +1038,7 @@ async fn interruption_before_first_client_poll_preserves_context_error_without_c
                 graphit_daemon::model_service::EmbedOperation {
                     input: EmbedInput::Query,
                     texts: vec!["a".into()],
-                    deadline: ctx.snapshot().deadline().expect("finite fixture Original"),
+                    deadline: Instant::now() + Duration::from_secs(30),
                 },
                 connect,
             )
