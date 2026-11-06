@@ -136,6 +136,7 @@ fn moves_link_entry_without_following_its_target() {
         .unwrap()
         .create()
         .unwrap();
+    let stored_target = fs::read_link(&source).unwrap().into_os_string();
     rename_exclusive(&source, &destination).unwrap();
     assert!(
         fs::symlink_metadata(&destination)
@@ -144,8 +145,8 @@ fn moves_link_entry_without_following_its_target() {
             .is_symlink()
     );
     assert_eq!(
-        fs::read_link(destination).unwrap(),
-        fs::canonicalize(&target).unwrap()
+        fs::read_link(destination).unwrap().into_os_string(),
+        stored_target
     );
     assert_prepared(&target, false);
     assert!(fs::symlink_metadata(source).is_err());

@@ -412,7 +412,14 @@ mod tests {
         let (directory, root) = root();
         std::fs::write(directory.path().join("alpha"), b"A").unwrap();
         std::fs::write(directory.path().join("beta"), b"B").unwrap();
-        let mut a = DirectoryEntries::new(&root, 4096, &mut || Ok(())).unwrap();
+        let mut attempts = 0;
+        let mut a = DirectoryEntries::new(&root, 4096, &mut || {
+            attempts += 1;
+            Ok(())
+        })
+        .unwrap_or_else(|error| {
+            panic!("reopening root directory failed after {attempts} native boundaries: {error:?}")
+        });
         let mut b = DirectoryEntries::new(&root, 4096, &mut || Ok(())).unwrap();
         let collect = |entries: &mut DirectoryEntries| {
             let mut result = Vec::new();

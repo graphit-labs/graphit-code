@@ -70,6 +70,45 @@ The cache contains package archives, not a copied installed directory. It sets
 `VCPKG_BINARY_SOURCES=clear;files,<absolute cache path>,readwrite` so an image's
 other providers are not inherited. It does not use the removed `x-gha` provider.
 
+## Manual Windows Core/FS feedback
+
+The existing workflow accepts the fixed `suite` choices `standard` (the default)
+and `core-fs`. Pushes, pull requests and manual `standard` runs retain the full
+matrix and its existing jobs. A manual `core-fs` run starts only the Windows
+Core/FS job, with a 20-minute job limit and a concurrency group separate from
+standard runs on the same ref. Unsupported manual suite values fail before
+preparation.
+
+Push a topic ref such as `codex/native-regressions` containing the workflow and
+the fixes, then dispatch that ref explicitly:
+
+```sh
+gh workflow run ci.yml --repo graphit-labs/graphit-code \
+  --ref codex/native-regressions -f suite=core-fs
+```
+
+The workflow file must already exist on the repository's default branch;
+[`--ref` selects its branch or tag version](https://cli.github.com/manual/gh_workflow_run).
+The current push filters include `feature/**`, but exclude `codex/**`, so pushing
+that topic alone does not start the standard matrix. A pull request targeting
+`main` or `develop` still starts the standard jobs. See GitHub's
+[dispatch prerequisites](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch).
+
+The focal job installs the pinned Rust toolchain and the Git/hooks/shell tools
+used by Core, restores the existing lockfile-keyed Cargo source cache and fetches
+locked dependencies. It then runs offline:
+
+```sh
+cargo xtask cargo test -p graphit-core -p graphit-fs --locked --offline --no-fail-fast
+```
+
+The wrapper's exact package selection avoids the Ladybug dependency and App
+fixture preparation. The job does not prepare C++, models or Docker, and does not
+build App/Daemon fixture binaries. It restores and saves only Cargo sources;
+partial compiled outputs never enter the standard compiled-cache namespaces.
+A successful focal run qualifies Core/FS on that Windows ref; the standard
+matrix remains the broader integration check.
+
 ## Invalidation
 
 Compiled caches are separated by runner label, architecture and a digest of the

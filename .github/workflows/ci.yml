@@ -5,18 +5,29 @@ on:
     branches: [main, develop, github, "feature/**"]
   pull_request:
     branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Validation suite
+        type: choice
+        required: true
+        default: standard
+        options:
+          - standard
+          - core-fs
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.suite != 'standard' && '-core-fs' || '' }}
   cancel-in-progress: true
 
 jobs:
 
   rust-contracts:
     name: Rust contracts (${{ matrix.os }})
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'standard' }}
     strategy:
       fail-fast: false
       matrix:
@@ -282,8 +293,70 @@ jobs:
           CARGO_NET_OFFLINE: "true"
         run: cargo xtask tests
 
+  core-fs-windows:
+    name: Core and FS native Windows
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite != 'standard' }}
+    runs-on: windows-2022
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: "4"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - name: Validate fixed manual suite
+        shell: pwsh
+        env:
+          SUITE: ${{ inputs.suite }}
+        run: |
+          if ($env:SUITE -ne 'core-fs') { throw 'Unsupported manual suite' }
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Install current Git on Windows (native hooks/reftable required)
+        shell: pwsh
+        run: |
+          choco upgrade git --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "${env:ProgramFiles}\Git\cmd" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          git config --global core.longpaths true
+      - name: Verify Git native hooks and shell on PATH (2.54+)
+        run: |
+          git --version
+          git var GIT_SHELL_PATH
+          git -c hook.graphit-ci-native.event=pre-commit -c hook.graphit-ci-native.command='exit 0' hook run pre-commit
+      - name: Select Windows compiler
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          vsversion: '2022'
+      - name: Restore locked Cargo sources
+        id: cargo-sources
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: code-sources-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked
+      - name: Save locked Cargo sources before compilation
+        if: steps.cargo-sources.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ steps.cargo-sources.outputs.cache-primary-key }}
+      - name: Run offline Core and FS tests
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: cargo xtask cargo test -p graphit-core -p graphit-fs --locked --offline --no-fail-fast
+
   workflow-lint:
     name: Workflow lint
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'standard' }}
     runs-on: ubuntu-22.04
 
     steps:
@@ -306,6 +379,7 @@ jobs:
 
   ui-build:
     name: UI Build
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'standard' }}
     runs-on: ubuntu-22.04
 
     steps:
@@ -348,6 +422,7 @@ jobs:
 
   native-packaging:
     name: Native packaging contracts
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'standard' }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
