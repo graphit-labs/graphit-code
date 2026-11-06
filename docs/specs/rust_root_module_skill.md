@@ -64,6 +64,11 @@ retains physical installation and caller rechecks. PROJECT additionally uses
 the same caller/Original, captured installation/PROJECT, version and binding.
 A Role label, observed metadata or template is not admission.
 
+The configured installation root is resolved to the canonical root held by Auth.
+Global configuration, templates and Broker instructions use that same resolved
+destination throughout the call; an input alias cannot redirect later reads.
+Canonical path equality does not replace physical installation revalidation.
+
 `ModuleSettings` supplies the response's `enabled` observation. An authorized
 disabled module still returns its guidance with `enabled: false`; enablement
 never grants read permission. No Runtime bearer is renamed Local and no

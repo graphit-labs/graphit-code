@@ -5,9 +5,12 @@ use std::{fs, process::Command};
 fn command(root: &std::path::Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_graphit"));
     command.current_dir(root).env_clear();
+    // Cargo-built binaries use the prepared native DLL loader environment.
     #[cfg(windows)]
-    if let Some(value) = std::env::var_os("SYSTEMROOT") {
-        command.env("SYSTEMROOT", value);
+    for name in ["SYSTEMROOT", "PATH"] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
     }
     command
 }
@@ -16,8 +19,17 @@ fn command(root: &std::path::Path) -> Command {
 fn public_help_lists_current_commands_without_setup() {
     let root = tempfile::tempdir().unwrap();
     for args in [vec!["--help"], vec!["-h"], vec!["help"]] {
-        let output = command(root.path()).args(args).finite_output().unwrap();
-        assert_eq!(output.status.code(), Some(0));
+        let output = command(root.path())
+            .args(args)
+            .finite_output()
+            .expect("capture Graphit CLI output");
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "Graphit CLI {:?}: status={:?}",
+            env!("CARGO_BIN_EXE_graphit"),
+            output.status,
+        );
         assert!(output.stderr.is_empty());
         let help = String::from_utf8(output.stdout).unwrap();
         assert!(help.contains("Graphit Code: A Powerful Agent Harness"));
@@ -34,7 +46,10 @@ fn help_ignores_invalid_runtime_configuration_and_metadata() {
     let root = tempfile::tempdir().unwrap();
     let config = root.path().join("graphit.json");
     fs::write(&config, b"invalid fixture configuration").unwrap();
-    let expected = command(root.path()).arg("--help").finite_output().unwrap();
+    let expected = command(root.path())
+        .arg("--help")
+        .finite_output()
+        .expect("capture Graphit CLI output");
     let output = command(root.path())
         .env("HOME", root.path())
         .env("USERPROFILE", root.path())
@@ -42,8 +57,14 @@ fn help_ignores_invalid_runtime_configuration_and_metadata() {
         .env("GRAPHIT_BUILD_VERSION", "runtime override")
         .arg("--help")
         .finite_output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(0));
+        .expect("capture Graphit CLI output");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "Graphit CLI {:?}: status={:?}",
+        env!("CARGO_BIN_EXE_graphit"),
+        output.status,
+    );
     assert_eq!(output.stdout, expected.stdout);
     assert!(output.stderr.is_empty());
     assert_eq!(fs::read(config).unwrap(), b"invalid fixture configuration");
@@ -56,8 +77,14 @@ fn nested_package_help_and_version_conflicts_use_the_central_parser() {
     let output = command(root.path())
         .args(["package", "--help"])
         .finite_output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(0));
+        .expect("capture Graphit CLI output");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "Graphit CLI {:?}: status={:?}",
+        env!("CARGO_BIN_EXE_graphit"),
+        output.status,
+    );
     assert!(output.stderr.is_empty());
     let help = String::from_utf8(output.stdout).unwrap();
     for name in ["export", "inspect", "import"] {
@@ -67,8 +94,17 @@ fn nested_package_help_and_version_conflicts_use_the_central_parser() {
         vec!["--version", "package"],
         vec!["--version", "package", "inspect", "--input", "absent.zip"],
     ] {
-        let output = command(root.path()).args(args).finite_output().unwrap();
-        assert_eq!(output.status.code(), Some(2));
+        let output = command(root.path())
+            .args(args)
+            .finite_output()
+            .expect("capture Graphit CLI output");
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "Graphit CLI {:?}: status={:?}",
+            env!("CARGO_BIN_EXE_graphit"),
+            output.status,
+        );
         assert!(output.stdout.is_empty());
         assert!(!output.stderr.is_empty());
     }

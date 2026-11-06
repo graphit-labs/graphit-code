@@ -20,15 +20,11 @@ use windows_sys::{
         },
     },
     Win32::{
-        Foundation::{
-            GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE, RtlNtStatusToDosError,
-            UNICODE_STRING,
-        },
+        Foundation::{GENERIC_READ, GENERIC_WRITE, RtlNtStatusToDosError, UNICODE_STRING},
         Storage::FileSystem::{
-            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_BOTH_DIR_INFO,
-            FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE,
-            FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FileIdBothDirectoryInfo,
-            GetFileInformationByHandleEx, ReOpenFile, SYNCHRONIZE,
+            FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
+            FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE,
+            FileIdBothDirectoryInfo, GetFileInformationByHandleEx, SYNCHRONIZE,
         },
         System::IO::{IO_STATUS_BLOCK, IO_STATUS_BLOCK_0},
     },
@@ -253,23 +249,63 @@ pub(super) fn reopen_directory(
     before: &mut impl FnMut() -> io::Result<()>,
 ) -> io::Result<File> {
     before()?;
-    // SAFETY: the original filesystem handle remains borrowed. ReOpenFile
-    // returns a distinct owned handle or INVALID_HANDLE_VALUE; no path is parsed.
-    let raw = unsafe {
-        ReOpenFile(
-            parent.as_raw_handle(),
+    // An empty NT name reopens the retained directory object itself; it is not
+    // a public component selection or a pathname containing ".".
+    let mut empty = [0u16];
+    let name = UNICODE_STRING {
+        Length: 0,
+        MaximumLength: 2,
+        Buffer: empty.as_mut_ptr(),
+    };
+    let attributes = OBJECT_ATTRIBUTES {
+        Length: u32::try_from(size_of::<OBJECT_ATTRIBUTES>())
+            .map_err(|_| io::ErrorKind::FileTooLarge)?,
+        RootDirectory: parent.as_raw_handle(),
+        ObjectName: &name,
+        Attributes: 0,
+        SecurityDescriptor: ptr::null(),
+        SecurityQualityOfService: ptr::null(),
+    };
+    let mut status_block = IO_STATUS_BLOCK {
+        Anonymous: IO_STATUS_BLOCK_0 { Status: 0 },
+        Information: 0,
+    };
+    let mut raw = ptr::null_mut();
+    // SAFETY: the held parent, empty UTF16 name, generated attributes and output
+    // locals remain valid for this synchronous FILE_OPEN. DIRECTORY_FILE admits
+    // only a directory, without reparse traversal or delete sharing. Unlike a
+    // duplicated handle, this open has its own directory enumeration cursor.
+    let status = unsafe {
+        NtCreateFile(
+            &mut raw,
             FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_TRAVERSE | SYNCHRONIZE,
+            &attributes,
+            &mut status_block,
+            ptr::null(),
+            0,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_OPEN,
+            FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT,
+            ptr::null(),
+            0,
         )
     };
-    if raw == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error());
+    if status < 0 {
+        // SAFETY: conversion consumes only the returned status; no handle or
+        // borrowed pointer is adopted on this failure branch.
+        let code = unsafe { RtlNtStatusToDosError(status) };
+        return Err(io::Error::from_raw_os_error(code as i32));
     }
-    // SAFETY: successful ReOpenFile transferred exactly this new owned handle.
-    // Adopt it before any inspection can fail, so every later error closes it.
+    if raw.is_null() {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
+    // SAFETY: successful NtCreateFile transferred exactly this owned handle.
+    // Adopt it before any later status/inspection failure so RAII closes it.
     let owned = unsafe { OwnedHandle::from_raw_handle(raw) };
     let file = File::from(owned);
+    if status != 0 {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
     crate::read_directory::inspect(&file, Some(NodeKind::Directory), before)?;
     before()?;
     let original = winapi_util::file::information(parent)?;

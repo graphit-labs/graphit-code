@@ -211,7 +211,7 @@ impl RoleToolServer {
         auth: Arc<DaemonAuth>,
         projects: Arc<Projects>,
         current: usize,
-        policy: RoleToolPolicy,
+        mut policy: RoleToolPolicy,
         stop: CancellationToken,
     ) -> io::Result<Self> {
         let task = crate::foreground_tasks::task_policy(
@@ -227,9 +227,11 @@ impl RoleToolServer {
             task.clone(),
             stop.child_token(),
         )?;
+        let installation_root =
+            graphit_core::local_files::canonical_directory(policy.source.installation.root())?;
         if policy.config.brand() != policy.source.installation.brand()
             || policy.source.installation.brand() != auth.installation().live.brand()
-            || policy.source.installation.root() != auth.installation().live.owner_root()
+            || installation_root != auth.installation().live.owner_root()
             || task.content.max_input_bytes != policy.source.content.max_input_bytes
         {
             return Err(io::Error::new(
@@ -237,6 +239,13 @@ impl RoleToolServer {
                 "inconsistent Role tool policy",
             ));
         }
+        // All later Global readers use the same canonical installation as Auth.
+        policy.source.installation = graphit_core::project_paths::InstallationPaths::resolve(
+            policy.source.installation.brand().clone(),
+            policy.source.installation.start_directory(),
+            policy.source.installation.home_directory(),
+            Some(&installation_root),
+        )?;
         let live_projects = Arc::new(crate::live_project_selections::LiveProjectSelections::new(
             Arc::clone(&projects),
             current,

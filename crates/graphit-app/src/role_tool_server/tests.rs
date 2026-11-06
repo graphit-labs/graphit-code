@@ -4714,3 +4714,68 @@ async fn role_socket_output_modes_preserve_typed_results_errors_and_hook_contrac
     server.shutdown().await.unwrap();
     serving.await.unwrap().unwrap();
 }
+
+#[tokio::test]
+async fn canonical_installation_binding_pins_global_reads_and_rejects_foreign_root() {
+    let (temp, original_server, _) = fixture();
+    let root = original_server
+        .0
+        .auth
+        .installation()
+        .live
+        .owner_root()
+        .to_owned();
+    let alias = temp.path().join("installation-alias");
+    std::os::unix::fs::symlink(&root, &alias).unwrap();
+    let foreign = temp.path().join("foreign-installation");
+    std::fs::create_dir(&foreign).unwrap();
+    for (directory, body) in [(&root, "authorized"), (&foreign, "foreign")] {
+        let entry = directory.join("rules/skills/ast/entry.md");
+        std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+        std::fs::write(entry, body).unwrap();
+    }
+    let snapshot = original_server.0.live_projects.snapshot().unwrap();
+    let mut policy = original_server.0.policy.clone();
+    let paths = &policy.source.installation;
+    policy.source.installation = InstallationPaths::resolve(
+        paths.brand().clone(),
+        paths.start_directory(),
+        paths.home_directory(),
+        Some(&alias),
+    )
+    .unwrap();
+    let bound = RoleToolServer::new(
+        Arc::clone(&original_server.0.auth),
+        Arc::clone(&snapshot.projects),
+        snapshot.current.unwrap(),
+        policy.clone(),
+        CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(bound.0.policy.source.installation.root(), root);
+    std::fs::remove_file(&alias).unwrap();
+    std::os::unix::fs::symlink(&foreign, &alias).unwrap();
+    let cancel = Cancellation::default();
+    let original = request(&cancel, bound.0.policy.source.content);
+    let observed = crate::managed_roles::capture_template(
+        bound.0.policy.source.installation.root(),
+        std::path::Path::new("rules/skills/ast/entry.md"),
+        graphit_runtime::instructions::InstructionOrigin::Global,
+        bound.0.policy.source.index,
+        &original,
+    )
+    .unwrap();
+    assert_eq!(observed.body.as_deref(), Some("authorized"));
+    observed.revalidate(&original).unwrap();
+    // The input now resolves to a different installation and cannot be rebound.
+    let denied = RoleToolServer::new(
+        Arc::clone(&original_server.0.auth),
+        Arc::clone(&snapshot.projects),
+        snapshot.current.unwrap(),
+        policy,
+        CancellationToken::new(),
+    );
+    assert!(matches!(denied, Err(error) if error.kind() == io::ErrorKind::InvalidInput));
+    bound.shutdown().await.unwrap();
+    original_server.shutdown().await.unwrap();
+}

@@ -116,6 +116,81 @@ fn project_input(
 }
 
 #[tokio::test]
+async fn canonical_installation_binding_reads_global_override_and_rejects_foreign_root() {
+    let mut fixture = fixture(&[Permission::Read(Module::Ast)]);
+    let root = fixture.paths.root().to_owned();
+    let input_parent = root.join("bootstrap-input");
+    std::fs::create_dir(&input_parent).unwrap();
+    let spelling = input_parent.join("..");
+    let entry = root.join("rules/skills/ast/entry.md");
+    std::fs::create_dir_all(entry.parent().unwrap()).unwrap();
+    std::fs::write(&entry, "# Authorized Global guidance\n").unwrap();
+    let resolved = graphit_core::project_paths::InstallationPaths::resolve(
+        fixture.paths.brand().clone(),
+        fixture.paths.start_directory(),
+        fixture.paths.home_directory(),
+        Some(&spelling),
+    )
+    .unwrap();
+    assert_ne!(
+        resolved.root(),
+        fixture.auth.installation().live.owner_root()
+    );
+    Arc::get_mut(&mut fixture.server.0)
+        .unwrap()
+        .policy
+        .installation = resolved;
+    let cancel = Cancellation::default();
+    let original = RequestContext::new(
+        fixture.server.0.policy.content,
+        &cancel,
+        Instant::now() + Duration::from_secs(30),
+    )
+    .unwrap();
+    let input = || Arguments {
+        module: "ast".into(),
+        reference: None,
+        project_dir: None,
+        project_version: None,
+    };
+    let result = execute(
+        &fixture.server.0,
+        None,
+        input(),
+        &fixture.raw,
+        false,
+        &original,
+    )
+    .unwrap();
+    assert_eq!(result["content"], "# Authorized Global guidance\n");
+
+    let foreign = fixture.temp.path().join("foreign-installation");
+    std::fs::create_dir(&foreign).unwrap();
+    Arc::get_mut(&mut fixture.server.0)
+        .unwrap()
+        .policy
+        .installation = graphit_core::project_paths::InstallationPaths::resolve(
+        fixture.paths.brand().clone(),
+        fixture.paths.start_directory(),
+        fixture.paths.home_directory(),
+        Some(&foreign),
+    )
+    .unwrap();
+    assert_eq!(
+        execute(
+            &fixture.server.0,
+            None,
+            input(),
+            &fixture.raw,
+            false,
+            &original
+        ),
+        Err("Module skill installation mismatch")
+    );
+    fixture.server.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn root_catalog_dispatch_current_project_settings_and_neutral_global() {
     let fixture = fixture(&[
         Permission::Read(Module::Ast),

@@ -137,6 +137,14 @@ Source or corpus objects under its Graph component.
 
 Member names are raw UTF-8 POSIX paths with explicit parent directories. Dot/parent components, absolute/drive/UNC paths, backslashes, control characters, reserved or invalid portable components, duplicate names, case collisions, unknown roots and file/directory conflicts are rejected. Regular files and directories with ordinary modes are accepted; links, special files, encrypted archives and other compression methods are rejected. There is no historical envelope reader or format conversion.
 
+Windows exports encode writable regular files with the explicit DOS `NORMAL`
+attribute, readonly regular files with `READONLY`, and directories with
+`DIRECTORY` plus `READONLY` when captured. `NORMAL` is never combined with other
+attributes. A zero attributes field is absent metadata to the ZIP SDK and remains
+rejected; exporters must emit the ordinary type rather than relying on the
+reader to invent it. Unix permission fixtures explicitly identify the Unix ZIP
+creator system, independent of the test host.
+
 Export stores payloads without recompressing native Parquet/Lance files. Read accepts Stored and Deflated and verifies every body to EOF with the ZIP SDK's CRC checks. Content moves in bounded chunks. Inspect performs the same full body validation without installing a tree.
 
 ## Configuration and physical publication
@@ -369,7 +377,7 @@ These commands qualify physical transport, structure, bytes, modes and filesyste
 
 Data generation freezing, exhaustive native row semantics and mounted Hub/Broker/remote publication remain separate integrations; the App installer above supplies local structural/schema admission and authenticated global registration. A structural fixture roundtrip, including source.lance/ bytes, does not certify a valid native dataset, bind an imported Source snapshot, register its origin or authorize Source access. The public codec accepts the original CapturedSourceReader for those producer integrations without a second generation registry.
 
-The ZIP SDK is pinned to `=9.0.1`. Its central metadata visitor is used to reject exact duplicate member names that `ZipArchive` otherwise deduplicates. Parsing remains in the SDK; an upgrade must preserve this rejection.
+The ZIP SDK is pinned to `=9.0.3`. Its central metadata visitor is used to reject exact duplicate member names that `ZipArchive` otherwise deduplicates. Parsing remains in the SDK; an upgrade must preserve this rejection.
 
 A completed PROJECT GraphCopy can be exported directly with
 `native_package::export_ast_graph`. It borrows the genuine retained Core reader,

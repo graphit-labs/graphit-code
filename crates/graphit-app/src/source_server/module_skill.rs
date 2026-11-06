@@ -205,9 +205,19 @@ fn execute(
     installation
         .revalidate_bounded(&scope)
         .map_err(|_| "Module skill installation changed")?;
-    if installation.owner_root() != state.policy.installation.root() {
+    let root = graphit_core::local_files::canonical_directory(state.policy.installation.root())
+        .map_err(|_| "Module skill installation mismatch")?;
+    if installation.owner_root() != root {
         return Err("Module skill installation mismatch");
     }
+    // Later Global reads keep this authorized destination, not a mutable input alias.
+    let installation_paths = graphit_core::project_paths::InstallationPaths::resolve(
+        state.policy.installation.brand().clone(),
+        state.policy.installation.start_directory(),
+        state.policy.installation.home_directory(),
+        Some(&root),
+    )
+    .map_err(|_| "Module skill installation mismatch")?;
     let project = selection
         .map(|(paths, id, version)| {
             if !installation
@@ -270,7 +280,7 @@ fn execute(
         .ok_or("Module skill startup configuration unavailable")?;
     let config = policy
         .selected_configuration(
-            &state.policy.installation,
+            &installation_paths,
             selection.map(|s| &s.0),
             original.snapshot(),
         )
@@ -319,7 +329,7 @@ fn execute(
         }
         observed.push(
             crate::managed_roles::capture_template(
-                state.policy.installation.root(),
+                installation_paths.root(),
                 &Path::new("rules").join(candidate.name),
                 InstructionOrigin::Global,
                 state.policy.index,
@@ -348,12 +358,12 @@ fn execute(
     }
     let broker = crate::instruction_overrides::BrokerInstructions::load(
         state.auth.issuer(),
-        state.policy.installation.root(),
+        installation_paths.root(),
         original,
     )
     .map_err(|_| "Broker instruction layer unavailable")?;
     candidates.extend(broker.candidates(set.candidates()));
-    let brand = state.policy.installation.brand();
+    let brand = installation_paths.brand();
     let mut values = BTreeMap::from([
         ("tool_transport".to_owned(), "root".to_owned()),
         (
@@ -438,7 +448,7 @@ fn execute(
     }
     let current = policy
         .selected_configuration(
-            &state.policy.installation,
+            &installation_paths,
             selection.map(|s| &s.0),
             original.snapshot(),
         )

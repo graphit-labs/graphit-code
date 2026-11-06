@@ -245,6 +245,12 @@ Windows builds so the standard Cargo cache can contain the upstream filenames.
 Native Windows/macOS execution still needs its own actual runner result; local
 workflow lint is not platform qualification.
 
+Windows App help/version subprocess tests keep `env_clear()` and explicitly
+restore only `SYSTEMROOT` and the prepared loader `PATH`. This preserves native
+DLL resolution for Cargo build artifacts while clearing inherited application
+configuration and provider credentials. Release packaging validates and stages
+each executable's actual dependency closure as described below.
+
 `make build` builds graphit from graphit-app and graphit-model-server from
 graphit-daemon using Cargo's locked dependencies. `make grammars` builds the AST
 crate and its native grammars. `make ui` regenerates the shipped React assets

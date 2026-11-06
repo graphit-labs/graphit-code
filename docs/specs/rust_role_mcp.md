@@ -126,6 +126,11 @@ native readers under the Role admission. Other operations retain the same grant/
 SDK awaits and final recheck. List is a separate authenticated request and
 filters tools with those same permission classes. Hidden direct calls fail.
 
+Startup compares the configured installation with Auth using its canonical root
+and retains that resolved installation for later Global reads. Brand checks and
+physical installation/request revalidation remain required; another installation
+is rejected even when its policy otherwise matches.
+
 Native jobs remain owned through cancellation and shutdown. A cancelled
 shutdown waiter leaves the JoinSet with the component; the daemon drains it
 before Auth teardown. The Role HTTP owner retains the first observed actual undelivered

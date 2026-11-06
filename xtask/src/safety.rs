@@ -226,11 +226,11 @@ impl<'ast> Visit<'ast> for Audit {
             let expected = match (self.source.to_str(), self.function.as_deref()) {
                 (Some("windows_document_access.rs"), Some("snapshot")) => 4,
                 (Some("macos_private_file.rs"), Some("configure_filesec"))
-                | (Some("windows_relative_sdk.rs"), Some("open_relative")) => 3,
+                | (Some("windows_relative_sdk.rs"), Some("open_relative"))
+                | (Some("windows_relative_sdk.rs"), Some("reopen_directory")) => 3,
                 (Some("macos_private_file.rs"), Some("configure_acl"))
                 | (_, Some("create_file"))
-                | (Some("windows_private_file.rs"), Some("descriptor_ace_header"))
-                | (Some("windows_relative_sdk.rs"), Some("reopen_directory")) => 2,
+                | (Some("windows_private_file.rs"), Some("descriptor_ace_header")) => 2,
                 _ => 1,
             };
             if (
@@ -434,15 +434,25 @@ fn expected_arguments(source: &Path, function: &str, ordinal: usize, call: &syn:
             ("OwnedHandle::from_raw_handle", &["raw"])
         }
         (Some("windows_relative_sdk.rs"), "reopen_directory", 1) => (
-            "ReOpenFile",
+            "NtCreateFile",
             &[
-                "parent.as_raw_handle()",
+                "&mut raw",
                 "FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_TRAVERSE | SYNCHRONIZE",
+                "&attributes",
+                "&mut status_block",
+                "ptr::null()",
+                "0",
                 "FILE_SHARE_READ | FILE_SHARE_WRITE",
-                "FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT",
+                "FILE_OPEN",
+                "FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT",
+                "ptr::null()",
+                "0",
             ],
         ),
         (Some("windows_relative_sdk.rs"), "reopen_directory", 2) => {
+            ("RtlNtStatusToDosError", &["status"])
+        }
+        (Some("windows_relative_sdk.rs"), "reopen_directory", 3) => {
             ("OwnedHandle::from_raw_handle", &["raw"])
         }
         (Some("windows_relative_sdk.rs"), "query_directory", 1) => (
@@ -981,7 +991,7 @@ mod tests {
             include_str!("../../crates/graphit-fs/src/windows_relative_sdk.rs"),
         );
         assert!(relative.errors.is_empty(), "{:?}", relative.errors);
-        assert_eq!((relative.exceptions, relative.blocks), (4, 7));
+        assert_eq!((relative.exceptions, relative.blocks), (4, 8));
         let identity_path = Path::new("graphit-core").join("native_file_identity.rs");
         let identity = audit_in(
             identity_path.to_str().unwrap(),
@@ -1007,10 +1017,10 @@ mod tests {
                 "windows_relative_sdk.rs",
                 "reopen_directory",
                 "pub(super) ",
-                "unsafe { ReOpenFile(parent.as_raw_handle(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_TRAVERSE | SYNCHRONIZE, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT) }; unsafe { OwnedHandle::from_raw_handle(raw) }",
-                2,
-                "ReOpenFile",
-                "parent.as_raw_handle()",
+                "unsafe { NtCreateFile(&mut raw, FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_TRAVERSE | SYNCHRONIZE, &attributes, &mut status_block, ptr::null(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_OPEN, FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT | FILE_SYNCHRONOUS_IO_NONALERT, ptr::null(), 0) }; unsafe { RtlNtStatusToDosError(status) }; unsafe { OwnedHandle::from_raw_handle(raw) }",
+                3,
+                "NtCreateFile",
+                "&attributes",
             ),
             (
                 "windows_relative_sdk.rs",
@@ -1097,7 +1107,13 @@ mod tests {
                         "FILE_SHARE_READ | FILE_SHARE_WRITE",
                         "FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE",
                     ),
-                    code.replace("FILE_FLAG_OPEN_REPARSE_POINT", "0"),
+                    code.replace("FILE_OPEN_REPARSE_POINT", "0"),
+                    code.replace("FILE_DIRECTORY_FILE | ", ""),
+                    code.replace(" | FILE_SYNCHRONOUS_IO_NONALERT", ""),
+                    code.replace(", FILE_OPEN, ", ", FILE_CREATE, "),
+                    code.replace("RtlNtStatusToDosError", "KernelStatusConverter"),
+                    code.replace("RtlNtStatusToDosError(status)", "RtlNtStatusToDosError(0)"),
+                    code.replace("&mut status_block", "ptr::null_mut()"),
                     code.replace(
                         "OwnedHandle::from_raw_handle",
                         "OtherOwner::from_raw_handle",

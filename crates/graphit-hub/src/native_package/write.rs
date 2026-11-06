@@ -102,13 +102,19 @@ fn export_payload(
                     #[cfg(windows)]
                     {
                         use windows_sys::Win32::Storage::FileSystem::{
-                            FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_READONLY,
+                            FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL,
+                            FILE_ATTRIBUTE_READONLY,
                         };
                         let attributes = if directory {
                             FILE_ATTRIBUTE_DIRECTORY
+                                | if readonly { FILE_ATTRIBUTE_READONLY } else { 0 }
+                        } else if readonly {
+                            FILE_ATTRIBUTE_READONLY
                         } else {
-                            0
-                        } | if readonly { FILE_ATTRIBUTE_READONLY } else { 0 };
+                            // Zero means missing attributes to the ZIP SDK.
+                            // NORMAL is valid only on its own, never with READONLY.
+                            FILE_ATTRIBUTE_NORMAL
+                        };
                         options = options
                             .system(zip::System::Dos)
                             .external_attributes(attributes);

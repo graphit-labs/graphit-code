@@ -22,16 +22,25 @@ fn compiled_line() -> Vec<u8> {
 fn command(cwd: &Path, args: &[OsString]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_graphit"));
     command.args(args).current_dir(cwd).env_clear();
+    // Cargo-built binaries use the prepared native DLL loader environment.
     #[cfg(windows)]
-    if let Some(value) = std::env::var_os("SYSTEMROOT") {
-        command.env("SYSTEMROOT", value);
+    for name in ["SYSTEMROOT", "PATH"] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
     }
     command
 }
 
 fn assert_output(command: &mut Command, code: i32, stdout: &[u8], stderr: &[u8]) {
     let output = command.finite_output().expect("run Graphit binary");
-    assert_eq!(output.status.code(), Some(code));
+    assert_eq!(
+        output.status.code(),
+        Some(code),
+        "Graphit CLI {:?}: status={:?}",
+        env!("CARGO_BIN_EXE_graphit"),
+        output.status,
+    );
     assert_eq!(output.stdout, stdout);
     assert_eq!(output.stderr, stderr);
 }
@@ -128,8 +137,16 @@ fn unsupported_arguments_fail_with_clap_diagnostic_and_no_output() {
     for args in cases {
         let root = TempDir::new().unwrap();
         let before = snapshot(root.path());
-        let output = command(root.path(), &args).finite_output().unwrap();
-        assert_eq!(output.status.code(), Some(2));
+        let output = command(root.path(), &args)
+            .finite_output()
+            .expect("capture Graphit CLI output");
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "Graphit CLI {:?}: status={:?}",
+            env!("CARGO_BIN_EXE_graphit"),
+            output.status,
+        );
         assert!(output.stdout.is_empty());
         assert!(!output.stderr.is_empty());
         assert_eq!(snapshot(root.path()), before);

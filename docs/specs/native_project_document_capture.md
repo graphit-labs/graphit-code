@@ -33,13 +33,15 @@ PROJECT and published-document reads share one body/hash/growth-probe loop. It v
 
 NativeDocumentFileLimits bounds document bytes, logical path bytes, ancestor count, aggregate selected-prefix/file path bytes and complete access data. ScopeLimits continues to bound root capture. PROJECT uses the existing rustix and generated Windows SDK backends. Windows owner/group/DACL reads use SDK-validated aligned storage; this operation does not require a new FFI bridge.
 
-Windows directory enumeration uses `ReOpenFile` on the retained directory handle
-for an independent cursor. It preserves the existing read/traverse access,
-read/write sharing without delete sharing, and reparse-point rejection; volume
-and file index must match the held parent. No pathname is reopened and public
-component selection still rejects `.` and `..`. The same operation covers root
+Windows directory enumeration reopens the retained directory with generated
+`NtCreateFile`: an empty internal Unicode name relative to that handle,
+`FILE_OPEN`, and directory, synchronous-I/O and no-reparse options give it an
+independent cursor. It preserves the existing read/traverse access, read/write
+sharing without delete sharing, reparse-point rejection and volume/file-index
+comparison with the held parent. No pathname is reopened and public component
+selection still rejects empty names, `.` and `..`. The same operation covers root
 handles and descendants opened relative to a held directory. See the
-[SDK contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-reopenfile).
+[SDK contract](https://learn.microsoft.com/en-us/windows/win32/api/winternl/nf-winternl-ntcreatefile).
 
 Source FILE observations and idle readers use a distinct read-only profile on
 Windows that shares write and delete access, allowing edits, atomic replacement

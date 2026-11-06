@@ -67,6 +67,7 @@ fn sdk_archive(path: &Path, envelope: &str, files: &[(&str, &[u8])], method: Com
     let mut writer = ZipWriter::new(File::create(path).unwrap());
     let options = SimpleFileOptions::default()
         .compression_method(method)
+        .system(zip::System::Unix)
         .unix_permissions(0o640);
     writer.start_file("package.json", options).unwrap();
     writer.write_all(envelope.as_bytes()).unwrap();
@@ -83,6 +84,100 @@ fn sdk_archive(path: &Path, envelope: &str, files: &[(&str, &[u8])], method: Com
     writer.finish().unwrap();
 }
 const AST_ENVELOPE: &str = r#"{"format":"graphit-native-package","v":1,"kind":"ast"}"#;
+#[test]
+fn dos_members_require_attributes_and_preserve_readonly_without_host_conversion() {
+    // Real DOS entries on every host: missing, NORMAL, and conflicting DIRECTORY.
+    for (attributes, valid) in [(0, false), (0x80, true), (0x10, false)] {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("dos.zip");
+        let mut archive = ZipWriter::new(File::create(&path).unwrap());
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        archive
+            .start_file("package.json", options.system(zip::System::Unix))
+            .unwrap();
+        archive.write_all(AST_ENVELOPE.as_bytes()).unwrap();
+        let dos = options.system(zip::System::Dos);
+        archive
+            .add_directory("graph.icebug/", dos.external_attributes(0x10))
+            .unwrap();
+        archive
+            .start_file(
+                "graph.icebug/schema.cypher",
+                dos.external_attributes(attributes),
+            )
+            .unwrap();
+        archive.write_all(b"schema").unwrap();
+        archive
+            .start_file("graph.icebug/readonly.bin", dos.external_attributes(0x01))
+            .unwrap();
+        archive.write_all(b"readonly").unwrap();
+        archive.finish().unwrap();
+
+        let context = context();
+        let source = capture(&path, NodeKind::File, limits(), &context);
+        let destination = temp.path().join("installed");
+        if !valid {
+            assert!(matches!(
+                inspect(&source, None, limits(), &context),
+                Err(PackageError::Invalid(_))
+            ));
+            assert!(stage_import(&source, None, &destination, limits(), &context).is_err());
+            assert!(!destination.exists());
+            continue;
+        }
+        inspect(&source, Some(PackageKind::Ast), limits(), &context).unwrap();
+        let staged = stage_import(
+            &source,
+            Some(PackageKind::Ast),
+            &destination,
+            limits(),
+            &context,
+        )
+        .unwrap();
+        let writable = staged.path().join("graph.icebug/schema.cypher");
+        let readonly = staged.path().join("graph.icebug/readonly.bin");
+        assert_eq!(fs::read(&writable).unwrap(), b"schema");
+        assert_eq!(fs::read(&readonly).unwrap(), b"readonly");
+        assert!(!fs::metadata(&writable).unwrap().permissions().readonly());
+        assert!(fs::metadata(&readonly).unwrap().permissions().readonly());
+        staged.publish().unwrap();
+        let readonly = destination.join("graph.icebug/readonly.bin");
+        assert_eq!(fs::read(&readonly).unwrap(), b"readonly");
+        #[cfg(windows)]
+        {
+            let mut permissions = fs::metadata(&readonly).unwrap().permissions();
+            permissions.set_readonly(false);
+            fs::set_permissions(&readonly, permissions).unwrap();
+        }
+    }
+}
+
+#[test]
+fn sdk_symlink_member_is_rejected_on_every_host() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("symlink.zip");
+    let mut archive = ZipWriter::new(File::create(&path).unwrap());
+    let options = SimpleFileOptions::default()
+        .compression_method(CompressionMethod::Stored)
+        .system(zip::System::Unix);
+    archive.start_file("package.json", options).unwrap();
+    archive.write_all(AST_ENVELOPE.as_bytes()).unwrap();
+    archive.add_directory("graph.icebug/", options).unwrap();
+    archive
+        .add_symlink("graph.icebug/schema.cypher", "elsewhere", options)
+        .unwrap();
+    archive.finish().unwrap();
+    let context = context();
+    let source = capture(&path, NodeKind::File, limits(), &context);
+    let destination = temp.path().join("installed");
+    assert!(matches!(
+        inspect(&source, None, limits(), &context),
+        Err(PackageError::Invalid(_))
+    ));
+    assert!(stage_import(&source, None, &destination, limits(), &context).is_err());
+    assert!(!destination.exists());
+}
+
 #[test]
 fn staged_payload_is_readable_before_exclusive_publication_for_both_kinds() {
     for kind in [PackageKind::Ast, PackageKind::Knowledge] {
