@@ -43,6 +43,7 @@ polars-parquet-format = "=0.1.0"
 rusqlite = { version = "=0.40.2", features = ["bundled", "hooks"] }
 
 [dev-dependencies]
+graphit-core = { path = "../graphit-core", features = ["test-util"] }
 graphit-hub = { path = "../graphit-hub" }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 zstd = "=0.14.0"

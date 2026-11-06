@@ -1287,6 +1287,9 @@ async fn original_deadline_is_preserved_on_domain_boundaries() {
         .unwrap();
     publish_source(&preparation, &write, &["a"]).await;
     let cancel = Cancellation::default();
+    let now = Instant::now();
+    let deadline = now + Duration::from_secs(3);
+    let clock = Arc::new(std::sync::Mutex::new(now));
     let ctx = RequestContext::new(
         ContentLimits {
             max_input_bytes: 65536,
@@ -1297,9 +1300,10 @@ async fn original_deadline_is_preserved_on_domain_boundaries() {
             max_collection_entries: 128,
         },
         &cancel,
-        Instant::now() + Duration::from_secs(3),
+        deadline,
     )
     .unwrap();
+    ctx.snapshot().set_test_clock(Arc::clone(&clock)).unwrap();
     let grant = issuer
         .verify(bearer.expose_for_transport(), &reference, f.scope(), &ctx)
         .unwrap();
@@ -1311,10 +1315,10 @@ async fn original_deadline_is_preserved_on_domain_boundaries() {
         .unwrap();
     let captured = capture(&ctx, &read).await;
     let id = identity(7, 2);
-    tokio::time::sleep_until(tokio::time::Instant::from_std(
-        ctx.snapshot().required_deadline().unwrap(),
-    ))
-    .await;
+    assert_eq!(ctx.snapshot().deadline(), Some(deadline));
+    ctx.check().unwrap();
+    // The real capture must finish before the immutable Original expires.
+    *clock.lock().unwrap() = deadline;
     let errors = [
         capture_knowledge_embedding_corpus(ctx.snapshot(), &read, read_limits())
             .await

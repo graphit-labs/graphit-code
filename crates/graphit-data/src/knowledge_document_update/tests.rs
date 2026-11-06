@@ -227,8 +227,13 @@ async fn real_deadline_after_prepare_stops_before_commit_without_renewing_origin
             .default;
 
     let cancel = Cancellation::default();
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let now = Instant::now();
+    let deadline = now + Duration::from_secs(5);
+    let clock = std::sync::Arc::new(std::sync::Mutex::new(now));
     let ctx = request_deadline(&cancel, deadline);
+    ctx.snapshot()
+        .set_test_clock(std::sync::Arc::clone(&clock))
+        .unwrap();
     let issuer = f.issuer(&ctx);
     let caller = issuer.authenticate_runtime(&f.secret(), &ctx)?;
     let admin = issuer.bootstrap_admin(&caller)?;
@@ -241,13 +246,14 @@ async fn real_deadline_after_prepare_stops_before_commit_without_renewing_origin
     let mut changed = page("a", &[]);
     changed.body = Some("replacement");
     let rows = h::prepare(ctx.snapshot(), &[changed], &[], hlimits())?;
+    assert_eq!(ctx.snapshot().deadline(), Some(deadline));
+    ctx.check()?;
     let prepared_reached = std::sync::atomic::AtomicBool::new(false);
     let observe = |phase| {
         if phase == UpdatePhase::Prepared {
             prepared_reached.store(true, std::sync::atomic::Ordering::SeqCst);
-            while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
-                std::thread::sleep(remaining);
-            }
+            // Expire this same Original only after the real SDK preparation.
+            *clock.lock().unwrap() = deadline;
         }
     };
     let error = update_documents_inner(

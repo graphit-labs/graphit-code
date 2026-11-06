@@ -45,6 +45,10 @@ impl SnapshotContext {
     pub fn set_test_clock(&self, now: Arc<Mutex<Instant>>) -> Result<(), Arc<Mutex<Instant>>> {
         self.test_clock.set(now)
     }
+    #[cfg(any(test, feature = "test-util"))]
+    pub(crate) fn test_clock(&self) -> Option<&Arc<Mutex<Instant>>> {
+        self.test_clock.get()
+    }
     pub fn deadline(&self) -> Option<Instant> {
         self.deadline
     }
@@ -69,12 +73,7 @@ impl SnapshotContext {
         crate::local_files::check_cancelled(&self.cancellation)?;
         if let Some(deadline) = self.deadline {
             #[cfg(any(test, feature = "test-util"))]
-            let now = match self.test_clock.get() {
-                Some(clock) => *clock
-                    .lock()
-                    .map_err(|_| io::Error::other("test clock poisoned"))?,
-                None => Instant::now(),
-            };
+            let now = test_now(self.test_clock())?;
             #[cfg(not(any(test, feature = "test-util")))]
             let now = Instant::now();
             if now >= deadline {
@@ -133,6 +132,17 @@ impl SnapshotContext {
         Ok(digest.finalize().into())
     }
 }
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) fn test_now(clock: Option<&Arc<Mutex<Instant>>>) -> io::Result<Instant> {
+    match clock {
+        Some(clock) => clock
+            .lock()
+            .map(|now| *now)
+            .map_err(|_| io::Error::other("test clock poisoned")),
+        None => Ok(Instant::now()),
+    }
+}
+
 /// An allocation identity avoids address reuse when a request context is moved.
 /// It is internal data, never a serialized request or filesystem capability.
 #[derive(Clone)]

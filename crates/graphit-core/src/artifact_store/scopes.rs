@@ -86,27 +86,36 @@ impl ScopeLimits {
 pub struct ScopeContext {
     deadline: Option<Instant>,
     cancellation: Cancellation,
+    #[cfg(any(test, feature = "test-util"))]
+    test_clock: Option<Arc<Mutex<Instant>>>,
 }
 impl ScopeContext {
     pub fn new(deadline: Instant, cancellation: Cancellation) -> Self {
         Self {
             deadline: Some(deadline),
             cancellation,
+            #[cfg(any(test, feature = "test-util"))]
+            test_clock: None,
         }
     }
     pub fn from_snapshot(request: &crate::file_io::SnapshotContext) -> Self {
         Self {
             deadline: request.deadline(),
             cancellation: request.cancellation().clone(),
+            #[cfg(any(test, feature = "test-util"))]
+            test_clock: request.test_clock().cloned(),
         }
     }
     pub(super) fn check(&self) -> io::Result<()> {
         check_cancelled(&self.cancellation)?;
-        if self
-            .deadline
-            .is_some_and(|deadline| Instant::now() >= deadline)
-        {
-            return Err(io::ErrorKind::TimedOut.into());
+        if let Some(deadline) = self.deadline {
+            #[cfg(any(test, feature = "test-util"))]
+            let now = crate::file_io::test_now(self.test_clock.as_ref())?;
+            #[cfg(not(any(test, feature = "test-util")))]
+            let now = Instant::now();
+            if now >= deadline {
+                return Err(io::ErrorKind::TimedOut.into());
+            }
         }
         Ok(())
     }
@@ -1313,6 +1322,48 @@ fn native_capture_request() -> std::sync::Arc<crate::file_io::SnapshotContext> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scope_context_shares_snapshot_test_time_and_cancellation() {
+        let deadline = Instant::now();
+        let clock = Arc::new(Mutex::new(deadline - Duration::from_secs(1)));
+        let original = Arc::new(crate::file_io::SnapshotContext::new(
+            deadline,
+            Cancellation::default(),
+        ));
+        original.set_test_clock(Arc::clone(&clock)).unwrap();
+        let scope = ScopeContext::from_snapshot(&original);
+        let cloned_scope = scope.clone();
+        original.check().unwrap();
+        scope.check().unwrap();
+        cloned_scope.check().unwrap();
+        assert_eq!(scope.deadline, original.deadline());
+        *clock.lock().unwrap() = deadline;
+        for context in [&scope, &cloned_scope] {
+            assert_eq!(context.check().unwrap_err().kind(), io::ErrorKind::TimedOut);
+        }
+        assert_eq!(
+            original.check().unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+        original.cancellation().cancel();
+        for context in [&scope, &cloned_scope] {
+            assert_eq!(
+                context.check().unwrap_err().kind(),
+                io::ErrorKind::Interrupted
+            );
+        }
+    }
+    #[test]
+    fn independently_created_scope_context_keeps_real_time() {
+        let deadline = Instant::now();
+        let original = crate::file_io::SnapshotContext::new(deadline, Cancellation::default());
+        original
+            .set_test_clock(Arc::new(Mutex::new(deadline - Duration::from_secs(1))))
+            .unwrap();
+        ScopeContext::from_snapshot(&original).check().unwrap();
+        let fresh = ScopeContext::new(deadline, original.cancellation().clone());
+        assert_eq!(fresh.check().unwrap_err().kind(), io::ErrorKind::TimedOut);
+    }
     fn runtime_scope_fixture() -> (tempfile::TempDir, CapturedPublicationScope, std::fs::File) {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("installation");

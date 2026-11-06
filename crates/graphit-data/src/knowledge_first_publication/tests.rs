@@ -104,7 +104,13 @@ async fn real_first_publication_phase_cancel_retains_confirmed_default()
 async fn deadline_after_confirmed_default_keeps_actual_effect_and_cause()
 -> Result<(), Box<dyn Error>> {
     let cancel = Cancellation::default();
-    let ctx = request_deadline(&cancel, Instant::now() + Duration::from_secs(3));
+    let now = Instant::now();
+    let deadline = now + Duration::from_secs(3);
+    let clock = std::sync::Arc::new(std::sync::Mutex::new(now));
+    let ctx = request_deadline(&cancel, deadline);
+    ctx.snapshot()
+        .set_test_clock(std::sync::Arc::clone(&clock))
+        .unwrap();
     let f = Fixture::new(&ctx);
     let issuer = f.issuer(&ctx);
     let caller = issuer.authenticate_runtime(&f.secret(), &ctx)?;
@@ -116,11 +122,14 @@ async fn deadline_after_confirmed_default_keeps_actual_effect_and_cause()
         slug: "a",
         authored: KnowledgeDocumentAuthoredUpdate::Preserve,
     }];
+    assert_eq!(ctx.snapshot().deadline(), Some(deadline));
+    ctx.check()?;
     let reached = AtomicBool::new(false);
     let observe = |phase| {
         if phase == FirstPublicationPhase::DefaultConfirmed {
             reached.store(true, Ordering::SeqCst);
-            std::thread::sleep(Duration::from_secs(4));
+            // Preserve the confirmed effect before expiring the same Original.
+            *clock.lock().unwrap() = deadline;
         }
     };
     let error = publish_inner(
