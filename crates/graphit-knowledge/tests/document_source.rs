@@ -37,6 +37,9 @@ fn limits() -> DocumentSourceLimits {
         max_matches: n(1000),
     }
 }
+// Windows SystemTime stores FILETIME ticks; keep both signed dates representable.
+const NATIVE_TIMESTAMP_TICK_NS: u64 = if cfg!(windows) { 100 } else { 1 };
+
 fn document() -> KnowledgeDocument {
     KnowledgeDocument {
         slug: "guide".into(),
@@ -55,8 +58,8 @@ fn document() -> KnowledgeDocument {
             kind_on_absent: "document".into(),
             max_summary_bytes: n(16),
         },
-        updated_at: Some(UNIX_EPOCH - Duration::from_nanos(17)),
-        stale_since: Some(UNIX_EPOCH + Duration::from_nanos(9)),
+        updated_at: Some(UNIX_EPOCH - Duration::from_nanos(17 * NATIVE_TIMESTAMP_TICK_NS)),
+        stale_since: Some(UNIX_EPOCH + Duration::from_nanos(9 * NATIVE_TIMESTAMP_TICK_NS)),
         stale_after: Some(Duration::from_secs(60)),
         resolved_wiki_targets: vec![
             "guide".into(),
@@ -113,7 +116,7 @@ fn native_header_roundtrips_full16_metadata_and_preserves_body() {
             "id":d.slug,"title":d.title,"type":d.kind,"summary":d.summary,"description":"","summary_truncated":true,"source_path":d.source_path,
             "physical_digest":hex::encode([17;32]),"compilation_digest":hex::encode([42;32]),"recipe":d.recipe,
             "recipe_parameters":{"fallback_title":"fallback","kind_on_absent":"document","max_summary_bytes":16},
-            "updated_at":"1969-12-31T23:59:59.999999983Z","stale_since":"1970-01-01T00:00:00.000000009Z","stale_after_ns":60_000_000_000u64,
+            "updated_at":(if cfg!(windows) { "1969-12-31T23:59:59.999998300Z" } else { "1969-12-31T23:59:59.999999983Z" }),"stale_since":(if cfg!(windows) { "1970-01-01T00:00:00.000000900Z" } else { "1970-01-01T00:00:00.000000009Z" }),"stale_after_ns":60_000_000_000u64,
             "resolved_wiki_targets":["guide","missing","guide","other"]
         })
     );

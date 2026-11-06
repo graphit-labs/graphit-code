@@ -179,14 +179,53 @@ class ShardRels final : public storage::ColumnarRelTableBase {
     mutable std::once_flag csrChecked;
     void ensureCSR(const Transaction* tx) const {
         std::call_once(csrChecked,[&] {
+            auto context=tx->getClientContext();
+            auto vfs=VirtualFileSystem::GetUnsafe(*context);
             for (const auto& part:parts) {
-                auto expected=part.table->getNumTotalRows(tx);
-                row_idx_t observed=0;
-                for(auto [source,degree]:part.table->getDegreeEntries(tx,RelDataDirection::FWD)) {
-                    if(degree>expected-observed) throw std::runtime_error("captured CSR pointer exceeds edge rows");
-                    observed+=degree;
+                if(context->interrupted()) throw InterruptException{};
+                // Validate raw pointers through the official reader before asking
+                // IceDiskRelTable to initialize CSR or summarize degrees.
+                const auto paths=storage::IceDiskUtils::constructCSRPaths(
+                    part.entry->getStorage(),part.entry->getName(),".parquet");
+                lbug::processor::ParquetReader indices(paths.indices,{},context);
+                auto edges=indices.getMetadata()->num_rows;
+                if(edges<0 || static_cast<uint64_t>(edges)!=part.rows)
+                    throw std::runtime_error("captured CSR edge row count mismatch");
+                if(part.sourceRows==UINT64_MAX)
+                    throw std::runtime_error("captured CSR pointer count overflow");
+                lbug::processor::ParquetReader pointers(paths.indptr,{},context);
+                auto count=pointers.getMetadata()->num_rows;
+                if(count<0 || static_cast<uint64_t>(count)!=part.sourceRows+1)
+                    throw std::runtime_error("captured CSR pointer count mismatch");
+                uint64_t observed=0,previous=0;
+                for(uint64_t group=0;group<pointers.getNumRowGroups();++group) {
+                    if(context->interrupted()) throw InterruptException{};
+                    lbug::processor::ParquetReaderScanState scan;
+                    pointers.initializeScan(scan,{group},vfs);
+                    if(pointers.getNumColumns()!=1 ||
+                        pointers.getColumnType(0).getLogicalTypeID()!=LogicalTypeID::UINT64)
+                        throw std::runtime_error("captured CSR pointer schema must be UINT64");
+                    DataChunk chunk(1);
+                    chunk.insert(0,std::make_shared<ValueVector>(
+                        pointers.getColumnType(0).copy(),pointers.getMemoryManager()));
+                    while(pointers.scanInternal(scan,chunk)) {
+                        if(context->interrupted()) throw InterruptException{};
+                        auto& column=chunk.getValueVector(0);
+                        for(auto pos:chunk.state->getSelVector().getSelectedPositions()) {
+                            if(column.isNull(pos) || observed>=part.sourceRows+1)
+                                throw std::runtime_error("captured CSR pointer count or null invalid");
+                            auto pointer=column.getValue<uint64_t>(pos);
+                            if(pointer>part.rows)
+                                throw std::runtime_error("captured CSR pointer exceeds edge rows");
+                            if((observed==0 && pointer!=0) || pointer<previous)
+                                throw std::runtime_error("captured CSR pointer order invalid");
+                            previous=pointer;
+                            ++observed;
+                        }
+                    }
                 }
-                if(expected!=part.rows || observed!=expected) throw std::runtime_error("captured CSR pointer exceeds or omits edge rows");
+                if(observed!=part.sourceRows+1 || previous!=part.rows)
+                    throw std::runtime_error("captured CSR pointer omits edge rows");
             }
         });
     }
@@ -317,7 +356,7 @@ public:
     }
 protected:
     std::string getColumnarFormatName() const override { return "Graphit captured CSR shards"; }
-    row_idx_t getTotalRowCount(const Transaction*) const override { return rows; }
+    row_idx_t getTotalRowCount(const Transaction* tx) const override { ensureCSR(tx); return rows; }
     std::vector<std::pair<offset_t,row_idx_t>> getAllDegreeEntries(const Transaction* tx,RelDataDirection dir) const override {
         ensureCSR(tx);
         std::map<offset_t,row_idx_t> degrees;

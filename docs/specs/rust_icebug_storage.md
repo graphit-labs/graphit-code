@@ -10,6 +10,12 @@ references:
 
 # Captured Icebug storage API
 
+On first relationship use, the native adapter checks the physical edge row count
+and streams exactly `source_rows + 1` non-null UINT64 pointers through the official
+SDK reader before CSR traversal or degree summaries. Pointers start at zero, never
+decrease, never exceed the member's edge count, and end at that count. This check
+is local to the used relation; node-only queries do not decode unrelated CSR.
+
 The validated local graph exposes graph-root relative storage names without copying buffers: `GraphNodeSchema::shards()` (file, row base and row count), and `GraphRelationshipSchema::indices_file` / `indptr_file`. Relationships expose forward storage; reverse storage does not duplicate graph relationships. These names borrow the existing validated node manifest and Parquet table metadata. `rows()` is the live row total; `row_extent()` is the largest active shard end, including holes. Each relationship member names one source/target shard using `source_row_base`, `source_rows`, `target_row_base` and `target_rows`. Its indptr has `source_rows + 1` entries and its target values are local ordinals in the target shard.
 
 `CapturedLocalGraph::open_file(relative)` delegates to the private captured Core reader. It checks the retained original operation before and after opening. The returned opaque `CapturedSourceFile` owns its captured handle; range and stream reads retain the same original context even after the graph handle drops. Cancellation, deadline, changed-file and invalid/uncaptured-path errors remain causal. It opens neither uncaptured additions nor an arbitrary absolute path. Native parent paths need no UTF-8 conversion.

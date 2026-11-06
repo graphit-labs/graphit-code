@@ -134,8 +134,13 @@ Creating the ephemeral catalog does not open unrelated node-shard readers. Each
 node label initializes its official tables and validates physical row counts on
 first use, using the active transaction's context. Failed initialization publishes
 no partial state. Creating the catalog also does not decode every relation's CSR. A relation
-group validates its CSR through the official reader once when used, including
-degree-only operations; node-only queries do not initialize unrelated CSR data.
+group validates its raw CSR pointers through the official Parquet reader once when
+used, before SDK CSR initialization or degree summaries, including degree-only
+operations. Each non-null UINT64 pointer must be nondecreasing and within the
+physical edge row count; the sequence has `source_rows + 1` entries, starts at zero
+and ends at the member's edge count. The validation scans one SDK chunk at a time
+and checks interruption between chunks. Node-only queries do not initialize
+unrelated CSR data.
 Captured source/target row ranges discard unrelated parts before allocating scan
 buffers. The official cached degree shortcut is used only for forward scans:
 0.22.1's reverse degree API returns zero, so reverse traversal uses the official

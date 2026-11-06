@@ -439,37 +439,50 @@ fn native_node_queries_do_not_open_unrelated_shards() {
 
 #[test]
 fn native_multipart_rejects_an_out_of_range_csr_pointer() {
-    let temp = fixture();
-    parquet(
-        &temp.path().join("q1.parquet"),
-        "message graph { required int64 ptr (UINT_64); }",
-        &[Column::Ints(&[0, 9, 3, 3])],
-    );
-    let ctx = original(Duration::from_secs(30));
-    let graph = capture(temp.path(), &ctx);
     let runtime = runtime();
-    // Unrelated node queries must not decode every relation's CSR. Integrity is
-    // still checked when a traversal (or degree-only plan) uses that relation.
-    let nodes = execute(
-        &graph,
-        &ctx,
-        runtime.handle(),
-        "MATCH (a:A) RETURN count(a)",
-        &BTreeMap::new(),
-        options(),
-    )
-    .unwrap();
-    assert_eq!(nodes.rows[0][0]["value"], "3");
-    let error = execute(
-        &graph,
-        &ctx,
-        runtime.handle(),
-        "MATCH (a:A)-[r:LINK]->(b:A) RETURN r.uid",
-        &BTreeMap::new(),
-        options(),
-    )
-    .unwrap_err();
-    assert!(error.to_string().contains("pointer exceeds"), "{error}");
+    for (pointers, expected) in [
+        ([0, 9, 3, 3], "pointer exceeds"),
+        ([0, 2, 1, 3], "pointer order"),
+        ([1, 1, 3, 3], "pointer order"),
+        ([0, 1, 2, 2], "pointer omits"),
+    ] {
+        let temp = fixture();
+        parquet(
+            &temp.path().join("q1.parquet"),
+            "message graph { required int64 ptr (UINT_64); }",
+            &[Column::Ints(&pointers)],
+        );
+        let ctx = original(Duration::from_secs(30));
+        let graph = capture(temp.path(), &ctx);
+        // Node-only queries must not decode unrelated CSR. Both traversal and
+        // degree/count plans must reject corruption before SDK CSR initialization.
+        let nodes = execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH (a:A) RETURN count(a)",
+            &BTreeMap::new(),
+            options(),
+        )
+        .unwrap();
+        assert_eq!(nodes.rows[0][0]["value"], "3");
+        for query in [
+            "MATCH (a:A)-[r:LINK]->(b:A) RETURN r.uid",
+            "MATCH (a:A)-[r:LINK]->(b:A) RETURN count(r)",
+        ] {
+            let error = execute(
+                &graph,
+                &ctx,
+                runtime.handle(),
+                query,
+                &BTreeMap::new(),
+                options(),
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{error}");
+            assert!(error.to_string().contains(expected), "{query}: {error}");
+        }
+    }
 }
 
 #[test]

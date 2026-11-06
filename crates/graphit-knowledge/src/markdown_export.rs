@@ -915,8 +915,11 @@ mod tests {
         writer.finish()
     }
 
+    // Windows SystemTime stores FILETIME ticks; keep both signed dates representable.
+    const NATIVE_TIMESTAMP_TICK_NS: u64 = if cfg!(windows) { 100 } else { 1 };
+
     fn document() -> KnowledgeDocument {
-        KnowledgeDocument { slug:"alpha".into(),title:"Published: [title] <html> &copy; 世界\r\nnext\tline".into(),body:"\u{feff}---\r\ntitle: Original\r\n---\r\n  # Authored\r\n\r\n[[beta]] [link](beta.md)  \r\n".into(),kind:"custom".into(),summary:"editorial preview".into(),description:Some("  Integral\n\nsecond paragraph  ".into()),summary_truncated:true,source_path:"docs/source.md".into(),physical_digest:Some(PhysicalSourceDigest32::from_bytes([17;32])),compilation_digest:CompilationDigest32::from_bytes([42;32]),recipe:"authored-document-v1".into(),recipe_parameters:KnowledgeRecipeParameters{fallback_title:"stored fallback".into(),kind_on_absent:"document".into(),max_summary_bytes:n(32)},updated_at:Some(UNIX_EPOCH-Duration::from_nanos(17)),stale_since:Some(UNIX_EPOCH+Duration::from_nanos(9)),stale_after:Some(Duration::from_secs(60)),resolved_wiki_targets:vec!["beta".into(),"alpha".into(),"beta".into(),"missing".into()] }
+        KnowledgeDocument { slug:"alpha".into(),title:"Published: [title] <html> &copy; 世界\r\nnext\tline".into(),body:"\u{feff}---\r\ntitle: Original\r\n---\r\n  # Authored\r\n\r\n[[beta]] [link](beta.md)  \r\n".into(),kind:"custom".into(),summary:"editorial preview".into(),description:Some("  Integral\n\nsecond paragraph  ".into()),summary_truncated:true,source_path:"docs/source.md".into(),physical_digest:Some(PhysicalSourceDigest32::from_bytes([17;32])),compilation_digest:CompilationDigest32::from_bytes([42;32]),recipe:"authored-document-v1".into(),recipe_parameters:KnowledgeRecipeParameters{fallback_title:"stored fallback".into(),kind_on_absent:"document".into(),max_summary_bytes:n(32)},updated_at:Some(UNIX_EPOCH-Duration::from_nanos(17 * NATIVE_TIMESTAMP_TICK_NS)),stale_since:Some(UNIX_EPOCH+Duration::from_nanos(9 * NATIVE_TIMESTAMP_TICK_NS)),stale_after:Some(Duration::from_secs(60)),resolved_wiki_targets:vec!["beta".into(),"alpha".into(),"beta".into(),"missing".into()] }
     }
     fn header(source: &str) -> (Value, &str) {
         let (yaml, body) = source
@@ -971,8 +974,22 @@ mod tests {
             assert_eq!(h["description"], json!(d.description));
             assert_eq!(h["summary"], "editorial preview");
             assert_ne!(h["physical_digest"], h["compilation_digest"]);
-            assert_eq!(h["updated_at"], "1969-12-31T23:59:59.999999983Z");
-            assert_eq!(h["stale_since"], "1970-01-01T00:00:00.000000009Z");
+            assert_eq!(
+                h["updated_at"],
+                if cfg!(windows) {
+                    "1969-12-31T23:59:59.999998300Z"
+                } else {
+                    "1969-12-31T23:59:59.999999983Z"
+                }
+            );
+            assert_eq!(
+                h["stale_since"],
+                if cfg!(windows) {
+                    "1970-01-01T00:00:00.000000900Z"
+                } else {
+                    "1970-01-01T00:00:00.000000009Z"
+                }
+            );
             assert!(body.ends_with("  # Authored\r\n\r\n[[beta]] [link](beta.md)  \r\n"));
             assert!(!body.contains("title: Original"));
             assert!(!body.contains('\u{feff}'));
