@@ -211,6 +211,152 @@ mod tests {
             assert_eq!(history.revisions, vec![event]);
         }
     }
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn native_capture_rechecks_cancel_and_revocation_after_acquisition() {
+        for revoked in [false, true] {
+            let cancel = Cancellation::default();
+            let ctx = request(&cancel);
+            let f = Fixture::new(&ctx, "main");
+            let issuer = f.issuer(&ctx);
+            let (bearer, credential, _run, admin) = f.issue_role_for(
+                &issuer,
+                &ctx,
+                f.scope(),
+                Role::Dream,
+                &[
+                    Permission::Read(Module::Memory),
+                    Permission::WriteFencedMemory,
+                ],
+            );
+            let grant = issuer
+                .verify(bearer.expose_for_transport(), &credential, f.scope(), &ctx)
+                .unwrap();
+            let authority = ProjectRecordAuthority::new(&issuer);
+            let read = authority
+                .admit_read(&grant, &ctx, ProjectReadModule::Memory)
+                .unwrap();
+            let write = authority
+                .admit_write(&grant, &ctx, ProjectWriteOperation::FencedMemory)
+                .unwrap();
+            NativeMemoryStore::fenced_create(
+                ctx.snapshot(),
+                &write,
+                CreateMemory {
+                    idempotency_key: "capture-seed".into(),
+                    title: "seed".into(),
+                    body: "body".into(),
+                    attributes: MemoryAttributes {
+                        classification: MemoryClass::Fact,
+                        mandatory: false,
+                        important: false,
+                    },
+                    tags: vec![],
+                    references: None,
+                },
+                write_limits(),
+            )
+            .await
+            .unwrap();
+            let selected = std::path::Path::new("memory").join("index.lance");
+            let uri = native::uri(&f.project, &selected).unwrap();
+            let version =
+                graphit_data::lance_module_store::LanceModuleStore::open(&uri, rows::schema())
+                    .await
+                    .unwrap()
+                    .snapshot()
+                    .version();
+            let secret =
+                std::fs::read_to_string(f.installation.owner_root().join("daemon/mcp.key"))
+                    .unwrap();
+            let caller = issuer.authenticate_runtime(&secret, &ctx).unwrap();
+            let parent = issuer.admin_parent(&caller, &admin).unwrap();
+            let checks = Cell::new(0);
+            let Err(error) = native::capture(
+                &f.project,
+                &selected,
+                ctx.snapshot(),
+                read_limits().native,
+                true,
+                || {
+                    checks.set(checks.get() + 1);
+                    if checks.get() == 2 {
+                        if revoked {
+                            issuer.revoke(&parent, &bearer).unwrap();
+                        } else {
+                            cancel.cancel();
+                        }
+                    }
+                    native::check_read(ctx.snapshot(), &read)
+                },
+            ) else {
+                panic!("late invalidation must not deliver a captured directory");
+            };
+            assert_eq!(checks.get(), 2);
+            if revoked {
+                assert!(matches!(error, MemoryStoreError::Auth(_)));
+            } else {
+                assert!(matches!(error, MemoryStoreError::Request(_)));
+            }
+            assert_eq!(
+                graphit_data::lance_module_store::LanceModuleStore::open(&uri, rows::schema())
+                    .await
+                    .unwrap()
+                    .snapshot()
+                    .version(),
+                version
+            );
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn native_capture_keeps_initial_notfound_when_probe_observes_a_racing_directory() {
+        let cancel = Cancellation::default();
+        let ctx = request(&cancel);
+        let f = Fixture::new(&ctx, "main");
+        let issuer = f.issuer(&ctx);
+        let (bearer, credential, _run, _admin) = f.issue(&issuer, &ctx);
+        let grant = issuer
+            .verify(bearer.expose_for_transport(), &credential, f.scope(), &ctx)
+            .unwrap();
+        let authority = ProjectRecordAuthority::new(&issuer);
+        let read = authority
+            .admit_read(&grant, &ctx, ProjectReadModule::Memory)
+            .unwrap();
+        let limits = write_limits();
+        let artifacts =
+            graphit_core::artifact_store::ArtifactStore::new(f.project.clone(), limits.artifacts);
+        let mut writer = artifacts.writer_with_context(ctx.snapshot()).unwrap();
+        writer
+            .create_record_directory(
+                graphit_core::artifact_store::ProjectRecordDirectory::Memory,
+                limits.read.native,
+            )
+            .unwrap();
+        drop(writer);
+        let selected = std::path::Path::new("memory").join("index.lance");
+        let index = f.project.runtime_root().join(&selected);
+        let checks = Cell::new(0);
+        let result = native::capture(
+            &f.project,
+            &selected,
+            ctx.snapshot(),
+            read_limits().native,
+            true,
+            || {
+                checks.set(checks.get() + 1);
+                if checks.get() == 2 {
+                    std::fs::create_dir(&index).unwrap();
+                }
+                native::check_read(ctx.snapshot(), &read)
+            },
+        );
+        assert!(
+            matches!(result, Err(MemoryStoreError::Request(error)) if error.kind() == std::io::ErrorKind::NotFound)
+        );
+        assert_eq!(checks.get(), 3);
+        assert!(index.is_dir());
+        read.recheck().unwrap();
+    }
 }
 
 /// Exact typed attempt used to reobserve a direct FencedMemory mutation.

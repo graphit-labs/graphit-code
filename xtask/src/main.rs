@@ -542,7 +542,7 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let mode = env::args().nth(1).ok_or(
-        "usage: cargo xtask <check|test SELECTOR...|gate|qualify|native [OPTIONS]|cargo COMMAND...>",
+        "usage: cargo xtask <check|test SELECTOR...|tests|gate|qualify|native [OPTIONS]|cargo COMMAND...>",
     )?;
     let workspace = workspace_root()?;
     let root = workspace.as_path();
@@ -552,10 +552,10 @@ fn run() -> Result<(), String> {
             let args = env::args().skip(2).collect::<Vec<_>>();
             if !matches!(
                 args.first().map(String::as_str),
-                Some("build" | "check" | "clippy" | "test" | "rustc")
+                Some("build" | "check" | "clippy" | "test" | "rustc" | "nextest")
             ) {
                 return Err(
-                    "usage: cargo xtask cargo <build|check|clippy|test|rustc> [Cargo arguments]"
+                    "usage: cargo xtask cargo <build|check|clippy|test|rustc|nextest run|nextest list> [arguments]"
                         .into(),
                 );
             }
@@ -564,6 +564,7 @@ fn run() -> Result<(), String> {
         "check" => check(root),
         "safety" => safety::run(root),
         "test" => test_selection::run_selected(root, &env::args().skip(2).collect::<Vec<_>>()),
+        "tests" => tests(root),
         "gate" => {
             static_checks(root)?;
             tests(root)
@@ -597,6 +598,23 @@ fn execute(root: &Path, arguments: &[&str]) -> Result<(), String> {
     let cargo = env::var_os("CARGO")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("cargo"));
+    let nextest = arguments.first() == Some(&"nextest");
+    let reuse_build = test_fixtures::reuses_build(arguments);
+    let preparation = test_fixtures::preparation_arguments(arguments)?;
+    let preparation = preparation.iter().map(String::as_str).collect::<Vec<_>>();
+    if nextest {
+        let installed = Command::new(&cargo)
+            .args(["nextest", "--version"])
+            .current_dir(root)
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !installed.status.success() {
+            return Err(
+                "cargo-nextest is required; prepare version 0.9.151 before running offline tests"
+                    .into(),
+            );
+        }
+    }
     eprintln!("Rust guardrail: cargo {}", arguments.join(" "));
     let mut command = Command::new(cargo);
     command
@@ -609,13 +627,14 @@ fn execute(root: &Path, arguments: &[&str]) -> Result<(), String> {
         .env_remove("CARGO_PKG_VERSION_MINOR")
         .env_remove("CARGO_PKG_VERSION_PATCH")
         .env_remove("CARGO_PKG_VERSION_PRE");
-    let mut prepared = if matches!(
-        arguments.first(),
-        Some(&"build" | &"check" | &"clippy" | &"test" | &"rustc")
-    ) {
+    let mut prepared = if !reuse_build
+        && matches!(
+            preparation.first(),
+            Some(&"build" | &"check" | &"clippy" | &"test" | &"rustc")
+        ) {
         let prepared = ladybug::prepare(
             root,
-            &arguments
+            &preparation
                 .iter()
                 .map(|s| (*s).to_owned())
                 .collect::<Vec<_>>(),
@@ -627,34 +646,45 @@ fn execute(root: &Path, arguments: &[&str]) -> Result<(), String> {
     } else {
         None
     };
-    if arguments.first() == Some(&"test") && env::var_os("RUST_MIN_STACK").is_none() {
+    let test = arguments.first() == Some(&"test") || nextest;
+    if test && env::var_os("RUST_MIN_STACK").is_none() {
         // Compound unoptimized Lance/S3 futures exceed libtest's 2 MiB default.
         // This applies to test children only; production runtime is unchanged.
         command.env("RUST_MIN_STACK", "8388608");
     }
-    test_fixtures::prepare(root, arguments, &mut command)?;
+    if !reuse_build {
+        test_fixtures::prepare(root, &preparation, &mut command)?;
+    }
     let mut forwarded: Vec<_> = arguments.iter().map(|arg| (*arg).to_owned()).collect();
     let cargo_args = arguments
         .iter()
         .copied()
         .take_while(|arg| *arg != "--")
         .collect::<Vec<_>>();
+    let message_format = if nextest {
+        "--cargo-message-format"
+    } else {
+        "--message-format"
+    };
+    let format_prefix = format!("{message_format}=");
     let format = cargo_args.iter().enumerate().find_map(|(i, arg)| {
-        arg.strip_prefix("--message-format=").or_else(|| {
-            (*arg == "--message-format")
+        arg.strip_prefix(&format_prefix).or_else(|| {
+            (*arg == message_format)
                 .then(|| cargo_args.get(i + 1).copied())
                 .flatten()
         })
     });
-    let stream_build = arguments.first() == Some(&"test")
-        && prepared.is_some()
-        && format.is_none_or(|format| format.starts_with("json"));
+    let stream_build =
+        test && prepared.is_some() && format.is_none_or(|format| format.starts_with("json"));
     if stream_build && format.is_none() {
         let separator = forwarded
             .iter()
             .position(|arg| arg == "--")
             .unwrap_or(forwarded.len());
-        forwarded.insert(separator, "--message-format=json-render-diagnostics".into());
+        forwarded.insert(
+            separator,
+            format!("{message_format}=json-render-diagnostics"),
+        );
     }
     command.args(forwarded);
     let status = if stream_build {
@@ -762,16 +792,33 @@ fn source_checks(root: &Path) -> Result<(), String> {
 }
 
 fn tests(root: &Path) -> Result<(), String> {
-    execute(
-        root,
-        &[
-            "test",
-            "--workspace",
-            "--locked",
-            "--offline",
-            "--no-fail-fast",
-        ],
-    )
+    test_stages(|arguments| execute(root, arguments))
+}
+
+fn test_stages(mut run: impl FnMut(&[&str]) -> Result<(), String>) -> Result<(), String> {
+    let binaries = run(&[
+        "nextest",
+        "run",
+        "--workspace",
+        "--locked",
+        "--offline",
+        "--no-fail-fast",
+        "--retries=0",
+    ]);
+    // Doctests are a separate Cargo stage, including after a failed binary run.
+    let docs = run(&[
+        "test",
+        "--workspace",
+        "--doc",
+        "--locked",
+        "--offline",
+        "--no-fail-fast",
+    ]);
+    match (binaries, docs) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(binaries), Err(docs)) => Err(format!("{binaries}\n{docs}")),
+    }
 }
 
 fn qualify(root: &Path) -> Result<(), String> {
@@ -850,4 +897,43 @@ fn execute_test(root: &Path, test: FastTest) -> Result<(), String> {
     let mut arguments = test.arguments();
     arguments.insert(1, "--offline");
     execute(root, &arguments)
+}
+
+#[cfg(test)]
+mod execution_tests {
+    #[test]
+    fn doctests_run_after_binary_failure_and_both_causes_are_retained() {
+        for (binary_failure, doc_failure) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let mut calls = Vec::new();
+            let result = super::test_stages(|arguments| {
+                calls.push(
+                    arguments
+                        .iter()
+                        .map(|arg| (*arg).to_owned())
+                        .collect::<Vec<_>>(),
+                );
+                if arguments[0] == "nextest" && binary_failure {
+                    Err("binary failure".into())
+                } else if arguments[0] == "test" && doc_failure {
+                    Err("doctest failure".into())
+                } else {
+                    Ok(())
+                }
+            });
+            assert_eq!(calls.len(), 2);
+            assert_eq!(&calls[0][..2], ["nextest", "run"]);
+            assert!(calls[1].iter().any(|arg| arg == "--doc"));
+            for call in &calls {
+                for required in ["--workspace", "--locked", "--offline", "--no-fail-fast"] {
+                    assert!(call.iter().any(|arg| arg == required));
+                }
+            }
+            assert_eq!(result.is_err(), binary_failure || doc_failure);
+            if binary_failure && doc_failure {
+                assert_eq!(result.unwrap_err(), "binary failure\ndoctest failure");
+            }
+        }
+    }
 }

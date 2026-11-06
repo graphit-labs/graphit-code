@@ -5177,6 +5177,7 @@ dependencies = [
  "graphit-auth",
  "graphit-core",
  "graphit-data",
+ "graphit-fs",
  "graphit-http",
  "graphit-hub",
  "lance",

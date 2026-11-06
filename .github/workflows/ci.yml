@@ -20,10 +20,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-15, windows-2022]
+        include:
+          - os: ubuntu-22.04
+            build-jobs: 4
+          - os: macos-15
+            build-jobs: 2
+          - os: windows-2022
+            build-jobs: 4
     runs-on: ${{ matrix.os }}
     env:
-      CARGO_BUILD_JOBS: "2"
+      CARGO_BUILD_JOBS: ${{ matrix.build-jobs }}
       CARGO_INCREMENTAL: "0"
       CARGO_PROFILE_DEV_DEBUG: "0"
       CARGO_PROFILE_TEST_DEBUG: "0"
@@ -45,6 +51,9 @@ jobs:
           echo "TMPDIR=$(cd "$RUNNER_TEMP" && pwd -P)" >> "$GITHUB_ENV"
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Install current Git on Linux (native hooks/reftable required)
         if: runner.os == 'Linux'
         run: |
@@ -95,6 +104,32 @@ jobs:
         with:
           arch: x64
           vsversion: '2022'
+      - name: Identify Windows native ABI
+        if: runner.os == 'Windows'
+        id: windows-abi
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, subprocess
+          vcpkg = os.environ["VCPKG_INSTALLATION_ROOT"]
+          revision = subprocess.check_output(["git", "-C", vcpkg, "rev-parse", "HEAD"], text=True).strip()
+          identity = {name: os.environ[name] for name in ("ImageOS", "ImageVersion", "VCToolsVersion", "WindowsSDKVersion")}
+          identity.update(vcpkg=revision, triplet="x64-windows", ports=["openssl", "pkgconf"])
+          digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+          cache = pathlib.Path(os.environ["RUNNER_TEMP"]) / "vcpkg-binary-cache"
+          cache.mkdir(exist_ok=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"digest={digest}", file=output)
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              print(f"VCPKG_DEFAULT_BINARY_CACHE={cache}", file=output)
+              print(f"VCPKG_BINARY_SOURCES=clear;files,{cache},readwrite", file=output)
+              print(f"GRAPHIT_CI_VCPKG_REVISION={revision}", file=output)
+      - name: Restore Windows native binary packages
+        if: runner.os == 'Windows'
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: code-vcpkg-v1-${{ runner.arch }}-${{ steps.windows-abi.outputs.digest }}-${{ hashFiles('.github/workflows/ci.yml') }}
       - name: Prepare OpenSSL for the native Windows build
         if: runner.os == 'Windows'
         shell: pwsh
@@ -105,35 +140,147 @@ jobs:
           "OPENSSL_DIR=$vcpkg/installed/x64-windows" >> $env:GITHUB_ENV
           "$vcpkg/installed/x64-windows/bin" >> $env:GITHUB_PATH
           "PKG_CONFIG=$vcpkg/installed/x64-windows/tools/pkgconf/pkgconf.exe" >> $env:GITHUB_ENV
-      - uses: actions/setup-python@v5
+      - name: Save Windows native binary packages
+        if: runner.os == 'Windows' && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
         with:
-          python-version: '3.12'
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+      - name: Identify compiled cache ABI and runner resources
+        id: build-abi
+        shell: python
+        run: |
+          import hashlib, json, os, platform, subprocess
+          def version(*args, accepted=(0,)):
+              result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+              if result.returncode not in accepted:
+                  raise RuntimeError(f"{args}: {result.stdout}")
+              return result.stdout.strip()
+          tools = {name: version(name, flag) for name, flag in (("rustc", "-vV"), ("cargo", "-vV"), ("cmake", "--version"), ("protoc", "--version"), ("clang", "--version"))}
+          if platform.system() == "Windows":
+              tools["compiler"] = version("cl", "/Bv", accepted=(0, 2))
+              tools["ninja"] = version("ninja", "--version")
+              memory = version("pwsh", "-NoProfile", "-Command", "(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory")
+          else:
+              tools["cc"] = version(os.environ.get("CC", "cc"), "--version")
+              tools["cxx"] = version(os.environ.get("CXX", "c++"), "--version")
+              if platform.system() == "Darwin":
+                  tools["sdk"] = version("xcrun", "--show-sdk-version")
+                  tools["libraries"] = version("brew", "list", "--versions", "openssl@3", "protobuf", "llvm", "cmake")
+                  memory = version("sysctl", "-n", "hw.memsize")
+              else:
+                  tools["libraries"] = version("dpkg-query", "-W", "libc6-dev", "libstdc++-13-dev", "libssl-dev", "libclang-dev", "libprotobuf-dev")
+                  memory = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+          names = ("ImageOS", "ImageVersion", "CC", "CXX", "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "RUSTFLAGS", "RUSTDOCFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_TARGET", "CARGO_INCREMENTAL", "CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG", "CMAKE_GENERATOR", "CMAKE_TOOLCHAIN_FILE", "CMAKE_PLATFORM_NO_VERSIONED_SONAME", "OPENSSL_DIR", "OPENSSL_ROOT_DIR", "PKG_CONFIG", "LIBCLANG_PATH", "VCToolsVersion", "WindowsSDKVersion", "GRAPHIT_CI_VCPKG_REVISION")
+          options = {name: os.environ.get(name, "") for name in names}
+          prefixes = ("GGML_", "LLAMA_", "CMAKE_", "CARGO_PROFILE_", "CUDA", "CUDNN", "LBUG_")
+          options.update({name: value for name, value in os.environ.items() if name.startswith(prefixes)})
+          identity = dict(tools=tools, architecture=platform.machine(), options=options)
+          digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+          print(json.dumps(dict(tools=tools, architecture=platform.machine(), option_names=sorted(options)), sort_keys=True, indent=2))
+          print(f"Runner CPUs={os.cpu_count()}, RAM bytes={memory}, CARGO_BUILD_JOBS={os.environ['CARGO_BUILD_JOBS']}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"digest={digest}", file=output)
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Cache locked Cargo sources
-        uses: actions/cache@v4
+      - name: Install pinned native test runner
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest@0.9.151
+          checksum: true
+          fallback: none
+      - name: Restore locked Cargo sources
+        id: cargo-sources
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: code-ci-1.98-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          key: code-sources-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked
+      - name: Save locked Cargo sources before compilation
+        if: steps.cargo-sources.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ steps.cargo-sources.outputs.cache-primary-key }}
+      - name: Restore native engine preparation
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: target/native/ladybug
+          key: code-native-v1-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/ci.yml') }}
+      - name: Restore compiled Rust artifacts
+        id: rust-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            target/debug/.fingerprint
+            target/debug/build
+            target/debug/deps/*.rlib
+            target/debug/deps/*.rmeta
+            target/debug/deps/*.d
+            target/debug/deps/*.so
+            target/debug/deps/*.dylib
+            target/debug/deps/*.dll
+            target/debug/deps/*.lib
+            target/debug/deps/*.a
+            target/debug/deps/xtask-*
+            target/debug/xtask
+            target/debug/xtask.exe
+          key: code-rust-v1-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'crates/*/build.rs', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/ci.yml') }}-${{ github.sha }}
+          restore-keys: code-rust-v1-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/*/Cargo.toml', 'crates/*/build.rs', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/ci.yml') }}-
       - name: Test OpenCode plugin runtime contracts offline
         run: node --test scripts/test-opencode-plugin.mjs
       - name: Check offline Rust sources
         env:
           CARGO_NET_OFFLINE: "true"
         run: cargo xtask check
+      - name: Prepare native engine offline
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: cargo xtask native --offline
+      - name: Save completed native engine before Rust checks
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: target/native/ladybug
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Run offline Rust Clippy
         env:
           CARGO_NET_OFFLINE: "true"
         run: cargo xtask cargo clippy --workspace --all-targets --locked --offline --keep-going -- -D warnings
+      - name: Build offline Rust test executables and subprocess fixtures
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: cargo xtask cargo test --workspace --no-run --locked --offline
+      - name: Save compiled Rust artifacts before tests
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            target/debug/.fingerprint
+            target/debug/build
+            target/debug/deps/*.rlib
+            target/debug/deps/*.rmeta
+            target/debug/deps/*.d
+            target/debug/deps/*.so
+            target/debug/deps/*.dylib
+            target/debug/deps/*.dll
+            target/debug/deps/*.lib
+            target/debug/deps/*.a
+            target/debug/deps/xtask-*
+            target/debug/xtask
+            target/debug/xtask.exe
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
       - name: Run offline Rust workspace tests
         env:
           CARGO_NET_OFFLINE: "true"
-        run: cargo xtask cargo test --workspace --locked --offline --no-fail-fast
+        run: cargo xtask tests
 
   workflow-lint:
     name: Workflow lint

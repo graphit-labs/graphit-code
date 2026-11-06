@@ -7,6 +7,61 @@ use std::{
     process::{Command, Stdio},
 };
 
+pub(crate) fn reuses_build(args: &[&str]) -> bool {
+    args.first() == Some(&"nextest")
+        && args.iter().take_while(|arg| **arg != "--").any(|arg| {
+            matches!(*arg, "--binaries-metadata" | "--archive-file")
+                || arg.starts_with("--binaries-metadata=")
+                || arg.starts_with("--archive-file=")
+        })
+}
+
+/// Translate only preparation options; nextest receives its original arguments.
+pub(crate) fn preparation_arguments(args: &[&str]) -> Result<Vec<String>, String> {
+    if args.first() != Some(&"nextest") {
+        return Ok(args.iter().map(|arg| (*arg).to_owned()).collect());
+    }
+    if !matches!(args.get(1), Some(&"run" | &"list")) {
+        return Err("cargo xtask cargo nextest requires run or list".into());
+    }
+    let mut result = vec!["test".into()];
+    let mut args = args.iter().copied().skip(2).take_while(|arg| *arg != "--");
+    while let Some(arg) = args.next() {
+        if matches!(arg, "--cargo-profile" | "--build-jobs") {
+            result.push(
+                if arg == "--cargo-profile" {
+                    "--profile"
+                } else {
+                    "--jobs"
+                }
+                .into(),
+            );
+            result.push(
+                args.next()
+                    .ok_or_else(|| format!("{arg} requires a value"))?
+                    .into(),
+            );
+        } else if let Some(value) = arg.strip_prefix("--cargo-profile=") {
+            result.push(format!("--profile={value}"));
+        } else if let Some(value) = arg.strip_prefix("--build-jobs=") {
+            result.push(format!("--jobs={value}"));
+        } else if matches!(arg, "--profile" | "-P" | "--test-threads" | "--jobs" | "-j") {
+            args.next()
+                .ok_or_else(|| format!("{arg} requires a value"))?;
+        } else if arg.starts_with("--profile=")
+            || arg.starts_with("--test-threads=")
+            || arg.starts_with("--jobs=")
+            || arg.starts_with("-P")
+            || arg.starts_with("-j")
+        {
+            // These control nextest's scheduler/profile, not Cargo compilation.
+        } else {
+            result.push(arg.into());
+        }
+    }
+    Ok(result)
+}
+
 fn app_tests(args: &[&str]) -> bool {
     if args.first() != Some(&"test") {
         return false;
@@ -235,6 +290,116 @@ pub(crate) fn prepare(root: &Path, args: &[&str], test: &mut Command) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn nextest_reused_binaries_need_no_compilation_or_fixture_build() {
+        assert!(reuses_build(&[
+            "nextest",
+            "run",
+            "--binaries-metadata",
+            "built.json"
+        ]));
+        assert!(reuses_build(&[
+            "nextest",
+            "list",
+            "--archive-file=built.tar.zst"
+        ]));
+        assert!(!reuses_build(&[
+            "nextest",
+            "run",
+            "--cargo-metadata=packages.json"
+        ]));
+        assert!(!reuses_build(&[
+            "nextest",
+            "run",
+            "--",
+            "--binaries-metadata=built.json"
+        ]));
+        assert!(!reuses_build(&["test", "--binaries-metadata=built.json"]));
+    }
+    #[test]
+    fn nextest_preparation_separates_runner_and_build_options() {
+        let args = preparation_arguments(&[
+            "nextest",
+            "run",
+            "--package",
+            "graphit-app",
+            "--lib",
+            "--profile",
+            "ci",
+            "-Pother",
+            "--cargo-profile=release",
+            "--test-threads",
+            "4",
+            "--jobs=5",
+            "-j",
+            "6",
+            "-j7",
+            "--build-jobs",
+            "2",
+            "--features",
+            "fixture",
+            "--offline",
+            "--",
+            "--cargo-profile",
+            "ignored",
+            "--build-jobs=9",
+        ])
+        .unwrap();
+        assert_eq!(
+            args,
+            [
+                "test",
+                "--package",
+                "graphit-app",
+                "--lib",
+                "--profile=release",
+                "--jobs",
+                "2",
+                "--features",
+                "fixture",
+                "--offline",
+            ]
+        );
+        let build = build_arguments(&args.iter().map(String::as_str).collect::<Vec<_>>());
+        assert_eq!(build[0], "build");
+        assert!(build.iter().any(|arg| arg == "--profile=release"));
+        assert!(!build.iter().any(|arg| arg == "--lib"));
+        assert!(build.windows(2).any(|args| args == ["--bin", "graphit"]));
+    }
+    #[test]
+    fn nextest_list_preserves_metadata_format_and_rejects_invalid_preparation() {
+        assert_eq!(
+            preparation_arguments(&[
+                "nextest",
+                "list",
+                "--message-format=json",
+                "--cargo-profile",
+                "test",
+                "--build-jobs=2",
+                "--profile=ci",
+                "-P",
+                "other",
+                "--jobs",
+                "4",
+            ])
+            .unwrap(),
+            [
+                "test",
+                "--message-format=json",
+                "--profile",
+                "test",
+                "--jobs=2"
+            ]
+        );
+        for args in [
+            vec!["nextest", "archive"],
+            vec!["nextest", "run", "--cargo-profile"],
+            vec!["nextest", "run", "--build-jobs"],
+            vec!["nextest", "run", "--test-threads"],
+        ] {
+            assert!(preparation_arguments(&args).is_err());
+        }
+    }
     #[test]
     fn fixtures_follow_selected_test_packages() {
         assert!(app_tests(&["test", "--workspace"]));

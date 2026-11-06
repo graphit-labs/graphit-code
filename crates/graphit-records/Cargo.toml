@@ -35,5 +35,8 @@ graphit-core = { path = "../graphit-core", features = ["auth-test-support"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
+[target.'cfg(windows)'.dev-dependencies]
+graphit-fs = { path = "../graphit-fs" }
+
 [lints]
 workspace = true

@@ -88,12 +88,46 @@ Prepare dependencies with `cargo fetch --locked`. Run the standard suite with
 for network contracts. Real provider inference and externally provisioned services
 are selected explicitly.
 
-Rust runs cases within each test target in parallel, using the CPUs available to
-the process. Set `RUST_TEST_THREADS` to choose a different test concurrency for a
-local run. `CARGO_BUILD_JOBS` controls compilation separately.
+Prepare cargo-nextest **0.9.151** before going offline, using the
+[official prebuilt binaries](https://nexte.st/docs/installation/pre-built-binaries/)
+or `cargo install cargo-nextest --locked --version 0.9.151`. The CI uses the pinned
+prebuilt tool through `taiki-e/install-action`, with checksum verification enabled.
+The test runner never installs a missing tool or accesses the network for it.
+
+`cargo xtask tests` runs workspace tests with [nextest](https://nexte.st/docs/running/),
+then runs Cargo doctests
+even if the binary stage fails. Both stages use locked dependencies, offline mode
+and no fail-fast. The combined result fails if either stage fails; nextest retries
+are disabled. `cargo xtask gate` uses this same test stage after the static checks.
+Nextest distributes individual tests across binaries using the available CPUs.
+Set `NEXTEST_TEST_THREADS` or nextest's `--test-threads` to control these global
+slots. Focused `cargo xtask test SELECTOR...` keeps the existing Cargo/libtest
+execution and its `RUST_TEST_THREADS` control. `CARGO_BUILD_JOBS` controls
+compilation separately in both paths.
+
+For a focused run, use
+`cargo xtask cargo nextest run --locked --offline -p PACKAGE ...`.
+The `nextest list` subcommand is also supported. Nextest's `--profile` selects runner settings;
+`--cargo-profile` selects the Cargo build profile. `--test-threads`, `-j` and
+`--jobs` control test slots, while `--build-jobs` controls Cargo compilation.
+The wrapper translates only preparation options and forwards the original nextest
+arguments. Reusing `--binaries-metadata` or `--archive-file` skips native and fixture
+builds; App reuse also requires retaining the original invocation's
+`GRAPHIT_TEST_*` environment. Ignored subprocess entry points remain invoked by
+their parent tests;
+the standard run does not select ignored tests globally.
+
+A Linux execution-only comparison used the same three Process ELFs (incremental,
+lifecycle and service), 26 ordinary cases and one ignored child entry point,
+four slots and three alternating observations per model. Serial binary execution
+took 3.522–3.581 s (median 3.548 s); nextest took 2.101–2.145 s (median 2.128 s).
+For eight Kimi cases within one ELF, the medians were 2.058 s and 2.134 s,
+respectively. These warm-binary measurements include runner overhead and exclude
+preparation/compilation; they do not predict the full CI duration.
 
 App subprocess fixtures are Rust targets in this workspace. Before App tests,
-`cargo xtask cargo test ...` prepares all `*-fixture` App binaries and the normal
+`cargo xtask cargo test ...` and `cargo xtask cargo nextest run|list ...` prepare
+all `*-fixture` App binaries and the normal
 CLI. Selected integration tests use `cargo test --no-run` with the same selected
 packages, test targets, profile and features. Library/bin-only selections instead
 use `cargo build` with explicit binary targets and the same compilation options;
@@ -136,7 +170,7 @@ The Hub publication positive-flow fixtures use a 30-second request captured once
 The [CI workflow](../../.github/workflows/ci.yml) keeps four independent jobs:
 
 - `rust-contracts`: Linux, macOS and Windows fetch the locked dependencies, then
-  run the source checks, Clippy and workspace tests with Cargo offline. The standard job has no model
+  run the source checks, Clippy, nextest workspace tests and Cargo doctests offline. The standard job has no model
   download, model-server provisioning or external storage service setup.
   Each native runner also executes `node --test scripts/test-opencode-plugin.mjs`:
   this standard Node suite exercises the production plugin template, real child

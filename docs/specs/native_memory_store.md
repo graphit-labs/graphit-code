@@ -844,6 +844,38 @@ automatic retries or a claim that full P-D is qualified.
 
 The completed Source-free contract `tsk-f5d5` defines application leaf `tsk-74e7`. Its [automatic.rs Source](../../crates/graphit-records/src/memory_store/automatic.rs) now implements async NativeMemoryStore::automatic_fold, automatic_delete, reobserve_automatic_fold and reobserve_automatic_delete under actual same-Original Dream ReadMemory/FencedMemory admissions. See the [automatic API/data/recovery contract](rust_memory_records.md#qualified-native-automatic-application) for exact DTOs and limits. The [automatic fixtures](../../crates/graphit-records/tests/memory_store/automatic.rs) and affected native suites qualify the APIs/Source on Linux: 60 Memory SDK integration plus 25 Memory library functions = 85 distinct; focal eight/private three/final private three overlap and are not added. Six Records doctests passed separately (four ordinary/runtime plus two compile_fail), with corrected scoped strict exit0. Initial expanded six-pass/two-fixture-failure and initial strict seven-style-error logs remain retained without weakened assertions. This is the automatic component’s own qualification, preserving the separate F1/F2 receipts and scopes.
 
-Paired read/fenced-write admission checks also run inside capture acquisition and its physical steps. Each removal chain is discarded after its batch is built; no operation-wide quota/ledger is introduced. One strict same-corpus PreparedDelta merges the observed survivor revision and removal archive/tombstones; every effect has a distinct explicit key. An equal survivor gets an anchor only for effective removals. Public authored/result DTOs coexist with opaque module-owned MemoryFoldSurvivor/MemoryFoldDelete and private closed stored tags; observations supply provenance, not authority. Shared derive/lookup_attempt and write::publish_version preserve actual SDK version, Confirmed and DeltaCommitFailure causes without Auth+SDK atomicity, replay or a group ledger.
+Paired read/fenced-write admission checks run before capture acquisition and after revalidation of its held chain. Each removal chain is discarded after its batch is built; no operation-wide quota/ledger is introduced. One strict same-corpus PreparedDelta merges the observed survivor revision and removal archive/tombstones; every effect has a distinct explicit key. An equal survivor gets an anchor only for effective removals. Public authored/result DTOs coexist with opaque module-owned MemoryFoldSurvivor/MemoryFoldDelete and private closed stored tags; observations supply provenance, not authority. Shared derive/lookup_attempt and write::publish_version preserve actual SDK version, Confirmed and DeltaCommitFailure causes without Auth+SDK atomicity, replay or a group ledger.
+
+An existing local corpus uses one Core `capture_runtime` for the complete
+selection (`memory/index.lance`, or `memory` when acquiring the parent). Core
+retains and revalidates the entire directory chain with the Original; Memory
+does not reconstruct its prefixes. Only an initial `NotFound` invokes Core's
+probe for that same selection, with paired authority checks around the probe.
+Only confirmed `Absent` becomes `None`. Probe errors propagate, and a directory
+appearing during the probe preserves the original capture error. Wrong kinds,
+links, replaced roots and late cancellation/revocation remain errors.
 
 Complete metadata EOF guards protected flags and the last record under the held writer/pin. Exact read-only whole-group reobservation uses the historical anchor/observations after removals without reconstructing live members; get/history validate only the queried local chain, not cross-member completeness. Runtime `tsk-db94` still owns the real Dream caller gap. No host JSON parser, automatic consumer journey, App/executor, USER/non-Linux or performance qualification follows from this native API/Source qualification; IAB, HTTP and whole Root integration are not qualified either.
+
+### Automatic corruption fixtures
+
+The eight fold-corruption and four deletion-metadata variants each build one
+small, valid Auth/Core/Lance seed. Between variants a fresh SDK pin performs a
+strict full overwrite of that complete row image, including removed members.
+This is explicit fixture preparation. The no-repair assertion compares the
+damaged version before any subsequent preparation, and SDK versions continue
+to advance independently of the restored domain revisions.
+
+The same live bearer/run/actor is reverified with a new Original and new paired
+admissions for every variant. No seed grant or admission is reused. An
+authorized positive read proves the restored group or heads healthy before
+damage; Original and admission rechecks after the negative assertions prevent
+expiry from satisfying a corruption case. All damage variants, complete EOF
+checks and unchanged-version assertions remain, with the existing deadlines
+and credential lifetimes.
+
+Focused before/after measurements use the same executable cases and control
+case without Cargo preparation in their timings. Traced filesystem call counts
+are recorded separately from untraced elapsed/CPU time. Shared-host cache/load
+and Linux-only execution are explicit limits; those samples do not qualify
+Windows/macOS performance or the complete Memory suite.

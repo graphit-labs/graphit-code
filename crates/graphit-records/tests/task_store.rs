@@ -79,6 +79,22 @@ async fn persisted_dates_dependencies_creation_and_session_heads() {
     let cancel = Cancellation::default();
     let ctx = request(&cancel);
     let f = Fixture::new(&ctx, "main");
+    #[cfg(windows)]
+    {
+        let selected = graphit_core::local_corpus::resolve(
+            &f.project,
+            f.version.version(),
+            "task",
+            "index.lance",
+            read_limits().native,
+            ctx.snapshot(),
+        )
+        .unwrap();
+        assert_eq!(
+            selected.as_os_str(),
+            std::ffi::OsStr::new(r"task\index.lance")
+        );
+    }
     admissions!(f, ctx, issuer, authority, grant, read, write);
     assert_eq!(
         NativeTaskStore::read_view(ctx.snapshot(), &read, read_limits())
@@ -533,9 +549,9 @@ async fn original_request_deadline_denies_observation_and_creation() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn partial_directory_is_never_adopted_and_symlink_read_is_error() {
+async fn partial_directory_is_never_adopted_and_native_alias_read_is_error() {
     let cancel = Cancellation::default();
     let ctx = request(&cancel);
     let f = Fixture::new(&ctx, "main");
@@ -566,7 +582,13 @@ async fn partial_directory_is_never_adopted_and_symlink_read_is_error() {
     );
     assert!(!task_dir.join("index.lance").exists());
     std::fs::remove_dir(&task_dir).unwrap();
+    #[cfg(unix)]
     std::os::unix::fs::symlink(&f.root, &task_dir).unwrap();
+    #[cfg(windows)]
+    graphit_fs::LinkPlan::capture(&f.root, &task_dir, graphit_fs::NodeKind::Directory)
+        .unwrap()
+        .create()
+        .unwrap();
     assert!(
         NativeTaskStore::read_view(ctx.snapshot(), &read, read_limits())
             .await

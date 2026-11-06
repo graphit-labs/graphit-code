@@ -43,7 +43,7 @@ It performs no filesystem reads or native query/parser execution.
 The repository checks out canonical profiles under `crates/graphit-ast/profiles/`
 and text fixtures under `crates/graphit-ast/tests/fixtures/` with LF through
 `.gitattributes`, keeping byte counts, source spans and fixture recipes stable
-across hosts. The two `unicode-crlf` fixtures retain their explicit CRLF rules.
+across hosts. The `unicode-crlf` catalog, schema-case and symbol fixtures retain explicit CRLF rules.
 This checkout policy leaves captured profile and source bytes unchanged; the
 decoder continues to audit and map the exact supplied input.
 

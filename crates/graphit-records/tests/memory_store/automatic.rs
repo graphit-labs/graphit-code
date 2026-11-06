@@ -619,29 +619,76 @@ async fn automatic_observation_no_birth_wrong_admission_and_cancel() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_group_rejects_local_corruption_and_missing_other_member_without_repair() {
+    let cancel = Cancellation::default();
+    let ctx = request(&cancel);
+    let f = Fixture::new(&ctx, "main");
+    dream!(
+        f, ctx, issuer, authority, grant, read, write, bearer, credential, _run, _admin
+    );
+    let a = NativeMemoryStore::fenced_create(ctx.snapshot(), &write, input("a"), write_limits())
+        .await
+        .unwrap();
+    let b = NativeMemoryStore::fenced_create(ctx.snapshot(), &write, input("b"), write_limits())
+        .await
+        .unwrap();
+    let proposal = fold(&a, &b, "corruption");
+    NativeMemoryStore::automatic_fold(
+        ctx.snapshot(),
+        &read,
+        &write,
+        proposal.clone(),
+        write_limits(),
+    )
+    .await
+    .unwrap();
+    let healthy = NativeMemoryStore::reobserve_automatic_fold(
+        ctx.snapshot(),
+        &read,
+        &write,
+        proposal.clone(),
+        write_limits(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let pristine = sdk::all(&sdk::pin(&f).await).await;
     for damage in 0..8 {
         let cancel = Cancellation::default();
         let ctx = request(&cancel);
-        let f = Fixture::new(&ctx, "main");
-        dream!(f, ctx, issuer, authority, grant, read, write);
-        let a =
-            NativeMemoryStore::fenced_create(ctx.snapshot(), &write, input("a"), write_limits())
+        let grant = issuer
+            .verify(bearer.expose_for_transport(), &credential, f.scope(), &ctx)
+            .unwrap();
+        let read = authority
+            .admit_read(&grant, &ctx, ProjectReadModule::Memory)
+            .unwrap();
+        let write = authority
+            .admit_write(&grant, &ctx, ProjectWriteOperation::FencedMemory)
+            .unwrap();
+        if damage > 0 {
+            // Full overwrite restores deleted members as well as changed rows.
+            // The SDK version still advances; no production read repairs data.
+            sdk::pin(&f)
+                .await
+                .prepare_overwrite(vec![pristine.clone()])
+                .await
+                .unwrap()
+                .commit()
                 .await
                 .unwrap();
-        let b =
-            NativeMemoryStore::fenced_create(ctx.snapshot(), &write, input("b"), write_limits())
-                .await
-                .unwrap();
-        let proposal = fold(&a, &b, "corruption");
-        NativeMemoryStore::automatic_fold(
-            ctx.snapshot(),
-            &read,
-            &write,
-            proposal.clone(),
-            write_limits(),
-        )
-        .await
-        .unwrap();
+        }
+        assert_eq!(
+            NativeMemoryStore::reobserve_automatic_fold(
+                ctx.snapshot(),
+                &read,
+                &write,
+                proposal.clone(),
+                write_limits(),
+            )
+            .await
+            .unwrap()
+            .as_ref(),
+            Some(&healthy)
+        );
         let pin = sdk::pin(&f).await;
         if damage == 0 || damage == 7 {
             let uri = url::Url::from_file_path(f.project.runtime_root().join("memory/index.lance"))
@@ -731,7 +778,7 @@ async fn automatic_group_rejects_local_corruption_and_missing_other_member_witho
                 ctx.snapshot(),
                 &read,
                 &write,
-                proposal,
+                proposal.clone(),
                 write_limits()
             )
             .await
@@ -739,35 +786,73 @@ async fn automatic_group_rejects_local_corruption_and_missing_other_member_witho
             "retry damage {damage}"
         );
         assert_eq!(sdk::pin(&f).await.version(), damaged);
+        ctx.snapshot().check().unwrap();
+        read.recheck().unwrap();
+        write.recheck().unwrap();
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn automatic_delete_metadata_eof_rejects_foreign_duplicate_and_malformed() {
+    let cancel = Cancellation::default();
+    let ctx = request(&cancel);
+    let f = Fixture::new(&ctx, "main");
+    dream!(
+        f, ctx, issuer, authority, grant, read, write, bearer, credential, _run, _admin
+    );
+    let mut authored = input("a");
+    authored.attributes.mandatory = false;
+    let a =
+        NativeMemoryStore::fenced_create(ctx.snapshot(), &write, authored.clone(), write_limits())
+            .await
+            .unwrap();
+    authored.idempotency_key = "b".into();
+    let b = NativeMemoryStore::fenced_create(ctx.snapshot(), &write, authored, write_limits())
+        .await
+        .unwrap();
+    let mut third = input("c");
+    third.attributes.mandatory = false;
+    let c = NativeMemoryStore::fenced_create(ctx.snapshot(), &write, third, write_limits())
+        .await
+        .unwrap();
+    let healthy_heads = published(
+        NativeMemoryStore::observe_heads(ctx.snapshot(), &read, head_limits())
+            .await
+            .unwrap(),
+    )
+    .1;
+    let pristine = sdk::all(&sdk::pin(&f).await).await;
     for damage in 0..4 {
         let cancel = Cancellation::default();
         let ctx = request(&cancel);
-        let f = Fixture::new(&ctx, "main");
-        dream!(f, ctx, issuer, authority, grant, read, write);
-        let mut authored = input("a");
-        authored.attributes.mandatory = false;
-        let a = NativeMemoryStore::fenced_create(
-            ctx.snapshot(),
-            &write,
-            authored.clone(),
-            write_limits(),
-        )
-        .await
-        .unwrap();
-        authored.idempotency_key = "b".into();
-        let b = NativeMemoryStore::fenced_create(ctx.snapshot(), &write, authored, write_limits())
-            .await
+        let grant = issuer
+            .verify(bearer.expose_for_transport(), &credential, f.scope(), &ctx)
             .unwrap();
-        let mut third = input("c");
-        third.attributes.mandatory = false;
-        let c = NativeMemoryStore::fenced_create(ctx.snapshot(), &write, third, write_limits())
-            .await
+        let read = authority
+            .admit_read(&grant, &ctx, ProjectReadModule::Memory)
             .unwrap();
+        let write = authority
+            .admit_write(&grant, &ctx, ProjectWriteOperation::FencedMemory)
+            .unwrap();
+        if damage > 0 {
+            sdk::pin(&f)
+                .await
+                .prepare_overwrite(vec![pristine.clone()])
+                .await
+                .unwrap()
+                .commit()
+                .await
+                .unwrap();
+        }
+        assert_eq!(
+            published(
+                NativeMemoryStore::observe_heads(ctx.snapshot(), &read, head_limits())
+                    .await
+                    .unwrap()
+            )
+            .1,
+            healthy_heads
+        );
         let pin = sdk::pin(&f).await;
         let batch = sdk::all(&pin).await;
         let row = (0..batch.num_rows())
@@ -810,6 +895,9 @@ async fn automatic_delete_metadata_eof_rejects_foreign_duplicate_and_malformed()
                 .unwrap()
                 .is_some()
         );
+        ctx.snapshot().check().unwrap();
+        read.recheck().unwrap();
+        write.recheck().unwrap();
     }
 }
 

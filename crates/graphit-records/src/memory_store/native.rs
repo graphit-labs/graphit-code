@@ -84,17 +84,6 @@ pub(super) fn capture(
     if selected != Path::new("memory/index.lance") {
         return Err(MemoryStoreError::Invalid("corpus path"));
     }
-    before()?;
-    if CapturedProjectDocumentDirectory::probe_runtime(scope, Path::new(""), limits, original)?
-        == DirectoryPresence::Absent
-    {
-        before()?;
-        return Ok(None);
-    }
-    before()?;
-    let mut relative = PathBuf::new();
-    let mut guard =
-        CapturedProjectDocumentDirectory::capture_runtime(scope, Path::new(""), limits, original)?;
     let selected = if index {
         selected
     } else {
@@ -102,17 +91,26 @@ pub(super) fn capture(
             .parent()
             .ok_or(MemoryStoreError::Invalid("corpus parent"))?
     };
-    for child in selected.components() {
-        before()?;
-        let presence = guard.probe_child_directory(child.as_os_str(), original)?;
-        before()?;
-        if presence == DirectoryPresence::Absent {
-            return Ok(None);
+    before()?;
+    let guard = match CapturedProjectDocumentDirectory::capture_runtime(
+        scope, selected, limits, original,
+    ) {
+        Ok(guard) => guard,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Core revalidates retained parents before classifying absence.
+            // A racing new directory does not erase the original capture error.
+            before()?;
+            let presence =
+                CapturedProjectDocumentDirectory::probe_runtime(scope, selected, limits, original)?;
+            before()?;
+            return if presence == DirectoryPresence::Absent {
+                Ok(None)
+            } else {
+                Err(error.into())
+            };
         }
-        relative.push(child.as_os_str());
-        guard =
-            CapturedProjectDocumentDirectory::capture_runtime(scope, &relative, limits, original)?;
-    }
+        Err(error) => return Err(error.into()),
+    };
     guard.revalidate(original)?;
     before()?;
     Ok(Some(guard))

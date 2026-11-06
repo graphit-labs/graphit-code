@@ -814,6 +814,85 @@ fn canonical_identifiers_reject_zero_lowercase_overflow_and_extra_bytes() {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn native_capture_rejects_wrong_kind_and_native_aliases() {
+    let cancel = Cancellation::default();
+    let ctx = request(&cancel);
+    let f = Fixture::new(&ctx, "main");
+    admissions!(
+        f, ctx, issuer, authority, grant, read, _write, _bearer, _reference, _admin
+    );
+    assert!(matches!(
+        NativeMemoryStore::observe_heads(ctx.snapshot(), &read, head_limits())
+            .await
+            .unwrap(),
+        MemoryHeadRead::NoCorpus
+    ));
+    drop(sdk::directory_only(&f, &ctx).await);
+    let memory = f.project.runtime_root().join("memory");
+    let index = memory.join("index.lance");
+    std::fs::write(&index, b"not a directory").unwrap();
+    assert!(
+        NativeMemoryStore::observe_heads(ctx.snapshot(), &read, head_limits())
+            .await
+            .is_err()
+    );
+    read.recheck().unwrap();
+    std::fs::remove_file(&index).unwrap();
+
+    // Following either alias would expose a valid, published empty dataset.
+    let foreign = f.root.join("foreign");
+    std::fs::create_dir(&foreign).unwrap();
+    let foreign_index = foreign.join("index.lance");
+    let schema = sdk::schema();
+    let published = graphit_data::lance_module_store::LanceModuleStore::create(
+        foreign_index.to_str().unwrap(),
+        Arc::clone(&schema),
+        vec![arrow_array::RecordBatch::new_empty(schema)],
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        published
+            .snapshot()
+            .scan()
+            .try_into_batch()
+            .await
+            .unwrap()
+            .num_rows(),
+        0
+    );
+    for at_index in [true, false] {
+        let (target, alias) = if at_index {
+            (&foreign_index, &index)
+        } else {
+            std::fs::remove_dir(&memory).unwrap();
+            (&foreign, &memory)
+        };
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(target, alias).unwrap();
+        #[cfg(windows)]
+        graphit_fs::LinkPlan::capture(target, alias, graphit_fs::NodeKind::Directory)
+            .unwrap()
+            .create()
+            .unwrap();
+        assert!(
+            NativeMemoryStore::observe_heads(ctx.snapshot(), &read, head_limits())
+                .await
+                .is_err(),
+            "alias at index: {at_index}"
+        );
+        ctx.snapshot().check().unwrap();
+        read.recheck().unwrap();
+        if at_index {
+            #[cfg(unix)]
+            std::fs::remove_file(&index).unwrap();
+            #[cfg(windows)]
+            std::fs::remove_dir(&index).unwrap();
+        }
+    }
+}
+
 #[path = "memory_store/catalogue.rs"]
 mod catalogue;
 #[path = "memory_store/revision.rs"]

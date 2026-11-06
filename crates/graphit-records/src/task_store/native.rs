@@ -63,25 +63,6 @@ pub(super) fn capture(
     if selected != Path::new("task/index.lance") {
         return Err(TaskStoreError::Invalid("corpus path"));
     }
-    before()?;
-    if CapturedProjectDocumentDirectory::probe_runtime(
-        scope,
-        Path::new(""),
-        limits.native,
-        original,
-    )? == DirectoryPresence::Absent
-    {
-        before()?;
-        return Ok(None);
-    }
-    before()?;
-    let mut relative = PathBuf::new();
-    let mut guard = CapturedProjectDocumentDirectory::capture_runtime(
-        scope,
-        Path::new(""),
-        limits.native,
-        original,
-    )?;
     let selected = if index {
         selected
     } else {
@@ -89,21 +70,33 @@ pub(super) fn capture(
             .parent()
             .ok_or(TaskStoreError::Invalid("corpus parent"))?
     };
-    for child in selected.components() {
-        before()?;
-        let presence = guard.probe_child_directory(child.as_os_str(), original)?;
-        before()?;
-        if presence == DirectoryPresence::Absent {
-            return Ok(None);
+    before()?;
+    let guard = match CapturedProjectDocumentDirectory::capture_runtime(
+        scope,
+        selected,
+        limits.native,
+        original,
+    ) {
+        Ok(guard) => guard,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            // Only the Core probe can classify absence after validating the
+            // retained parents. A racing new directory does not erase the error.
+            before()?;
+            let presence = CapturedProjectDocumentDirectory::probe_runtime(
+                scope,
+                selected,
+                limits.native,
+                original,
+            )?;
+            before()?;
+            return if presence == DirectoryPresence::Absent {
+                Ok(None)
+            } else {
+                Err(error.into())
+            };
         }
-        relative.push(child.as_os_str());
-        guard = CapturedProjectDocumentDirectory::capture_runtime(
-            scope,
-            &relative,
-            limits.native,
-            original,
-        )?;
-    }
+        Err(error) => return Err(error.into()),
+    };
     guard.revalidate(original)?;
     before()?;
     Ok(Some(guard))

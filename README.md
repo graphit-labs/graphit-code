@@ -87,12 +87,13 @@ success does not authorize a commit or push.
 
 ```text
 pre-commit: git diff --cached --check → actionlint → cargo xtask check
-pre-push:   cargo xtask check → strict workspace Clippy → locked xtask tests
+pre-push:   cargo xtask check → strict workspace Clippy → locked xtask unit tests
 ```
 
 `pre-commit` enforces native safety, staged whitespace, workflow lint and Rust formatting.
-`pre-push` runs strict workspace Clippy and the locked `xtask` tests. After
-`cargo fetch --locked`, run `cargo --offline xtask gate` for the standard Rust
+`pre-push` runs strict workspace Clippy and the locked `xtask` unit tests. Prepare
+cargo-nextest 0.9.151 as described in the [Rust test guide](docs/development/rust-fast-guard.md).
+After `cargo fetch --locked`, run `cargo --offline xtask gate` for the standard Rust
 checks or `make test TEST=graphit-ast/source_ranges` for an affected suite.
 CI also runs the React checks and workflow validation. Release packaging
 and native model/S3 qualification use the separate release workflow.

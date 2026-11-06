@@ -57,6 +57,15 @@ Reading the admitted request already revalidates the admission. Task reads and
 writes use that check once at each existing boundary, including EOF, delivery
 and publication, without immediately repeating the same physical checks.
 
+Local Task access captures the complete selected runtime directory chain once
+through Core. It does not probe and recapture every prefix of a present corpus.
+If capture reports `NotFound`, the existing Core runtime probe revalidates the
+retained parents before classifying the selection as absent. Other errors remain
+errors; a directory appearing before the probe does not turn the failed capture
+into a successful read. Admission, Original, retained-directory and publication
+checks remain at their operation boundaries. Missing state is not created by a
+read, and an existing partial Task directory remains an incomplete corpus.
+
 Catalogue and full-text scans revalidate the admission and captured directory
 at SDK await boundaries, EOF and final delivery. Their decoding, graph
 selection and lexical candidate processing over the captured
