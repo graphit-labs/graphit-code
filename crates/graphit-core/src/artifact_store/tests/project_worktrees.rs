@@ -101,10 +101,53 @@ fn catalogue_identity_keeps_project_storage_and_physical_ancestor_isolation() {
         "01ARZ3NDEKTSV4RRFFQ69G5FAW".parse().unwrap()
     )));
     assert!(!binding.matches_catalog(&capture(&other_global, ID.parse().unwrap())));
+    let marker = global.join("preserved");
+    fs::write(&marker, b"storage remains").unwrap();
+    let identity =
+        crate::native_file_identity::physical_id(&global, &fs::symlink_metadata(&global).unwrap())
+            .unwrap();
+    let held = root.join("held-global");
     // Preserve the original inode so replacement cannot depend on inode reuse.
-    fs::rename(&global, root.join("held-global")).unwrap();
-    fs::create_dir(&global).unwrap();
-    assert!(!binding.matches_catalog(&capture(&global, ID.parse().unwrap())));
+    let renamed = fs::rename(&global, &held);
+    #[cfg(windows)]
+    {
+        // The live captures retain no-delete handles for this storage ancestor.
+        assert_eq!(
+            renamed.unwrap_err().raw_os_error(),
+            Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32)
+        );
+        assert!(!held.exists());
+        assert_eq!(fs::read(&marker).unwrap(), b"storage remains");
+        assert!(
+            identity
+                == crate::native_file_identity::physical_id(
+                    &global,
+                    &fs::symlink_metadata(&global).unwrap()
+                )
+                .unwrap()
+        );
+        assert!(binding.matches_catalog(&f.a.scope));
+        assert!(binding.matches_catalog(&capture(&global, ID.parse().unwrap())));
+    }
+    #[cfg(unix)]
+    {
+        renamed.unwrap();
+        fs::create_dir(&global).unwrap();
+        assert!(!binding.matches_catalog(&capture(&global, ID.parse().unwrap())));
+        assert_eq!(
+            fs::read(held.join("preserved")).unwrap(),
+            b"storage remains"
+        );
+        assert!(!marker.exists());
+        assert!(
+            identity
+                == crate::native_file_identity::physical_id(
+                    &held,
+                    &fs::symlink_metadata(&held).unwrap()
+                )
+                .unwrap()
+        );
+    }
     assert!(!f.a.manifest_path().exists());
 }
 

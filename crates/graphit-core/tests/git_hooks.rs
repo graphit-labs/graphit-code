@@ -389,9 +389,18 @@ fn worktrees_and_submodules_are_resolved_by_git_without_changing_other_scopes() 
     init(root);
     commit(root);
     let linked = root.join("linked");
+    let linked_argument = linked.as_path();
+    #[cfg(windows)]
+    let linked_argument = dunce::simplified(linked_argument);
     git(
         root,
-        &["worktree", "add", "-b", "linked", linked.to_str().unwrap()],
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "linked",
+            linked_argument.to_str().unwrap(),
+        ],
     );
     let include = root.join("include.config");
     fs::write(
@@ -405,7 +414,10 @@ fn worktrees_and_submodules_are_resolved_by_git_without_changing_other_scopes() 
         "[hook \"global\"]\ncommand = global third\nevent = pre-commit\n",
     )
     .unwrap();
-    set(root, "include.path", include.to_str().unwrap());
+    let include_argument = include.as_path();
+    #[cfg(windows)]
+    let include_argument = dunce::simplified(include_argument);
+    set(root, "include.path", include_argument.to_str().unwrap());
     set(root, "extensions.worktreeConfig", "true");
     git(
         &linked,
@@ -462,12 +474,15 @@ fn worktrees_and_submodules_are_resolved_by_git_without_changing_other_scopes() 
     assert_eq!(fs::read(&include).unwrap(), include_before);
     assert_eq!(
         get(root, "include.path"),
-        format!("{}\0", include.display()).as_bytes()
+        format!("{}\0", include_argument.display()).as_bytes()
     );
     let sub_origin = root.join("origin");
     fs::create_dir(&sub_origin).unwrap();
     init(&sub_origin);
     commit(&sub_origin);
+    let origin_argument = sub_origin.as_path();
+    #[cfg(windows)]
+    let origin_argument = dunce::simplified(origin_argument);
     git(
         root,
         &[
@@ -475,7 +490,7 @@ fn worktrees_and_submodules_are_resolved_by_git_without_changing_other_scopes() 
             "protocol.file.allow=always",
             "submodule",
             "add",
-            sub_origin.to_str().unwrap(),
+            origin_argument.to_str().unwrap(),
             "module",
         ],
     );
@@ -784,12 +799,22 @@ fn inherited_git_routing_cannot_redirect_registry_or_modify_global_configuration
     .unwrap();
     let global_before = fs::read(&global).unwrap();
     let wrong_before = fs::read(wrong.join(".git/config")).unwrap();
+    let wrong_git = wrong.join(".git");
+    let wrong_git_argument = wrong_git.as_path();
+    let wrong_argument = wrong.as_path();
+    let global_argument = global.as_path();
+    #[cfg(windows)]
+    let wrong_git_argument = dunce::simplified(wrong_git_argument);
+    #[cfg(windows)]
+    let wrong_argument = dunce::simplified(wrong_argument);
+    #[cfg(windows)]
+    let global_argument = dunce::simplified(global_argument);
     let output = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "routing_child", "--nocapture"])
         .env("GRAPHIT_TEST_REGISTRY_ROOT", root)
-        .env("GIT_DIR", wrong.join(".git"))
-        .env("GIT_WORK_TREE", &wrong)
-        .env("GIT_CONFIG_GLOBAL", &global)
+        .env("GIT_DIR", wrong_git_argument)
+        .env("GIT_WORK_TREE", wrong_argument)
+        .env("GIT_CONFIG_GLOBAL", global_argument)
         .env("GIT_CONFIG_COUNT", "1")
         .env("GIT_CONFIG_KEY_0", "hook.graphit--pre-commit.command")
         .env("GIT_CONFIG_VALUE_0", "injected command")
@@ -807,7 +832,7 @@ fn inherited_git_routing_cannot_redirect_registry_or_modify_global_configuration
     assert_eq!(fs::read(wrong.join(".git/config")).unwrap(), wrong_before);
     assert_eq!(fs::read(&global).unwrap(), global_before);
     let output = command(root, &["config", "get", "hook.global-third.command"])
-        .env("GIT_CONFIG_GLOBAL", global)
+        .env("GIT_CONFIG_GLOBAL", global_argument)
         .output()
         .unwrap();
     assert!(output.status.success());

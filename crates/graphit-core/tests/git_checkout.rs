@@ -167,9 +167,18 @@ fn linked_worktree_uses_own_head_and_common_refs() {
     let repo = init(fixture.root(), "main", "files");
     commit(&repo);
     let worktree = fixture.path("linked");
+    let worktree_argument = worktree.as_path();
+    #[cfg(windows)]
+    let worktree_argument = dunce::simplified(worktree_argument);
     git(
         &repo,
-        &["worktree", "add", "-b", "topic", worktree.to_str().unwrap()],
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "topic",
+            worktree_argument.to_str().unwrap(),
+        ],
     );
     git(
         &repo,
@@ -201,6 +210,9 @@ fn submodule_and_separate_git_directory() {
     commit(&source);
     let parent = init(fixture.root(), "parent", "files");
     commit(&parent);
+    let source_argument = source.as_path();
+    #[cfg(windows)]
+    let source_argument = dunce::simplified(source_argument);
     git(
         &parent,
         &[
@@ -208,7 +220,7 @@ fn submodule_and_separate_git_directory() {
             "protocol.file.allow=always",
             "submodule",
             "add",
-            source.to_str().unwrap(),
+            source_argument.to_str().unwrap(),
             "sub",
         ],
     );
@@ -219,13 +231,16 @@ fn submodule_and_separate_git_directory() {
     let separate = fixture.path("separate");
     fs::create_dir(&separate).unwrap();
     let gitdir = fixture.path("external.git");
+    let gitdir_argument = gitdir.as_path();
+    #[cfg(windows)]
+    let gitdir_argument = dunce::simplified(gitdir_argument);
     git(
         &separate,
         &[
             "init",
             "--initial-branch=outside",
             "--separate-git-dir",
-            gitdir.to_str().unwrap(),
+            gitdir_argument.to_str().unwrap(),
         ],
     );
     branch(&separate, "outside", "outside");
@@ -243,6 +258,9 @@ fn reftable_unborn_attached_detached_and_worktree() {
     git(&repo, &["branch", "main"]);
     branch(&repo, "fresh", "main");
     let worktree = fixture.path("table-linked");
+    let worktree_argument = worktree.as_path();
+    #[cfg(windows)]
+    let worktree_argument = dunce::simplified(worktree_argument);
     git(
         &repo,
         &[
@@ -250,7 +268,7 @@ fn reftable_unborn_attached_detached_and_worktree() {
             "add",
             "-b",
             "table/topic",
-            worktree.to_str().unwrap(),
+            worktree_argument.to_str().unwrap(),
         ],
     );
     git(
@@ -426,6 +444,9 @@ fn concurrent_worktrees_keep_independent_call_contexts() {
     let repo = init(fixture.root(), "main", "reftable");
     commit(&repo);
     let other = fixture.path("other");
+    let other_argument = other.as_path();
+    #[cfg(windows)]
+    let other_argument = dunce::simplified(other_argument);
     git(
         &repo,
         &[
@@ -433,7 +454,7 @@ fn concurrent_worktrees_keep_independent_call_contexts() {
             "add",
             "-b",
             "other/topic",
-            other.to_str().unwrap(),
+            other_argument.to_str().unwrap(),
         ],
     );
     std::thread::scope(|scope| {

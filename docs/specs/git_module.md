@@ -57,6 +57,15 @@ including worktrees, submodules and detached HEAD. It performs no repository or
 Graphit mutation. [Project versions](project_identity.md#project-version) use
 that observation without turning a branch name into project identity or authority.
 
+On Windows, captured roots and Git common directories keep their canonical native
+paths for identity and validation. The typed path passed to Git's
+`--git-dir` argument uses `dunce::simplified`; fixture worktree/submodule paths use
+the same library at their Git boundary. This is a borrowed argv representation,
+without recanonicalizing the root or rewriting refs, options or arbitrary strings.
+The library conservatively retains verbatim paths that cannot be simplified,
+including long paths, reserved names and non-Unicode names. Their acceptance still
+depends on Git; this adaptation does not claim support for every Windows path.
+
 ## Command execution and ownership
 
 Configured Git operations use explicit captured paths and suppress interactive

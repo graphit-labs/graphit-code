@@ -415,7 +415,10 @@ impl Registry {
 
     fn command(&self, args: &[&str]) -> Command {
         let mut command = git_command(&self.root, &[]);
-        command.arg("--git-dir").arg(&self.common).args(args);
+        let common = self.common.as_path();
+        #[cfg(windows)]
+        let common = dunce::simplified(common);
+        command.arg("--git-dir").arg(common).args(args);
         command
     }
 
@@ -711,8 +714,46 @@ mod tests {
             &Cancellation::default(),
         )
         .unwrap();
+        assert_eq!(registry.root, std::fs::canonicalize(dir.path()).unwrap());
+        assert_eq!(
+            registry.common,
+            std::fs::canonicalize(dir.path().join(".git")).unwrap()
+        );
         (dir, registry)
     }
+
+    #[test]
+    fn temporary_common_directory_snapshot_preserves_canonical_paths() {
+        let (_dir, registry) = fixture();
+        let root = registry.root.clone();
+        let common = registry.common.clone();
+        let cancel = Cancellation::default();
+        let budget = Budget::new(registry.options.timeout, &cancel).unwrap();
+        let output = registry
+            .snapshot(
+                &budget,
+                &mut |budget, command| {
+                    let output = budget.run(command)?;
+                    // This fresh private repository has no matching hook keys.
+                    assert_eq!(
+                        output.status.code(),
+                        Some(1),
+                        "private Git snapshot status={:?}: {}",
+                        output.status,
+                        String::from_utf8_lossy(&output.stderr)
+                    );
+                    Ok(output)
+                },
+                Stage::Read,
+                false,
+            )
+            .unwrap();
+        assert!(output.stdout.is_empty());
+        assert!(output.stderr.is_empty());
+        assert_eq!(registry.root, root);
+        assert_eq!(registry.common, common);
+    }
+
     fn get(registry: &Registry, key: &str) -> Vec<u8> {
         let output = registry
             .command(&["config", "get", "--local", "--no-includes", "--null", key])

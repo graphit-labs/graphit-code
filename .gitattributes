@@ -30,3 +30,6 @@ crates/graphit-runtime/tests/fixtures/agent-instructions/*.md text eol=lf
 
 # The frozen policy corpus is verified against original blob sizes and SHA-256.
 crates/graphit-hub/tests/fixtures/policy-corpus/** -text
+
+# Upstream TOON fixtures are checked against their original content hashes.
+crates/graphit-core/tests/fixtures/toon-v4.1/** -text

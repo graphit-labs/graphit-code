@@ -7489,39 +7489,83 @@ mod native_stage_tests {
         let (parent, old) = capture(&f, &ctx);
         let mut writer = f.writer().with_io_context(ctx.clone()).unwrap();
         crate::file_io::native_io_tests::MAX_WRITE.with(|limit| limit.set(Some(8)));
-        let root = parent.canonical_path().to_owned();
+        let operation_id = NativeDocumentOperationId::generate();
+        let stage_path = parent
+            .canonical_path()
+            .join(format!(".graphit-doc-{operation_id}"))
+            .join("document");
+        let attack_path = stage_path.clone();
         test_hooks::AFTER_WRITE.with(|h| {
             *h.borrow_mut() = Some(Box::new(move || {
-                let stage = fs::read_dir(root)
-                    .unwrap()
-                    .next()
-                    .unwrap()
-                    .unwrap()
-                    .path()
-                    .join("document");
-                fs::rename(&stage, stage.with_extension("original")).unwrap();
-                fs::write(&stage, b"foreign").unwrap();
+                assert_eq!(fs::read(&attack_path).unwrap(), b"01234567");
+                #[cfg(windows)]
+                let identity =
+                    physical_id(&attack_path, &fs::symlink_metadata(&attack_path).unwrap())
+                        .unwrap();
+                let renamed = fs::rename(&attack_path, attack_path.with_extension("original"));
+                #[cfg(windows)]
+                {
+                    // The retained stage handle excludes delete sharing.
+                    assert_eq!(
+                        renamed.unwrap_err().raw_os_error(),
+                        Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32)
+                    );
+                    assert!(!attack_path.with_extension("original").exists());
+                    assert_eq!(fs::read(&attack_path).unwrap(), b"01234567");
+                    assert!(
+                        identity
+                            == physical_id(
+                                &attack_path,
+                                &fs::symlink_metadata(&attack_path).unwrap()
+                            )
+                            .unwrap()
+                    );
+                }
+                #[cfg(unix)]
+                {
+                    renamed.unwrap();
+                    fs::write(&attack_path, b"foreign").unwrap();
+                }
             }))
         });
-        let failure = writer
-            .prepare_native_document(
-                NativeDocumentOperationId::generate(),
-                &f.key(),
-                &parent,
-                &old,
-                b"0123456789abcdef",
-            )
-            .err()
-            .unwrap();
-        assert!(failure.resolution().is_none());
-        drop(failure);
-        let op = pending(&writer);
-
-        assert_eq!(
-            fs::read(op.file_path().unwrap().with_extension("original")).unwrap(),
-            b"01234567"
+        let result = writer.prepare_native_document(
+            operation_id,
+            &f.key(),
+            &parent,
+            &old,
+            b"0123456789abcdef",
         );
-        assert_eq!(fs::read(op.file_path().unwrap()).unwrap(), b"foreign");
+        #[cfg(unix)]
+        {
+            let failure = result.err().unwrap();
+            assert!(failure.resolution().is_none());
+            drop(failure);
+            let op = pending(&writer);
+            assert_eq!(op.file_path().unwrap(), stage_path);
+            assert_eq!(
+                fs::read(stage_path.with_extension("original")).unwrap(),
+                b"01234567"
+            );
+            assert_eq!(fs::read(&stage_path).unwrap(), b"foreign");
+        }
+        #[cfg(windows)]
+        {
+            let stage = result.unwrap_or_else(|failure| panic!("{:?}", failure.error()));
+            assert_eq!(fs::read(&stage_path).unwrap(), b"0123456789abcdef");
+            assert!(
+                stage.receipt().file_id()
+                    == &physical_id(&stage_path, &fs::symlink_metadata(&stage_path).unwrap())
+                        .unwrap()
+            );
+            assert!(!f.destination.exists());
+            let resolution = stage
+                .discard()
+                .unwrap_or_else(|failure| panic!("{:?}", failure.error()));
+            assert_eq!(resolution.outcome(), NativeDocumentOutcome::NotPublished);
+            resolution.acknowledge().unwrap().release().unwrap();
+            assert!(!stage_path.exists());
+            assert!(writer.document().unwrap().pending.is_none());
+        }
         assert!(!f.destination.exists());
     }
     #[test]

@@ -38,6 +38,7 @@ rustix.workspace = true
 ioprio.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+dunce = "=1.0.5"
 winsafe.workspace = true
 winapi-util = { version = "=0.1.11", default-features = false }
 windows-sys = { version = "=0.61.2", default-features = false, features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

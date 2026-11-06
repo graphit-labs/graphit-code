@@ -443,7 +443,12 @@ fn image(root: &Path) -> BTreeMap<PathBuf, Option<Vec<u8>>> {
             } else {
                 result.insert(
                     path.strip_prefix(root).unwrap().to_owned(),
-                    Some(fs::read(path).unwrap()),
+                    Some(fs::read(&path).unwrap_or_else(|error| {
+                        panic!(
+                            "read-only fixture image failed at {:?}: {error:?}",
+                            path.strip_prefix(root).unwrap()
+                        )
+                    })),
                 );
             }
         }
