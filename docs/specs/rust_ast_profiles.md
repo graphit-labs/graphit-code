@@ -40,6 +40,13 @@ D1 decodes captured YAML bytes into a complete owned typed patch. It preserves
 presence, values, order, legitimate repeated queries and original source sites.
 It performs no filesystem reads or native query/parser execution.
 
+The repository checks out canonical profiles under `crates/graphit-ast/profiles/`
+and text fixtures under `crates/graphit-ast/tests/fixtures/` with LF through
+`.gitattributes`, keeping byte counts, source spans and fixture recipes stable
+across hosts. The two `unicode-crlf` fixtures retain their explicit CRLF rules.
+This checkout policy leaves captured profile and source bytes unchanged; the
+decoder continues to audit and map the exact supplied input.
+
 | Completed producer | Reused responsibility |
 | --- | --- |
 | `tsk-0006` | Inventory of active AST profiles and capabilities |

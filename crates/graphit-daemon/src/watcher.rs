@@ -1427,7 +1427,20 @@ mod tests {
         fs::create_dir(&old).unwrap();
         let mut watcher = ProjectWatcher::start(config(dir.path())).unwrap();
         fs::rename(&old, &new).unwrap();
-        changed(&mut watcher, &new).await;
+        // A removal or an unrelated SDK rescan can arrive before the destination.
+        // Consume native batches until the renamed directory actually owns its scope.
+        timeout(Duration::from_secs(8), async {
+            loop {
+                let batch = watcher.next().await.expect("watcher open");
+                assert!(batch.error.is_none(), "{:?}", batch.error);
+                let state = lock(&watcher.state);
+                if !state.directories.contains_key(&old) && state.directories.contains_key(&new) {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("native rename did not replace the old directory scope with the destination");
         assert!(!lock(&watcher.state).directories.contains_key(&old));
         assert!(lock(&watcher.state).directories.contains_key(&new));
         let file = new.join("source.rs");

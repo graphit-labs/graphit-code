@@ -29,6 +29,83 @@ fn run(work: impl Future<Output = ()> + Send + 'static) {
         .join()
         .unwrap();
 }
+#[test]
+fn owner_constructor_accepts_canonical_spelling_and_denies_another_installation() {
+    run(async {
+        let cancel = Cancellation::default();
+        let ctx = context(&cancel);
+        let f = auth::Fixture::new(&ctx, true);
+        let policy = NativeInstallPolicy {
+            hub: f.policy.clone(),
+            graph: LocalGraphPolicy::resolve(&f.config, ctx.snapshot()).unwrap(),
+            timeout: Duration::from_secs(10),
+        };
+        let canonical = InstallationPaths::resolve(
+            f.paths.brand().clone(),
+            f.temp.path(),
+            None,
+            Some(f.auth.installation().live.owner_root()),
+        )
+        .unwrap();
+        for paths in [f.paths.clone(), canonical] {
+            NativeInstallHttp::new(
+                Arc::clone(&f.auth),
+                paths,
+                f.registry.clone(),
+                policy.clone(),
+                CancellationToken::new(),
+            )
+            .unwrap();
+        }
+        let other = tempfile::tempdir().unwrap();
+        let paths = InstallationPaths::resolve(
+            f.paths.brand().clone(),
+            f.temp.path(),
+            None,
+            Some(other.path()),
+        )
+        .unwrap();
+        let error = NativeInstallHttp::new(
+            Arc::clone(&f.auth),
+            paths,
+            f.registry.clone(),
+            policy,
+            CancellationToken::new(),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn owner_constructor_rejects_same_spelling_after_physical_root_replacement() {
+    run(async {
+        let cancel = Cancellation::default();
+        let ctx = context(&cancel);
+        let f = auth::Fixture::new(&ctx, true);
+        let policy = NativeInstallPolicy {
+            hub: f.policy.clone(),
+            graph: LocalGraphPolicy::resolve(&f.config, ctx.snapshot()).unwrap(),
+            timeout: Duration::from_secs(10),
+        };
+        let held = f.temp.path().join("held-installation");
+        std::fs::rename(f.paths.root(), held).unwrap();
+        std::fs::create_dir(f.paths.root()).unwrap();
+        let error = NativeInstallHttp::new(
+            Arc::clone(&f.auth),
+            f.paths.clone(),
+            f.registry.clone(),
+            policy,
+            CancellationToken::new(),
+        )
+        .err()
+        .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    });
+}
+
 async fn completed(owner: &NativeInstallHttp) -> io::Result<Completion> {
     tokio::time::timeout(Duration::from_secs(5), async {
         owner

@@ -4,7 +4,10 @@ use graphit_auth::{
     broker::{BrokerPolicy, BrokerVerifier, JsonLimits, VerifierLimits},
 };
 use graphit_core::{
-    artifact_store::{CapturedSourceReader, CopyPolicy, SourceReadLimits, StoreOwner},
+    artifact_store::{
+        CapturedSourceReader, CopyPolicy, ScopeContext, SourceReadLimits, StoreOwner,
+    },
+    local_files::canonical_directory,
     native_document_file::{CapturedDocumentDirectory, NativeDocumentFileLimits},
     project_identity::ProjectId,
     project_paths::InstallationPaths,
@@ -256,16 +259,25 @@ fn validate_resources(
     let StoreOwner::Installation { installation_id } = live.owner() else {
         return Err(io::ErrorKind::PermissionDenied.into());
     };
-    if live.owner_root() != resources.installation.root()
+    let root = canonical_directory(resources.installation.root())?;
+    if live.owner_root() != root.as_path()
         || live.brand() != resources.installation.brand()
         || resources.registry.scope()
             != &(HubScope::Global {
                 installation_id: installation_id.as_str().into(),
             })
-        || resources.registry.path().parent() != Some(resources.installation.root())
+        || resources
+            .registry
+            .path()
+            .parent()
+            .map(canonical_directory)
+            .transpose()?
+            .as_deref()
+            != Some(root.as_path())
     {
         return Err(io::ErrorKind::PermissionDenied.into());
     }
+    live.revalidate_installation(&ScopeContext::from_snapshot(original.snapshot()))?;
     Ok(())
 }
 /// Create only normal cache ancestors under the already authenticated installation.

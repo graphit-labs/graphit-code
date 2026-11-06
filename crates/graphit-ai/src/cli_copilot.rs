@@ -160,7 +160,11 @@ fn check(
     }
     let (_, request) = admission
         .project_and_request()
-        .map_err(|_| CopilotReason::Admission)?;
+        .map_err(|_| match original.check() {
+            // Revalidation can outlive the check above while doing scoped I/O.
+            Err(error) => CopilotReason::Context(error.kind()),
+            Ok(()) => CopilotReason::Admission,
+        })?;
     if !Arc::ptr_eq(original, request.snapshot()) {
         return Err(CopilotReason::Admission);
     }

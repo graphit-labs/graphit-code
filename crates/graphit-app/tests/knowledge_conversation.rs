@@ -891,14 +891,7 @@ impl Fixture {
         }
     }
     fn launches(&self) -> Vec<Value> {
-        match std::fs::read_to_string(&self.launches) {
-            Ok(s) => s
-                .lines()
-                .map(|s| serde_json::from_str(s).unwrap())
-                .collect(),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => panic!("fixture launch read {:?}", e.kind()),
-        }
+        read_launches(&self.launches)
     }
     fn turn_gate(&self, query: &str, suffix: &str) -> PathBuf {
         use sha2::{Digest, Sha256};
@@ -922,6 +915,68 @@ impl Fixture {
         std::fs::write(self.turn_gate(query, "release"), b"release native turn").unwrap();
     }
 }
+fn read_launches(path: &Path) -> Vec<Value> {
+    match std::fs::read(path) {
+        Ok(bytes) => {
+            // The peer publishes a JSONL record by completing its newline.
+            // An unfinished tail is not a record; malformed complete records fail.
+            let Some(end) = bytes.iter().rposition(|byte| *byte == b'\n') else {
+                return Vec::new();
+            };
+            bytes[..=end]
+                .split_inclusive(|byte| *byte == b'\n')
+                .map(|line| serde_json::from_slice(line).unwrap())
+                .collect()
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => panic!("fixture launch read {:?}", e.kind()),
+    }
+}
+
+#[test]
+fn launch_journal_snapshot_waits_for_complete_jsonl_records() {
+    use std::io::Write;
+
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("launches.jsonl");
+    assert!(read_launches(&path).is_empty());
+    let mut writer = std::fs::OpenOptions::new()
+        .create_new(true)
+        .append(true)
+        .open(&path)
+        .unwrap();
+    let first = json!({"args":["exec"],"query":"first"});
+    let mut committed = serde_json::to_vec(&first).unwrap();
+    committed.push(b'\n');
+    writer.write_all(&committed).unwrap();
+    let second = json!({"args":["exec"],"query":"açāo"});
+    let bytes = serde_json::to_vec(&second).unwrap();
+    let utf8 = bytes.iter().position(|byte| *byte == 0xc3).unwrap();
+    writer.write_all(&bytes[..5]).unwrap();
+    assert_eq!(read_launches(&path), vec![first.clone()]);
+    writer.write_all(&bytes[5..=utf8]).unwrap();
+    assert_eq!(read_launches(&path), vec![first.clone()]);
+    writer.write_all(&bytes[utf8 + 1..]).unwrap();
+    // Even a complete JSON value is unpublished until its JSONL delimiter.
+    assert_eq!(read_launches(&path), vec![first.clone()]);
+    writer.write_all(b"\n").unwrap();
+    assert_eq!(read_launches(&path), vec![first, second]);
+}
+
+#[test]
+fn launch_journal_snapshot_rejects_invalid_complete_records() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("launches.jsonl");
+    for bytes in [
+        b"{invalid}\n".as_slice(),
+        b"{\"query\":\"\xff\"}\n".as_slice(),
+        b"\n".as_slice(),
+    ] {
+        std::fs::write(&path, bytes).unwrap();
+        assert!(std::panic::catch_unwind(|| read_launches(&path)).is_err());
+    }
+}
+
 fn native_test(test: impl std::future::Future<Output = ()> + Send + 'static) {
     std::thread::Builder::new()
         .stack_size(8 * 1024 * 1024)
@@ -1856,8 +1911,9 @@ fn actual_post_effect_authorization_changes_withhold_delivery_and_keep_receipt()
                 .await
                 .unwrap()
             });
-            wait_for_launches(&f, 1).await;
+            // The ready gate follows the peer's completed journal append.
             f.wait_for_blocked_turn("wait delivery denial").await;
+            wait_for_launches(&f, 1).await;
             let moved = f.temp.path().join("moved-project");
             if physical {
                 std::fs::rename(f.project.root(), &moved).unwrap();

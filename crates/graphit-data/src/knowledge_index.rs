@@ -1997,6 +1997,13 @@ mod tests {
             max_text_bytes: n(131072),
         }
     }
+    // SystemTime uses 100 ns FILETIME intervals on Windows and ns on Unix.
+    const NATIVE_TIMESTAMP_TICK_NS: i64 = if cfg!(windows) { 100 } else { 1 };
+    const MIN_NATIVE_TIMESTAMP_NS: i64 =
+        i64::MIN / NATIVE_TIMESTAMP_TICK_NS * NATIVE_TIMESTAMP_TICK_NS;
+    const MAX_NATIVE_TIMESTAMP_NS: i64 =
+        i64::MAX / NATIVE_TIMESTAMP_TICK_NS * NATIVE_TIMESTAMP_TICK_NS;
+
     fn page<'a>(slug: &'a str, targets: &'a [&'a str]) -> AuthoredPageFields<'a> {
         AuthoredPageFields {
             slug: Some(slug),
@@ -2017,8 +2024,12 @@ mod tests {
                     max_summary_bytes: n(13),
                 }),
             },
-            updated_at: Some(UNIX_EPOCH - Duration::from_nanos(7)),
-            stale_since: Some(UNIX_EPOCH + Duration::from_nanos(11)),
+            updated_at: Some(
+                UNIX_EPOCH - Duration::from_nanos(7 * NATIVE_TIMESTAMP_TICK_NS as u64),
+            ),
+            stale_since: Some(
+                UNIX_EPOCH + Duration::from_nanos(11 * NATIVE_TIMESTAMP_TICK_NS as u64),
+            ),
             stale_after: Some(Duration::from_nanos(123)),
             resolved_wiki_targets: targets,
         }
@@ -2208,17 +2219,29 @@ mod tests {
     }
 
     #[test]
-    fn exact_nanoseconds_and_invalid_payload_are_rejected_without_sdk() -> Result<(), Box<dyn Error>>
-    {
-        for value in [i64::MIN, -1, 0, 1, i64::MAX] {
+    fn representable_timestamps_roundtrip_and_invalid_payloads_fail_without_sdk()
+    -> Result<(), Box<dyn Error>> {
+        for value in [
+            MIN_NATIVE_TIMESTAMP_NS,
+            -NATIVE_TIMESTAMP_TICK_NS,
+            0,
+            NATIVE_TIMESTAMP_TICK_NS,
+            MAX_NATIVE_TIMESTAMP_NS,
+        ] {
             assert_eq!(timestamp(time(value)?)?, value);
         }
         assert!(matches!(
-            timestamp(time(i64::MAX)? + Duration::from_nanos(1)),
+            timestamp(
+                time(MAX_NATIVE_TIMESTAMP_NS)?
+                    + Duration::from_nanos(NATIVE_TIMESTAMP_TICK_NS as u64)
+            ),
             Err(KnowledgeIndexError::InvalidField("timestamp_range"))
         ));
         assert!(matches!(
-            timestamp(time(i64::MIN)? - Duration::from_nanos(1)),
+            timestamp(
+                time(MIN_NATIVE_TIMESTAMP_NS)?
+                    - Duration::from_nanos(NATIVE_TIMESTAMP_TICK_NS as u64)
+            ),
             Err(KnowledgeIndexError::InvalidField("timestamp_range"))
         ));
         assert!(duration(Duration::ZERO).is_err());
@@ -2332,8 +2355,8 @@ mod tests {
         let mut second = page("á", &[]);
         second.description = None;
         second.physical_digest = None;
-        second.updated_at = Some(time(i64::MIN)?);
-        second.stale_since = Some(time(i64::MAX)?);
+        second.updated_at = Some(time(MIN_NATIVE_TIMESTAMP_NS)?);
+        second.stale_since = Some(time(MAX_NATIVE_TIMESTAMP_NS)?);
         second.stale_after = Some(Duration::from_nanos(i64::MAX as u64));
         let inputs = [page("z", &["ghost", "z", "ghost", ""]), second];
         let prepared = h::prepare(&ctx, &inputs, &[], hl())?;
@@ -2342,6 +2365,14 @@ mod tests {
             Ok(())
         })?;
         assert_eq!(batch.num_columns(), 18);
+        assert_eq!(
+            array::<TimestampNanosecondArray>(&batch, 12)?.value(1),
+            MIN_NATIVE_TIMESTAMP_NS
+        );
+        assert_eq!(
+            array::<TimestampNanosecondArray>(&batch, 13)?.value(1),
+            MAX_NATIVE_TIMESTAMP_NS
+        );
         let dir = tempfile::tempdir()?;
         let uri = dir.path().join("index.lance").to_str().unwrap().to_owned();
         let created = lance_foundation::LanceModuleStore::create(
@@ -2410,8 +2441,14 @@ mod tests {
         assert_eq!(output[0].body, inputs[0].body.unwrap());
         assert_eq!(output[0].resolved_wiki_targets, ["ghost", "z", "ghost", ""]);
         assert!(output[1].resolved_wiki_targets.is_empty());
-        assert_eq!(timestamp(output[1].updated_at.unwrap())?, i64::MIN);
-        assert_eq!(timestamp(output[1].stale_since.unwrap())?, i64::MAX);
+        assert_eq!(
+            timestamp(output[1].updated_at.unwrap())?,
+            MIN_NATIVE_TIMESTAMP_NS
+        );
+        assert_eq!(
+            timestamp(output[1].stale_since.unwrap())?,
+            MAX_NATIVE_TIMESTAMP_NS
+        );
         assert_eq!(output[1].physical_digest, None);
         assert_eq!(output[1].description, None);
         assert!(pin.schema().metadata().is_empty());

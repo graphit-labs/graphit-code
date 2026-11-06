@@ -16,7 +16,7 @@ use graphit_ast::{
 };
 use graphit_core::artifact_store::CapturedSourceReader;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(all(test, target_os = "linux"))]
 pub(crate) struct QueryJoin {
@@ -256,9 +256,11 @@ impl CapturedAstContext<'_> {
                     None => IndexedSource::Missing,
                 };
                 let physical = if matches!(source, IndexedSource::Missing) {
+                    let path =
+                        PathBuf::from(input.path.replace('/', std::path::MAIN_SEPARATOR_STR));
                     Some(CapturedSourceReader::capture_project(
                         read.project().map_err(io::Error::other)?.scope.live,
-                        Path::new(&input.path),
+                        &path,
                         graphit_fs::NodeKind::File,
                         &self.source.policy().file,
                         self.source.policy().read,

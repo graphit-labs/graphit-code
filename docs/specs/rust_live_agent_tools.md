@@ -81,6 +81,14 @@ explicitamente preparado e persistido, com composição real de Graph/Source:
 
 As quatro exigem `context` fulltuple AST selecionado e persistido. O agente descobre as tuplas em `inputSchema.properties.context.enum` das ferramentas AST retornadas por `tools/list`. Todas as quatro têm a mesma enum, formada somente pelas seleções AST preparadas do run. O proxy preserva essa enum tipada e canonicaliza o restante dos schemas; enum ausente, divergente ou duplicada é recusada. Descoberta de metadata não concede leitura de Source ou grafo. Não usam PROJECT default nem um grant Knowledge/Hub como ReadAst. Cada chamada obtém sua admissão AST própria e lê os dados disponíveis nessa operação. Atualizações derivadas não invalidam o run preparado. PROJECT sem grafo preserva a ausência SDK real; Source pode ler o arquivo do path e versão selecionados, sem índice ou Git, inclusive extensão não suportada. Importado/remoto preserva a seleção da publicação autorizada e sua integridade, sem recorrer ao disco do PROJECT corrente.
 
+O `path` de Source permanece a string lógica do corpus, incluindo `/` em caminhos
+como `nested/file.rs` em qualquer sistema operacional. Somente a aquisição física
+PROJECT representa esses separadores com `std::path::MAIN_SEPARATOR_STR` antes de
+chamar a captura Core. A consulta ao índice e as seleções importadas/remotas
+conservam a string original. A passagem não normaliza segmentos vazios ou `.`;
+Core continua rejeitando aliases, travessia, caminhos absolutos e NUL sob a mesma
+admissão e o mesmo Original.
+
 LIST usa metadata de Session/USER journal/turn/entrada Web verificados: quatro
 ferramentas sem AST preparado, oito com AST persistido e reader real. Não invoca
 CONTEXT nem exige PROJECT Knowledge para autorizar AST ou metadata. Knowledge e

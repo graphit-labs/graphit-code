@@ -17,9 +17,7 @@ impl ManifestObservation {
         limits: NativeDocumentFileLimits,
         original: &SnapshotContext,
     ) -> Result<Self, KnowledgeEmbeddingError> {
-        if !local.starts_with(corpus) {
-            return Err(KnowledgeEmbeddingError::InvalidStored("manifest path"));
-        }
+        let local = native_manifest_path(local, corpus)?;
         let parent = local
             .parent()
             .ok_or(KnowledgeEmbeddingError::InvalidStored("manifest path"))?;
@@ -202,7 +200,7 @@ pub async fn capture_knowledge_embedding_snapshots_guarded(
         ));
     }
     if let Some(pin) = &semantic
-        && (pin.dataset().uri() != source.corpus_uri()
+        && (pin.corpus_uri() != source.corpus_uri()
             || pin.version() != source.version()
             || pin.schema() != source.schema())
     {
@@ -211,7 +209,7 @@ pub async fn capture_knowledge_embedding_snapshots_guarded(
         ));
     }
     let metadata = embedding_guarded(source.native_metadata(original), &mut before).await??;
-    let source_corpus = local_corpus(metadata.uri())?;
+    let source_corpus = local_corpus(source.corpus_uri())?;
     let source_path = PathBuf::from(lance_io::local::to_local_path(
         &metadata.manifest_location().path,
     ));
@@ -219,14 +217,14 @@ pub async fn capture_knowledge_embedding_snapshots_guarded(
         ManifestObservation::capture(&source_path, &source_corpus, limits.native, original)?;
     before()?;
     // Reopen this retained version solely to bind the physical observation.
-    let reopened = embedding_guarded(
-        lance::dataset::builder::DatasetBuilder::from_uri(metadata.uri())
-            .with_version(source.version())
-            .with_session(Arc::new(lance::session::Session::default()))
-            .load(),
-        &mut before,
-    )
-    .await??;
+    let sdk_uri = crate::lance_module_store::sdk_uri(metadata.uri())?;
+    let builder = lance::dataset::builder::DatasetBuilder::from_uri(sdk_uri.as_ref())
+        .with_session(Arc::new(lance::session::Session::default()));
+    let builder = match metadata.manifest().branch.as_deref() {
+        Some(branch) => builder.with_branch(branch, Some(source.version())),
+        None => builder.with_version(source.version()),
+    };
+    let reopened = embedding_guarded(builder.load(), &mut before).await??;
     if reopened.manifest_location().path != metadata.manifest_location().path
         || reopened.version_id() != source.version()
     {
@@ -240,7 +238,7 @@ pub async fn capture_knowledge_embedding_snapshots_guarded(
         if !store.has_direct_local_paths() {
             return Err(KnowledgeEmbeddingError::InvalidInput("nonlocal manifest"));
         }
-        let corpus = local_corpus(pin.dataset().uri())?;
+        let corpus = local_corpus(pin.corpus_uri())?;
         let path = PathBuf::from(lance_io::local::to_local_path(
             &pin.dataset().manifest_location().path,
         ));
@@ -308,7 +306,7 @@ async fn capture_pins(
         ));
     }
     if let Some(pin) = &semantic
-        && (pin.dataset().uri() != source.corpus_uri()
+        && (pin.corpus_uri() != source.corpus_uri()
             || pin.version() != source.version()
             || pin.schema() != source.schema())
     {
@@ -416,4 +414,145 @@ pub async fn query_knowledge_embedding_snapshot_source_search_guarded(
         preview,
     )
     .await
+}
+
+#[cfg(test)]
+mod manifest_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn readonly_source_and_semantic_keep_original_locator_and_named_manifest()
+    -> Result<(), Box<dyn Error>> {
+        let root = tempfile::tempdir()?;
+        let corpus = root.path().canonicalize()?.join("source %20 λ.lance");
+        let uri = corpus.to_str().unwrap();
+        let schema = index::semantic::schema(NonZeroU32::new(2).unwrap())?;
+        crate::lance_module_store::LanceModuleStore::create(
+            uri,
+            Arc::clone(&schema),
+            vec![RecordBatch::new_empty(Arc::clone(&schema))],
+        )
+        .await?;
+        let store = crate::lance_branch_store::LanceBranchStore::open(uri, schema, None).await?;
+        let original = Arc::new(SnapshotContext::new(
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
+            graphit_core::file_lock::Cancellation::default(),
+        ));
+        let limits = KnowledgeIndexReadLimits {
+            content: index::KnowledgeIndexContentLimits {
+                max_identifier_bytes: NonZeroUsize::new(4096).unwrap(),
+            },
+            native: NativeDocumentFileLimits::new(65536, 65536, 256, 65536)?,
+            batch_rows: NonZeroU32::new(32).unwrap(),
+        };
+        for branch in [None, Some("dev")] {
+            let pin = store.capture_target(branch).await?.materialize().await?;
+            let version = pin.version();
+            let capture = capture_knowledge_embedding_snapshots_guarded(
+                &original,
+                pin.module_snapshot(),
+                Some(pin),
+                limits,
+                || Ok(()),
+            )
+            .await?;
+            assert_eq!(capture.source.corpus_uri(), uri);
+            assert_eq!(capture.semantic.as_ref().unwrap().corpus_uri(), uri);
+            assert_eq!(capture.source.version(), version);
+            assert_eq!(capture.semantic.as_ref().unwrap().physical_branch(), branch);
+            capture.check(&original, &mut || Ok(()))?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn sdk_manifest_capture_preserves_literal_names_and_rejects_foreign_corpus()
+    -> Result<(), Box<dyn Error>> {
+        let root = tempfile::tempdir()?;
+        let corpus = root.path().canonicalize()?.join("source %20 λ.lance");
+        let parent = corpus.join("_versions");
+        std::fs::create_dir_all(&parent)?;
+        let manifest = parent.join("1.manifest");
+        std::fs::write(&manifest, b"retained manifest")?;
+        let sdk = crate::lance_module_store::sdk_uri(corpus.to_str().unwrap())?;
+        let sdk_manifest = Path::new(sdk.as_ref()).join("_versions/1.manifest");
+        let original = SnapshotContext::new(
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+            graphit_core::file_lock::Cancellation::default(),
+        );
+        let limits = NativeDocumentFileLimits::new(65536, 65536, 256, 65536)?;
+        let captured = ManifestObservation::capture(&sdk_manifest, &corpus, limits, &original)?;
+        captured.check(&original)?;
+        assert_eq!(captured.directory.canonical_path(), parent);
+        assert!(matches!(
+            ManifestObservation::capture(
+                &sdk_manifest,
+                &corpus.with_file_name("foreign.lance"),
+                limits,
+                &original
+            ),
+            Err(KnowledgeEmbeddingError::InvalidStored("manifest path"))
+        ));
+        assert!(native_manifest_path(Path::new(sdk.as_ref()), &corpus).is_err());
+        assert!(
+            native_manifest_path(
+                &Path::new(sdk.as_ref()).join("../foreign/1.manifest"),
+                &corpus
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sdk_manifest_capture_rejects_symlink_leaf() -> Result<(), Box<dyn Error>> {
+        let root = tempfile::tempdir()?;
+        let corpus = root.path().canonicalize()?.join("source.lance");
+        let parent = corpus.join("_versions");
+        std::fs::create_dir_all(&parent)?;
+        let target = parent.join("actual.manifest");
+        std::fs::write(&target, b"must not follow")?;
+        let manifest = parent.join("1.manifest");
+        std::os::unix::fs::symlink(&target, &manifest)?;
+        let original = SnapshotContext::new(
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+            graphit_core::file_lock::Cancellation::default(),
+        );
+        assert!(
+            ManifestObservation::capture(
+                &manifest,
+                &corpus,
+                NativeDocumentFileLimits::new(65536, 65536, 256, 65536)?,
+                &original
+            )
+            .is_err()
+        );
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn sdk_manifest_paths_rejoin_verbatim_drive_and_unc_without_changing_names() {
+        for (corpus, local) in [
+            (
+                r"\\?\C:\source %20 λ.lance",
+                "C:/source %20 λ.lance/_versions/1.manifest",
+            ),
+            (
+                r"\\?\UNC\server\share\source %20 λ.lance",
+                "//server/share/source %20 λ.lance/tree/dev/_versions/1.manifest",
+            ),
+        ] {
+            let path = native_manifest_path(Path::new(local), Path::new(corpus)).unwrap();
+            assert!(path.starts_with(corpus));
+            assert_eq!(path.file_name().unwrap(), "1.manifest");
+            assert_eq!(
+                path.components()
+                    .filter(|c| matches!(c, std::path::Component::ParentDir))
+                    .count(),
+                0
+            );
+        }
+    }
 }

@@ -141,6 +141,13 @@ parâmetros authored-document-v1. Tempos convertem exatamente para signed i64 ns
 inclusive antes do epoch; duração presente precisa ser positiva e ter updated_at.
 Overflow/zero/range inválido falham antes do SDK, sem truncar ou ampliar tipos.
 
+A API recebe `SystemTime` com a precisão nativa da plataforma: Windows usa
+intervalos de 100 ns; Unix representa nanossegundos. O encoder conserva
+exatamente o valor representável recebido em Arrow signed i64 ns; não recupera
+subdivisões que o próprio `SystemTime` não contém. As fixtures usam extremos
+representáveis e verificam os valores Arrow antes do roundtrip, além de
+rejeitar overflow por um tick nativo. `Duration` conserva precisão de 1 ns.
+
 `KnowledgeIndexContentLimits` contém somente `max_identifier_bytes`, aplicado
 individualmente aos identificadores validados. Read e Write reutilizam esse
 contrato. Não há quota agregada de páginas, referências cruas, texto de entrada

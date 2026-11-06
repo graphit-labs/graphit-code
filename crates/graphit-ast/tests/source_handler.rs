@@ -888,14 +888,15 @@ async fn actual_role_file_registration_permission_scope_and_revocation() -> Test
     let cancel = Cancellation::default();
     let mut ctx = request(&cancel);
     let f = Fixture::new(&ctx, true, false)?;
-    let role_dir = f.projects[0].root.join("roles/scout");
+    let relative_role = Path::new("roles").join("scout");
+    let role_dir = f.projects[0].root.join(&relative_role);
     fs::create_dir_all(&role_dir)?;
     let agent =
         "---\nname: scout\ndescription: Source reader\nread_only: true\n---\n\nInspect source.\n";
     fs::write(role_dir.join("AGENT.md"), agent)?;
     let captured = CapturedSourceReader::capture_project(
         &f.projects[0].scope,
-        Path::new("roles/scout/AGENT.md"),
+        &relative_role.join("AGENT.md"),
         NodeKind::File,
         &file_policy(),
         read_limits(),

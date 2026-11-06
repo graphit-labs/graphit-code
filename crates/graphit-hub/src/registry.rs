@@ -1218,34 +1218,36 @@ impl HubRegistry {
         }
     }
     fn check_parent(&self) -> io::Result<bool> {
-        match fs::symlink_metadata(self.parent.as_path()) {
-            Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
-                if fs::canonicalize(self.parent.as_path())? != self.parent.as_path() {
-                    return Err(invalid());
-                }
-                Ok(true)
-            }
-            Ok(_) => Err(invalid()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                let mut ancestor = self.parent.as_path().parent().ok_or_else(invalid)?;
-                loop {
-                    match fs::symlink_metadata(ancestor) {
-                        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {
-                            if fs::canonicalize(ancestor)? != ancestor {
-                                return Err(invalid());
-                            }
-                            return Ok(false);
-                        }
-                        Ok(_) => return Err(invalid()),
-                        Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                            ancestor = ancestor.parent().ok_or_else(invalid)?
-                        }
-                        Err(error) => return Err(error),
+        // Native spelling is data: Windows canonicalize adds a verbatim prefix.
+        // Inspect every existing component instead of mistaking that spelling
+        // change for an intermediate link. These observations grant no authority.
+        let mut parent_present = false;
+        let mut observed_ancestor = false;
+        for (index, path) in self.parent.as_path().ancestors().enumerate() {
+            match fs::symlink_metadata(path) {
+                Ok(metadata) => {
+                    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+                        return Err(invalid());
                     }
+                    #[cfg(windows)]
+                    {
+                        use std::os::windows::fs::MetadataExt;
+                        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+                        if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+                            return Err(invalid());
+                        }
+                    }
+                    parent_present |= index == 0;
+                    observed_ancestor = true;
                 }
+                Err(error) if error.kind() == io::ErrorKind::NotFound && !observed_ancestor => {}
+                Err(error) => return Err(error),
             }
-            Err(error) => Err(error),
         }
+        if !observed_ancestor {
+            return Err(io::ErrorKind::NotFound.into());
+        }
+        Ok(parent_present)
     }
     pub fn load(&self) -> io::Result<HubDocument> {
         self.validate_context()?;

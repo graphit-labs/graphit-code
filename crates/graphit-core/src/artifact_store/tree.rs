@@ -985,7 +985,17 @@ impl SourcePlan {
             if link.is_some() {
                 return Err(io::ErrorKind::InvalidInput.into());
             }
-            let file = fs::File::open(&path)?;
+            let mut options = fs::OpenOptions::new();
+            options.read(true);
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                use windows_sys::Win32::Storage::FileSystem::{
+                    FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+                };
+                options.custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+            }
+            let file = options.open(&path)?;
             if physical_id(&path, &before)? != handle_id(&file)? {
                 return Err(io::ErrorKind::InvalidData.into());
             }

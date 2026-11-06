@@ -1846,3 +1846,32 @@ fn selected_paths_discovery_does_not_hash_payloads() {
     .unwrap();
     assert_eq!(selected, [PathBuf::from("a.rs"), PathBuf::from("z.rs")]);
 }
+
+#[cfg(windows)]
+#[test]
+fn open_same_size_control_writer_denies_selected_reads_and_metadata() {
+    use std::io::Write;
+    let (_temp, paths, _birth, scope) = fixture();
+    let control = paths.root().join(".gitignore");
+    std::fs::write(&control, b"#first\n").unwrap();
+    let original = request();
+    let extra = Path::new("Memory").join("data");
+    let extras = [extra.as_path()];
+    let mut input = criteria(None, &extras, &["data"]);
+    input.ignore.git_control = Some(".gitignore");
+    let reader = capture_with(&scope, input, limits(), &original).unwrap();
+    let file = reader.open_file(&extra).unwrap();
+    let modified = std::fs::metadata(&control).unwrap().modified().unwrap();
+    let mut writer = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&control)
+        .unwrap();
+    writer.write_all(b"#other\n").unwrap();
+    writer.flush().unwrap();
+    writer.set_modified(modified).unwrap();
+    assert_eq!(
+        file.read_range(0, 1).err().unwrap().raw_os_error(),
+        Some(32)
+    );
+    assert_eq!(file.last_modified().unwrap_err().raw_os_error(), Some(32));
+}

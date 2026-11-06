@@ -108,6 +108,136 @@ fn actual_reader_ranges_and_metadata_use_native_selected_pipeline() {
     drop(current);
     drop(temporary);
 }
+#[test]
+fn source_file_edit_is_allowed_but_invalidates_retained_observations() {
+    let (_temporary, paths, _birth, scope) = fixture();
+    let current = request();
+    let reader = capture(&scope, "Memory", NodeKind::Directory, &current).unwrap();
+    let file = reader.open_file(Path::new("data")).unwrap();
+    let prior = file.read_range(0, 6).unwrap();
+    let path = paths.root().join("Memory").join("data");
+    std::fs::write(path, b"new complete source").unwrap();
+    assert_eq!(prior.as_ref(), b"memory");
+    assert_eq!(
+        file.last_modified().unwrap_err().kind(),
+        io::ErrorKind::InvalidData
+    );
+    assert_eq!(
+        file.read_range(0, 6).err().unwrap().kind(),
+        io::ErrorKind::InvalidData
+    );
+    let fresh = capture(&scope, "Memory", NodeKind::Directory, &current).unwrap();
+    assert_eq!(
+        fresh
+            .open_file(Path::new("data"))
+            .unwrap()
+            .read_range(0, 19)
+            .unwrap()
+            .as_ref(),
+        b"new complete source"
+    );
+}
+#[test]
+fn idle_source_file_replacement_and_removal_invalidate_old_readers() {
+    for kind in [NodeKind::Directory, NodeKind::File] {
+        let (_temporary, paths, _birth, scope) = fixture();
+        let current = request();
+        let selection = if kind == NodeKind::File {
+            Path::new("Memory").join("data")
+        } else {
+            PathBuf::from("Memory")
+        };
+        let relative = if kind == NodeKind::File {
+            Path::new("")
+        } else {
+            Path::new("data")
+        };
+        let capture = || {
+            CapturedSourceReader::capture_project(
+                &scope,
+                &selection,
+                kind,
+                &policy(CopyPolicy::RejectFileLinks),
+                read_limits(),
+                &current,
+            )
+        };
+        let reader = capture().unwrap();
+        let file = reader.open_file(relative).unwrap();
+        let prior = file.read_range(0, 11).unwrap();
+        let path = paths.root().join("Memory").join("data");
+        let staged = path.with_file_name("replacement");
+        std::fs::write(&staged, b"replacement").unwrap();
+        std::fs::rename(&staged, &path).unwrap();
+        assert_eq!(prior.as_ref(), b"memory-data");
+        assert!(file.last_modified().is_err());
+        assert!(file.read_range(0, 11).is_err());
+        let fresh = capture().unwrap();
+        let fresh_file = fresh.open_file(relative).unwrap();
+        assert_eq!(
+            fresh_file.read_range(0, 11).unwrap().as_ref(),
+            b"replacement"
+        );
+        std::fs::remove_file(&path).unwrap();
+        assert!(fresh_file.last_modified().is_err());
+        assert!(fresh_file.read_range(0, 11).is_err());
+        if kind == NodeKind::File {
+            assert!(capture().is_err());
+        } else {
+            assert!(capture().unwrap().open_file(relative).is_err());
+        }
+    }
+}
+#[cfg(windows)]
+#[test]
+fn same_size_source_writer_open_denies_range_stream_metadata_and_capture() {
+    use std::io::{Read, Write};
+    let (_temporary, paths, _birth, scope) = fixture();
+    let current = request();
+    let reader = capture(&scope, "Memory", NodeKind::Directory, &current).unwrap();
+    let file = reader.open_file(Path::new("data")).unwrap();
+    let mut stream = file.stream(0).unwrap();
+    let prior = file.read_range(0, 11).unwrap();
+    let modified = file.last_modified().unwrap();
+    let path = paths.root().join("Memory").join("data");
+    let mut writer = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+    writer.write_all(b"edited-data").unwrap();
+    writer.flush().unwrap();
+    // Hold observation metadata equal: a strict read acquisition must reject
+    // the live writer even before Windows publishes its last-write timestamp.
+    writer.set_modified(modified).unwrap();
+    assert_eq!(writer.metadata().unwrap().len(), 11);
+    assert_eq!(writer.metadata().unwrap().modified().unwrap(), modified);
+    assert_eq!(
+        file.read_range(0, 11).err().unwrap().raw_os_error(),
+        Some(32)
+    );
+    assert_eq!(file.last_modified().unwrap_err().raw_os_error(), Some(32));
+    assert_eq!(
+        stream.read(&mut [0; 11]).unwrap_err().raw_os_error(),
+        Some(32)
+    );
+    assert!(capture(&scope, "Memory", NodeKind::Directory, &current).is_err());
+    drop(writer);
+    assert_eq!(prior.as_ref(), b"memory-data");
+    assert_eq!(
+        reader
+            .validate_file_bytes(Path::new("data"), b"edited-data", &current)
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::InvalidData
+    );
+    let fresh = capture(&scope, "Memory", NodeKind::Directory, &current).unwrap();
+    assert_eq!(
+        fresh
+            .open_file(Path::new("data"))
+            .unwrap()
+            .read_range(0, 11)
+            .unwrap()
+            .as_ref(),
+        b"edited-data"
+    );
+}
 #[cfg(unix)]
 #[test]
 fn swap_after_scope_birth_never_reads_replacement_corpus() {

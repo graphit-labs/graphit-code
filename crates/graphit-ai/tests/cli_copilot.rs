@@ -430,8 +430,9 @@ async fn create_and_cold_resume_confirm_exact_native_result_and_clean_process() 
 #[tokio::test]
 async fn errors_missing_mismatched_terminal_and_post_result_save_failure_never_deliver_answer() {
     let signal = Cancellation::default();
-    let ctx = request(&signal);
-    let f = Fixture::new(&ctx);
+    // Bootstrap and each native operation have separate, finite Originals.
+    let setup = request(&signal);
+    let f = Fixture::new(&setup);
     for (mode, expected) in [
         ("startup_error", CopilotReason::NonzeroExit),
         ("native_error", CopilotReason::Terminal),
@@ -445,6 +446,7 @@ async fn errors_missing_mismatched_terminal_and_post_result_save_failure_never_d
         ("nonzero_after_result", CopilotReason::NonzeroExit),
     ] {
         let h = host().await;
+        let ctx = request(&signal);
         let mut sink = Sink::default();
         let mut result = run(
             &f,
@@ -469,8 +471,12 @@ async fn errors_missing_mismatched_terminal_and_post_result_save_failure_never_d
         finish(h, &mut result).await;
     }
     let id = std::fs::read_to_string(f.root.join("native-session")).unwrap();
-    for mode in ["resume_mismatch", "resume_error"] {
+    for (mode, expected) in [
+        ("resume_mismatch", CopilotReason::Protocol),
+        ("resume_error", CopilotReason::NonzeroExit),
+    ] {
         let h = host().await;
+        let ctx = request(&signal);
         let mut sink = Sink::default();
         let mut result = run(
             &f,
@@ -482,12 +488,16 @@ async fn errors_missing_mismatched_terminal_and_post_result_save_failure_never_d
             &mut sink,
         )
         .await;
-        assert!(result.is_err());
+        let error = result.as_ref().unwrap_err();
+        assert_eq!(error.reason(), expected, "{mode}");
+        assert!(error.receipt().process().is_some());
+        assert!(error.receipt().eligible_text().is_none());
         assert!(sink.bound.is_empty());
         finish(h, &mut result).await;
     }
     std::fs::remove_file(f.root.join("native-session")).unwrap();
     let h = host().await;
+    let ctx = request(&signal);
     let mut sink = Sink::default();
     let mut result = run(
         &f,
@@ -499,7 +509,10 @@ async fn errors_missing_mismatched_terminal_and_post_result_save_failure_never_d
         &mut sink,
     )
     .await;
-    assert!(result.is_err());
+    let error = result.as_ref().unwrap_err();
+    assert_eq!(error.reason(), CopilotReason::NonzeroExit);
+    assert!(error.receipt().process().is_some());
+    assert!(error.receipt().eligible_text().is_none());
     assert!(sink.bound.is_empty());
     assert!(!f.root.join("native-session").exists());
     finish(h, &mut result).await;

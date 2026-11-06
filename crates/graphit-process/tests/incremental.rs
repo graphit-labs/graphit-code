@@ -100,9 +100,9 @@ async fn disconnected(peer: &mut TcpStream) {
         }
     }
 }
-async fn ack(peer: &mut TcpStream) {
+async fn ack(peer: &mut TcpStream, value: u8) {
     loop {
-        match peer.write(b"A") {
+        match peer.write(&[value]) {
             Ok(1) => return,
             Ok(_) => panic!("fixture closed acknowledgement"),
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -148,7 +148,7 @@ impl IncrementalSink for AckSink<'_> {
             // Child cannot produce SECOND/exit without this ACK. Completion7
             // therefore proves the first binary delivery occurred while alive.
             self.first_alive = true;
-            ack(self.peer.as_mut().unwrap()).await;
+            ack(self.peer.as_mut().unwrap(), b'A').await;
             self.acknowledged = true;
         } else if let Some(error) = self.reject_second {
             return Err(error);
@@ -476,6 +476,37 @@ async fn actual_read_readiness_precedes_shared_cancellation_without_callback() {
     assert_eq!(error.delivered, Counts::default());
     assert!(error.transcript.is_none());
 }
+#[tokio::test(flavor = "current_thread")]
+async fn exit_output_requires_readiness_ack_before_native_exit() {
+    for (acknowledgement, exit_code) in [(b'A', 7), (b'X', 101)] {
+        let dir = TempDir::new().unwrap();
+        let context = original(&Cancellation::default(), Duration::from_secs(5));
+        let socket = listener();
+        let address = socket.local_addr().unwrap().to_string();
+        let mut sink = IgnoreChunks;
+        let run = execute_operation(
+            request(dir.path(), &["exit-output", &address]),
+            &context,
+            Retention::None,
+            &mut sink,
+        );
+        let confirm = async {
+            let mut child = peer(&socket).await;
+            assert_eq!(byte(&mut child).await, Some(b'L'));
+            ack(&mut child, acknowledgement).await;
+        };
+        let (result, ()) = tokio::join!(run, confirm);
+        // execute_operation has joined the actual Host before these assertions.
+        let outcome = result.unwrap();
+        assert_eq!(outcome.status.code(), Some(exit_code));
+        assert_owned_cleanup(outcome.cleanup);
+        assert!(outcome.remaining.is_none());
+        assert_eq!(outcome.pipes.stdout, PipeEnd::Eof);
+        assert_eq!(outcome.pipes.stderr, PipeEnd::Eof);
+        assert_eq!(outcome.observed.stdout, 8);
+        assert_eq!(outcome.delivered, outcome.observed);
+    }
+}
 struct ExitPendingSink {
     socket: TcpListener,
     peer_closed: bool,
@@ -497,6 +528,7 @@ impl IncrementalSink for ExitPendingSink {
         if !self.peer_closed {
             let mut child = peer(&self.socket).await;
             assert_eq!(byte(&mut child).await, Some(b'L'));
+            ack(&mut child, b'A').await;
             disconnected(&mut child).await;
             self.peer_closed = true;
             self.entered.notify_one();

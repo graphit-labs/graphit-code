@@ -101,6 +101,19 @@ The exact coordinated dependency fragment disables default cloud features for la
 
 Pinned direct dependencies are lance/lance-table/lance-core/lance-io 14.0.2, Arrow array/schema 58.3.0, object_store 0.14.2, async-trait 0.1.92, url 2.5.8, serde 1.0.229 and futures 0.3.34. Test fixtures use tokio 1.53.2, tempfile 3.27.0, serde_json 1.0.151 and the sibling `lance_module_store` module. ObjectStore public wrappers inject transport failures around real SDK writes and readback; they do not replace the commit protocol.
 
+The local SDK selects conditional put on Unix and atomic rename on Windows.
+The transport fixture intercepts both publication operations and counts the
+actual injected manifest fault. A pre-publication failure keeps the original
+branch and unresolved recovery key; a lost acknowledgement after publication
+keeps the committed state and is resolved through a fresh read. An explicit
+official `RenameCommitHandler` fixture also exercises that transport on Unix.
+
+AST corpus cleanup is qualified by a reduction in obsolete versions, unchanged
+branch heads and rows, retained active snapshots, and working FTS/vector reads
+on default and named branches. The SDK may discard a fork manifest while
+retaining files referenced by descendants; the number of retained manifests
+and the number of internal maintenance commits are not fixed test contracts.
+
 Portable qualification commands:
 
 ```text

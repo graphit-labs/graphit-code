@@ -38,6 +38,14 @@ bases. Memory, Task, USER Memory, Knowledge, imported Knowledge, received
 packages and clone destinations use that representation. Non-Unicode paths
 fail explicitly. SDK locators remain data, never filesystem or PROJECT authority.
 
+Windows SDK arguments use the existing native-path adapter while public corpus
+locators and recovery keys retain their original spelling. Knowledge manifest
+capture translates the SDK prefix back under that retained corpus, then uses
+the existing captured directory traversal and protected leaf read. It does not
+canonicalize the manifest file or follow a symlink to another leaf. Readonly
+Source and semantic pins compare their retained locators; reopening selects
+the captured physical branch and version through the same SDK adapter.
+
 S3 selectors, endpoints, credentials, branches and provider authorization retain
 their existing contracts. No local copy, synchronization queue or fallback is
 introduced for remote authoritative tables. See

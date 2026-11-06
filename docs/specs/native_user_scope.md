@@ -54,6 +54,13 @@ after the existing held ancestor and scope checks. Permission errors, links,
 wrong types, replaced captured directories, cancellation and deadline remain
 errors. READ does not create an empty corpus to disguise absence.
 
+The memory probe constructs `runtime` and `memory` as separate native path
+components before the existing strict relative-path validation. This keeps the
+internal locator valid on Windows without accepting slash aliases or relaxing
+namespace selection. An absent USER memory directory still returns absence
+without creating directories or files.
+
+
 On Linux, Windows and macOS, `ArtifactStore::writer_with_context` reuses its existing held control chain and kernel lock at the USER runtime. After the caller's actual Auth write admission, `ArtifactWriter::create_user_memory_directory(limits)` creates only the fixed private `memory` child and returns its USER directory capture. It rejects existing entries rather than adopting or repairing them. The writer keeps the original operation and closes its lock on drop. A failure after a real directory birth can leave an empty directory; it does not imply rollback or a published dataset. The platform implementation follows the native writer contract and its held-parent privacy requirements. Windows/macOS native execution remains UNRUN. Fresh Darwin birth under a parent with a child-relevant inheritable ACE is denied before creation; non-inheritable parent access does not require a private parent.
 
 The PROJECT directory capture and fixed PROJECT record factory retain their

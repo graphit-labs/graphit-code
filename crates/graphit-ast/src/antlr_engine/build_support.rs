@@ -17,9 +17,9 @@ pub struct RuntimeInstall {
     pub cpp_definitions: &'static [(&'static str, &'static str)],
 }
 
-// Darwin links Ladybug's ANTLR alongside ours. Give the runtime and every
+// Darwin and Windows link Ladybug's ANTLR alongside ours. Give the runtime and every
 // translation unit that consumes its headers the same private C++ names.
-const DARWIN_ANTLR_DEFINITIONS: &[(&str, &str)] = &[
+const PRIVATE_ANTLR_DEFINITIONS: &[(&str, &str)] = &[
     ("antlr4", "graphit_ast_antlr4"),
     ("antlrcpp", "graphit_ast_antlrcpp"),
     ("XPathLexer", "GraphitAstXPathLexer"),
@@ -131,8 +131,8 @@ pub fn build_runtime() -> Result<RuntimeInstall, BuildError> {
     let static_crt = target_features
         .split(',')
         .any(|feature| feature == "crt-static");
-    let cpp_definitions = if target_os == "macos" {
-        DARWIN_ANTLR_DEFINITIONS
+    let cpp_definitions = if target_os == "macos" || target_os == "windows" {
+        PRIVATE_ANTLR_DEFINITIONS
     } else {
         &[]
     };

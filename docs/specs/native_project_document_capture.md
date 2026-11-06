@@ -33,6 +33,36 @@ PROJECT and published-document reads share one body/hash/growth-probe loop. It v
 
 NativeDocumentFileLimits bounds document bytes, logical path bytes, ancestor count, aggregate selected-prefix/file path bytes and complete access data. ScopeLimits continues to bound root capture. PROJECT uses the existing rustix and generated Windows SDK backends. Windows owner/group/DACL reads use SDK-validated aligned storage; this operation does not require a new FFI bridge.
 
+Windows directory enumeration uses `ReOpenFile` on the retained directory handle
+for an independent cursor. It preserves the existing read/traverse access,
+read/write sharing without delete sharing, and reparse-point rejection; volume
+and file index must match the held parent. No pathname is reopened and public
+component selection still rejects `.` and `..`. The same operation covers root
+handles and descendants opened relative to a held directory. See the
+[SDK contract](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-reopenfile).
+
+Source FILE observations and idle readers use a distinct read-only profile on
+Windows that shares write and delete access, allowing edits, atomic replacement
+and removal while a capture remains alive. Each actual range/stream read and
+metadata observation first reopens the leaf through its retained authorized
+parent using the strict read profile, checks the captured identity and
+observation, and holds that short handle through the operation's final checks.
+A writer already open causes an acquisition error before bytes are returned;
+replacement or removal invalidates the old binding. The short handle prevents
+writes and replacement during that operation and is dropped when it returns,
+including each stream chunk. Initial capture payload/control hashing uses the
+same strict file profile. This avoids relying on Windows last-write timestamps
+while an external writer is still open. Complete supplied bodies are checked
+against the captured digest by `validate_file_bytes`; individual ranges do not
+claim a new whole-file digest check. Bytes already returned remain owned by
+that earlier result. Directory/owner-root handles retain their no-delete fence;
+document, credential and database profiles keep their existing sharing rules.
+The Source profile grants no write/delete rights to its own handle and does not
+permit an alias, reparse point or hardlink. See
+[Windows file sharing](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
+and [last-write timestamps](https://learn.microsoft.com/en-us/windows/win32/sysinfo/file-times).
+
+
 scope.project_owner_binding(limits, context) returns the ProjectId, brand, complete physical owner-root identity, directory kind and mode/read-only observation. Its limits bound brand and encoded record bytes. The selected child's identity does not replace the owner-root identity. The GOROOT01 codec is data only: decoding it does not construct a scope or a retained handle. Independent Unix and Windows record fixtures check field ordering, truncation, malformed tags and configured length limits.
 
 The affected tests cover existing and absent children, strict names and parents, independent contexts, owner kinds, length/path/access bounds, root and parent substitution, growth, read-only files, cancellation, deadlines and record decoding. Native Windows and macOS execution is separate from Linux verification.

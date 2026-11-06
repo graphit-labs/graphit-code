@@ -422,17 +422,19 @@ async fn original_cancel_and_deadline_after_observed_send_preserve_effect() {
         let cancellation = Cancellation::default();
         let setup = request(&cancellation, Instant::now() + Duration::from_secs(30));
         let auth = AuthFixture::new(&setup, DirectProtocol::Jina, &tcp.origin);
+        // Issuer and transport are long-lived setup. Authentication, lease and
+        // inference still share the one unchanged finite Original below.
+        let issuer = auth.issuer(&setup, ServicePurpose::Rerank);
+        let transport = client(&tcp.origin);
         let ctx = request(
             &cancellation,
             Instant::now() + Duration::from_secs(if cancel { 30 } else { 1 }),
         );
-        let issuer = auth.issuer(&ctx, ServicePurpose::Rerank);
         let caller = issuer.authenticate_local(MCP_KEY, &ctx).unwrap();
         let mut selection = issuer
             .capture_service(&caller, ServicePurpose::Rerank)
             .unwrap();
         let lease = selection.credential().unwrap();
-        let transport = client(&tcp.origin);
         let call =
             direct_native_rerank::score(&lease, "query", &["document"], &transport, limits(1));
         tokio::pin!(call);

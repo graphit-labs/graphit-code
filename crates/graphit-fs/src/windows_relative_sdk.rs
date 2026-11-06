@@ -20,11 +20,15 @@ use windows_sys::{
         },
     },
     Win32::{
-        Foundation::{GENERIC_READ, GENERIC_WRITE, RtlNtStatusToDosError, UNICODE_STRING},
+        Foundation::{
+            GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE, RtlNtStatusToDosError,
+            UNICODE_STRING,
+        },
         Storage::FileSystem::{
-            FILE_ID_BOTH_DIR_INFO, FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA,
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_ID_BOTH_DIR_INFO,
+            FILE_LIST_DIRECTORY, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_DELETE,
             FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_TRAVERSE, FileIdBothDirectoryInfo,
-            GetFileInformationByHandleEx, SYNCHRONIZE,
+            GetFileInformationByHandleEx, ReOpenFile, SYNCHRONIZE,
         },
         System::IO::{IO_STATUS_BLOCK, IO_STATUS_BLOCK_0},
     },
@@ -35,8 +39,8 @@ pub(super) fn open_relative_readonly(
     name: &OsStr,
     kind: Option<NodeKind>,
     max_component_bytes: usize,
-    internal_enumerator: bool,
     document_read: bool,
+    source_read: bool,
     before: &mut impl FnMut() -> io::Result<()>,
 ) -> io::Result<File> {
     open_relative(
@@ -45,8 +49,8 @@ pub(super) fn open_relative_readonly(
         kind,
         max_component_bytes,
         RelativeOperation::Read {
-            internal_enumerator,
             document_read,
+            source_read,
         },
         before,
     )
@@ -94,8 +98,8 @@ pub(super) fn open_private_database_relative(
 
 enum RelativeOperation {
     Read {
-        internal_enumerator: bool,
         document_read: bool,
+        source_read: bool,
     },
     Private {
         create: bool,
@@ -112,13 +116,13 @@ fn open_relative(
     operation: RelativeOperation,
     before: &mut impl FnMut() -> io::Result<()>,
 ) -> io::Result<File> {
-    let (internal_enumerator, document_read, private, create, database_read) = match operation {
+    let (document_read, source_read, private, create, database_read) = match operation {
         RelativeOperation::Read {
-            internal_enumerator,
             document_read,
-        } => (internal_enumerator, document_read, false, false, false),
-        RelativeOperation::Private { create } => (false, true, true, create, false),
-        RelativeOperation::DatabaseRead => (false, true, false, false, true),
+            source_read,
+        } => (document_read, source_read, false, false, false),
+        RelativeOperation::Private { create } => (true, false, true, create, false),
+        RelativeOperation::DatabaseRead => (true, false, false, false, true),
     };
     let count = name.encode_wide().count();
     let byte_count = count.checked_mul(2).ok_or(io::ErrorKind::FileTooLarge)?;
@@ -128,9 +132,8 @@ fn open_relative(
         || name
             .encode_wide()
             .any(|u| u == 0 || u == 47 || u == 92 || u == 58)
-        || (name == OsStr::new(".") && !internal_enumerator)
+        || name == OsStr::new(".")
         || name == OsStr::new("..")
-        || (internal_enumerator && (name != OsStr::new(".") || kind != Some(NodeKind::Directory)))
     {
         return Err(io::ErrorKind::InvalidInput.into());
     }
@@ -188,8 +191,13 @@ fn open_relative(
         access |= GENERIC_READ | GENERIC_WRITE;
     }
     let sharing = FILE_SHARE_READ
-        | if private || database_read || kind == Some(NodeKind::Directory) {
+        | if source_read || private || database_read || kind == Some(NodeKind::Directory) {
             FILE_SHARE_WRITE
+        } else {
+            0
+        }
+        | if source_read && kind == Some(NodeKind::File) {
+            FILE_SHARE_DELETE
         } else {
             0
         };
@@ -235,6 +243,44 @@ fn open_relative(
     if status != 0 {
         return Err(io::ErrorKind::InvalidData.into());
     }
+    Ok(file)
+}
+
+/// Reopen the retained object with its own enumeration cursor, without a path.
+#[allow(unsafe_code)]
+pub(super) fn reopen_directory(
+    parent: &File,
+    before: &mut impl FnMut() -> io::Result<()>,
+) -> io::Result<File> {
+    before()?;
+    // SAFETY: the original filesystem handle remains borrowed. ReOpenFile
+    // returns a distinct owned handle or INVALID_HANDLE_VALUE; no path is parsed.
+    let raw = unsafe {
+        ReOpenFile(
+            parent.as_raw_handle(),
+            FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_TRAVERSE | SYNCHRONIZE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        )
+    };
+    if raw == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: successful ReOpenFile transferred exactly this new owned handle.
+    // Adopt it before any inspection can fail, so every later error closes it.
+    let owned = unsafe { OwnedHandle::from_raw_handle(raw) };
+    let file = File::from(owned);
+    crate::read_directory::inspect(&file, Some(NodeKind::Directory), before)?;
+    before()?;
+    let original = winapi_util::file::information(parent)?;
+    before()?;
+    let reopened = winapi_util::file::information(&file)?;
+    if original.volume_serial_number() != reopened.volume_serial_number()
+        || original.file_index() != reopened.file_index()
+    {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
+    before()?;
     Ok(file)
 }
 

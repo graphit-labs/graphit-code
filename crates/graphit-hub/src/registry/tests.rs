@@ -246,6 +246,83 @@ fn missing_scoped_documents_are_empty_without_creation() {
     assert!(tiny.load().unwrap().entries().next().is_none());
 }
 #[test]
+fn global_lexical_installation_path_reads_absence_then_reopens_actual_metadata() {
+    #[cfg(windows)]
+    let temp = tempfile::TempDir::new().unwrap();
+    #[cfg(not(windows))]
+    let temp = tempfile::tempdir_in(fs::canonicalize(std::env::temp_dir()).unwrap()).unwrap();
+    let root = temp.path().join("installation");
+    let installation =
+        InstallationPaths::resolve(Brand::default(), temp.path(), None, Some(&root)).unwrap();
+    assert_eq!(installation.root(), root);
+    let id = InstallationId::new("installation-1").unwrap();
+    let registry = HubRegistry::global(&installation, &id, limits()).unwrap();
+    assert!(registry.load().unwrap().agents().is_empty());
+    assert!(!root.exists());
+    assert!(!registry.path().exists());
+    assert!(!registry.lock_path().exists());
+    writer(&registry)
+        .set_agents(&[NativeBinding::Codex])
+        .unwrap();
+    let reopened = HubRegistry::global(&installation, &id, limits()).unwrap();
+    assert_eq!(reopened.load().unwrap().agents(), [NativeBinding::Codex]);
+}
+
+#[cfg(any(unix, windows))]
+#[test]
+fn global_parent_rejects_existing_and_missing_roots_beneath_native_alias() {
+    let f = Fixture::new();
+    let real = f.temp.path().join("real");
+    fs::create_dir(&real).unwrap();
+    fs::create_dir(real.join("present")).unwrap();
+    let bytes = b"foreign catalog preserved";
+    fs::write(real.join("hub.json"), bytes).unwrap();
+    fs::write(real.join("present").join("hub.json"), bytes).unwrap();
+    let alias = f.temp.path().join("alias");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    #[cfg(windows)]
+    graphit_fs::LinkPlan::capture(&real, &alias, NodeKind::Directory)
+        .unwrap()
+        .create()
+        .unwrap();
+    for suffix in ["", "present", "missing"] {
+        let root = if suffix.is_empty() {
+            alias.clone()
+        } else {
+            alias.join(suffix)
+        };
+        let installation =
+            InstallationPaths::resolve(Brand::default(), f.temp.path(), None, Some(&root)).unwrap();
+        let registry = HubRegistry::global(
+            &installation,
+            &InstallationId::new("installation-1").unwrap(),
+            limits(),
+        )
+        .unwrap();
+        assert_eq!(
+            registry.load().unwrap_err().kind(),
+            io::ErrorKind::InvalidData,
+            "{suffix}"
+        );
+        assert!(
+            registry
+                .writer(Duration::from_secs(1), &Cancellation::default())
+                .is_err_and(|error| error.kind() == io::ErrorKind::InvalidData),
+            "{suffix}"
+        );
+    }
+    assert_eq!(fs::read(real.join("hub.json")).unwrap(), bytes);
+    assert_eq!(
+        fs::read(real.join("present").join("hub.json")).unwrap(),
+        bytes
+    );
+    assert!(!real.join("missing").exists());
+    assert!(!real.join(".hub.json.lock").exists());
+    assert!(!real.join("present").join(".hub.json.lock").exists());
+}
+
+#[test]
 fn project_registry_is_global_per_id_and_shared_by_its_checkouts_only() {
     let f = Fixture::new();
     let registry = f.registry();

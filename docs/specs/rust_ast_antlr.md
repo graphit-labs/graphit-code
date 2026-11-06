@@ -101,6 +101,8 @@ owned results and diagnostics.
 
 The [engine Source](../../crates/graphit-ast/src/antlr_engine.rs) now uses the [C++/cxx boundary](../../crates/graphit-ast/src/antlr_engine/bridge.rs). Whole-indexer dispatch, symbol extraction and the final query pipeline remain separate [integration work](rust_ast_parsers.md).
 
+On Windows and macOS, the AST runtime, generated recognizers, actions and CXX bridge compile with the same private `antlr4`, `antlrcpp` and `XPathLexer` names. Ladybug 0.22.1 supplies its own ANTLR 4.13.1 definitions; the AST runtime remains 4.13.2. Their `ParseTree` virtual interfaces differ, so shared C++ names would let the linker combine incompatible vtables. The private names keep both runtimes independent without changing either upstream source or the Rust/CXX interface. Linux retains the existing Ladybug archive symbol isolation.
+
 The canonical inputs are the customized local product grammars from
 `crates/graphit-ast/src/antlr_engine/grammars/`, preserved in
 [the maintained inputs](../../crates/graphit-ast/src/antlr_engine/grammars).

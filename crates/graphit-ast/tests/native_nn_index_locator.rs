@@ -515,14 +515,27 @@ async fn original_controls_and_real_directory_replacement_reject_stale_owner() -
         Err(NativeNnIndexError::RequestMismatch)
     ));
     let path = fixture.corpus(0);
-    fs::rename(&path, path.with_file_name("moved.lance"))?;
-    fs::create_dir(&path)?;
-    let error = index
-        .snapshot(&context)
-        .err()
-        .expect("actual directory replacement must reject");
-    assert!(matches!(&error, NativeNnIndexError::Operation(_)));
-    assert!(error.source().unwrap().is::<io::Error>());
+    let moved_corpus = path.with_file_name("moved.lance");
+    #[cfg(not(windows))]
+    {
+        fs::rename(&path, &moved_corpus)?;
+        fs::create_dir(&path)?;
+        let error = index
+            .snapshot(&context)
+            .err()
+            .expect("actual directory replacement must reject");
+        assert!(matches!(&error, NativeNnIndexError::Operation(_)));
+        assert!(error.source().unwrap().is::<io::Error>());
+    }
+    #[cfg(windows)]
+    {
+        let error = fs::rename(&path, &moved_corpus).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(5)); // ERROR_ACCESS_DENIED
+        assert!(fs::metadata(&path)?.is_dir());
+        assert!(!moved_corpus.try_exists()?);
+        index.revalidate(&context)?;
+        assert_query(&index, &model(), &batch, &context).await?;
+    }
     // Keep the selected NN directory inode, but replace its real parent.
     // The Core capture retains ancestor identities as well as the selected root.
     let ancestor_batch = encoded(&fixture, "ancestor", &model(), &context).await?;
@@ -531,10 +544,22 @@ async fn original_controls_and_real_directory_replacement_reject_stale_owner() -
     let selected = fixture.corpus(1);
     let parent = selected.parent().unwrap();
     let moved = parent.with_file_name("moved-project");
-    fs::rename(parent, &moved)?;
-    fs::create_dir(parent)?;
-    fs::rename(moved.join("corpus.lance"), &selected)?;
-    assert_operation(ancestor.revalidate(&context), io::ErrorKind::InvalidData);
+    #[cfg(not(windows))]
+    {
+        fs::rename(parent, &moved)?;
+        fs::create_dir(parent)?;
+        fs::rename(moved.join("corpus.lance"), &selected)?;
+        assert_operation(ancestor.revalidate(&context), io::ErrorKind::InvalidData);
+    }
+    #[cfg(windows)]
+    {
+        let error = fs::rename(parent, &moved).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(5)); // ERROR_ACCESS_DENIED
+        assert!(fs::metadata(parent)?.is_dir());
+        assert!(!moved.try_exists()?);
+        ancestor.revalidate(&context)?;
+        assert_query(&ancestor, &model(), &ancestor_batch, &context).await?;
+    }
 
     context.cancellation().cancel();
     assert_operation(index.revalidate(&context), io::ErrorKind::Interrupted);
@@ -562,6 +587,17 @@ async fn original_controls_and_real_directory_replacement_reject_stale_owner() -
         .await,
         io::ErrorKind::TimedOut,
     );
+    #[cfg(windows)]
+    {
+        // The same namespace moves succeed once the final native owners leave.
+        drop((index, ancestor));
+        fs::rename(&path, &moved_corpus)?;
+        assert!(!path.try_exists()?);
+        assert!(fs::metadata(&moved_corpus)?.is_dir());
+        fs::rename(parent, &moved)?;
+        assert!(!parent.try_exists()?);
+        assert!(fs::metadata(moved.join("corpus.lance"))?.is_dir());
+    }
     Ok(())
 }
 

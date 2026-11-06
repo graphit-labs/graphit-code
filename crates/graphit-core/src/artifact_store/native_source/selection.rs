@@ -370,10 +370,9 @@ fn open_observed_file<'a>(
     })?;
     let next = {
         let file = opened.handle.lock()?;
-        NativeHandle::open_child(
+        NativeHandle::open_read_child(
             &file,
             relative.file_name().ok_or(io::ErrorKind::InvalidData)?,
-            Some(NodeKind::File),
             source.request(),
         )?
     };
@@ -516,7 +515,7 @@ impl Engine {
         let request = self.source.request().clone();
         let control = {
             let parent = handle.lock()?;
-            NativeHandle::open_child(&parent, OsStr::new(name), Some(NodeKind::File), &request)?
+            NativeHandle::open_read_child(&parent, OsStr::new(name), &request)?
         };
         let observation = control.observe(&request)?;
         if observation.bytes() > self.limits.max_control_file_bytes {
@@ -1355,12 +1354,7 @@ impl Witness {
                         .find(|control| control.relative.file_name() == Some(OsStr::new(name)));
                     let current = {
                         let file = handle.lock()?;
-                        NativeHandle::open_child(
-                            &file,
-                            OsStr::new(name),
-                            Some(NodeKind::File),
-                            request,
-                        )
+                        NativeHandle::open_read_child(&file, OsStr::new(name), request)
                     };
                     match (expected, current) {
                         (Some(expected), Ok(current)) => {

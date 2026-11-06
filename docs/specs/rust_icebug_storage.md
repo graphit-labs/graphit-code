@@ -18,6 +18,13 @@ Data metadata and paths are observations, not grants. The actual caller must adm
 
 The official Ladybug adapter uses these files in a private in-memory database through the official FileSystem seam: read-only captured IO, without external/default-filesystem fallback or writes. The [captured Cypher adapter](../../crates/graphit-ast/src/icebug_query.rs) and [authenticated GraphServer HTTP caller](../../crates/graphit-app/src/graph_server.rs) provide query admission, fallible native results, cancellation interruption and owned worker shutdown. This storage API alone does not implement the complete Explorer.
 
+The per-FILE producer synchronizes its completed node, fact and CSR files through
+an existing-file handle opened for writing before manifest publication. This
+synchronization opens neither a new file nor a truncated replacement. Windows
+[`FlushFileBuffers`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers)
+requires write access; a read-only handle cannot perform this producer flush.
+Captured Source readers retain their read-only access.
+
 The [Icebug producer](../../crates/graphit-data/src/graph_writer.rs) forms node
 row groups from at most 1,024 spool records and an 8MiB serialized-input target.
 A record larger than that target gets its own group; its properties are preserved

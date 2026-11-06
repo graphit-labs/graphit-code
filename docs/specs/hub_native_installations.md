@@ -110,6 +110,14 @@ remote authorization and hydration remain producer work in `tsk-7a13`.
 
 ## Registry, recovery and removal
 
+The global registry retains the configured absolute native path, including a
+Windows path without a verbatim prefix. Before reading or writing, it inspects
+all existing ancestors and rejects nondirectories, symbolic links and Windows
+reparse points. Native spelling alone does not establish an alias. A missing
+registry root reads as empty without creating the root, document or lock; only
+an explicit writer may create the missing directories. These pathname checks
+are observations and grant no authority over an installation or its payloads.
+
 `hub.json` uses strict format **3**, ordered `NativeBinding` membership and typed
 `Installation.target`, plus each installation's original source, alias/name,
 backend and payload. Unique installations are bounded by the eight current native bindings. Strict bounded

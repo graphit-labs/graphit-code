@@ -28,7 +28,7 @@ impl CapturedUserDocumentDirectory {
         limits: NativeDocumentFileLimits,
         original: &Arc<SnapshotContext>,
     ) -> io::Result<DirectoryPresence> {
-        let selection = scope.user_selection(Path::new("runtime/memory"))?;
+        let selection = scope.user_selection(&Path::new("runtime").join("memory"))?;
         CapturedProjectDocumentDirectory::validate_capture_path(
             scope, &selection, limits, original,
         )?;

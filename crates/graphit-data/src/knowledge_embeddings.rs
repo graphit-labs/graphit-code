@@ -527,12 +527,12 @@ async fn capture_manifest(
     if !store.has_direct_local_paths() {
         return Err(KnowledgeEmbeddingError::InvalidInput("nonlocal manifest"));
     }
-    let local = PathBuf::from(lance_io::local::to_local_path(
-        &pin.dataset().manifest_location().path,
-    ));
-    if !local.starts_with(corpus) {
-        return Err(KnowledgeEmbeddingError::InvalidStored("manifest path"));
-    }
+    let local = native_manifest_path(
+        Path::new(&lance_io::local::to_local_path(
+            &pin.dataset().manifest_location().path,
+        )),
+        corpus,
+    )?;
     let parent = local
         .parent()
         .ok_or(KnowledgeEmbeddingError::InvalidStored("manifest path"))?;
@@ -560,6 +560,26 @@ async fn capture_manifest(
         directory,
         observation,
     })
+}
+
+// Translate only the SDK's native spelling back under the retained corpus.
+// Captured directory traversal and the leaf read still reject symlinks and swaps.
+fn native_manifest_path(local: &Path, corpus: &Path) -> Result<PathBuf, KnowledgeEmbeddingError> {
+    let uri = corpus
+        .to_str()
+        .ok_or(KnowledgeEmbeddingError::InvalidInput("non-Unicode corpus"))?;
+    let sdk = crate::lance_module_store::sdk_uri(uri)?;
+    let relative = local
+        .strip_prefix(Path::new(sdk.as_ref()))
+        .map_err(|_| KnowledgeEmbeddingError::InvalidStored("manifest path"))?;
+    if relative.as_os_str().is_empty()
+        || relative
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+    {
+        return Err(KnowledgeEmbeddingError::InvalidStored("manifest path"));
+    }
+    Ok(corpus.join(relative))
 }
 fn schema(width: i32) -> Arc<Schema> {
     Arc::new(Schema::new(vec![

@@ -498,11 +498,30 @@ async fn scopes_original_checks_and_disappearance_never_become_absence() -> Test
     );
     let corpus = fixture.corpus(0);
     let moved = corpus.with_extension("moved");
-    fs::rename(&corpus, &moved)?;
-    fs::create_dir(&corpus)?;
-    let error = index.read("file", &request).await.err().unwrap();
-    assert!(matches!(error, SourceIndexError::Operation(_)));
-    assert!(error.source().is_some());
+    #[cfg(not(windows))]
+    {
+        fs::rename(&corpus, &moved)?;
+        fs::create_dir(&corpus)?;
+        let error = index.read("file", &request).await.err().unwrap();
+        assert!(matches!(error, SourceIndexError::Operation(_)));
+        assert!(error.source().is_some());
+    }
+    #[cfg(windows)]
+    {
+        let error = fs::rename(&corpus, &moved).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(5)); // ERROR_ACCESS_DENIED
+        assert!(fs::metadata(&corpus)?.is_dir());
+        assert!(!moved.try_exists()?);
+        index.revalidate(&request)?;
+        assert_eq!(
+            index.read("file", &request).await?.source(&request)?,
+            IndexedSource::Available("text")
+        );
+        drop(index);
+        fs::rename(&corpus, &moved)?;
+        assert!(!corpus.try_exists()?);
+        assert!(fs::metadata(&moved)?.is_dir());
+    }
     Ok(())
 }
 
@@ -561,11 +580,30 @@ async fn inventory_retains_scope_original_and_generation_without_bodies() -> Tes
     assert_eq!(fresh.paths(&request).await?, vec!["new"]);
     let corpus = fixture.corpus(0);
     let moved = corpus.with_extension("moved");
-    fs::rename(&corpus, moved)?;
-    fs::create_dir(&corpus)?;
-    let error = index.paths(&request).await.unwrap_err();
-    assert!(matches!(error, SourceIndexError::Operation(_)));
-    assert!(error.source().is_some());
+    #[cfg(not(windows))]
+    {
+        fs::rename(&corpus, &moved)?;
+        fs::create_dir(&corpus)?;
+        let error = index.paths(&request).await.unwrap_err();
+        assert!(matches!(error, SourceIndexError::Operation(_)));
+        assert!(error.source().is_some());
+    }
+    #[cfg(windows)]
+    {
+        let error = fs::rename(&corpus, &moved).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(5)); // ERROR_ACCESS_DENIED
+        assert!(fs::metadata(&corpus)?.is_dir());
+        assert!(!moved.try_exists()?);
+        index.revalidate(&request)?;
+        assert_eq!(index.paths(&request).await?, vec!["empty", "off"]);
+        assert_eq!(fresh.paths(&request).await?, vec!["new"]);
+        assert_eq!(second.paths(&request).await?, vec!["foreign"]);
+        inherited.revalidate(&request)?;
+        drop((index, second, inherited, fresh, base));
+        fs::rename(&corpus, &moved)?;
+        assert!(!corpus.try_exists()?);
+        assert!(fs::metadata(&moved)?.is_dir());
+    }
     Ok(())
 }
 
@@ -602,20 +640,46 @@ async fn same_version_raw_replacement_changes_captured_directory_identity() -> T
     publish(&fixture, 0, &[("file", Some("before"))]).await?;
     let before = fixture.available(0, true, &request).await?;
     let identity = before.directory_identity();
+    let version = before.version();
+    let physical_branch = before
+        .branch_observation()
+        .physical_branch
+        .map(str::to_owned);
+    let inherited_target = before
+        .branch_observation()
+        .inherited_target
+        .map(str::to_owned);
     let corpus = fixture.corpus(0);
-    fs::rename(&corpus, corpus.with_extension("moved"))?;
+    let moved = corpus.with_extension("moved");
+    #[cfg(windows)]
+    {
+        let error = fs::rename(&corpus, &moved).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(5)); // ERROR_ACCESS_DENIED
+        assert!(fs::metadata(&corpus)?.is_dir());
+        assert!(!moved.try_exists()?);
+        before.revalidate(&request)?;
+        assert_eq!(
+            before.read("file", &request).await?.source(&request)?,
+            IndexedSource::Available("before")
+        );
+        drop(before);
+    }
+    fs::rename(&corpus, &moved)?;
+    assert!(!corpus.try_exists()?);
+    assert!(fs::metadata(&moved)?.is_dir());
     publish(&fixture, 0, &[("file", Some("after"))]).await?;
     let after = fixture.available(0, true, &request).await?;
-    assert_eq!(before.version(), after.version());
+    assert_eq!(version, after.version());
     assert_eq!(
-        before.branch_observation().physical_branch,
+        physical_branch.as_deref(),
         after.branch_observation().physical_branch
     );
     assert_eq!(
-        before.branch_observation().inherited_target,
+        inherited_target.as_deref(),
         after.branch_observation().inherited_target
     );
     assert!(identity != after.directory_identity());
+    #[cfg(not(windows))]
     assert!(before.revalidate(&request).is_err());
     assert_eq!(
         after.read("file", &request).await?.source(&request)?,

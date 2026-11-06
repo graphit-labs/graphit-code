@@ -71,7 +71,14 @@ fn main() {
                 io::stdout().write_all(&[254, 0, b'2', 129]).unwrap();
                 io::stdout().flush().unwrap();
             }
-            // No shutdown/early-drop: TCP EOF is actual native process exit.
+            if args[0] == "exit-output" {
+                // The observer must consume L before native exit can reset its
+                // socket. Output is already flushed; this ACK gates only exit.
+                let mut ack = [0];
+                peer.read_exact(&mut ack).unwrap();
+                assert_eq!(ack, [b'A']);
+            }
+            // No shutdown/early-drop: TCP closure is actual native process exit.
             std::process::exit(7);
         }
         "sequence" => {

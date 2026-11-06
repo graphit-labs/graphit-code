@@ -192,7 +192,7 @@ impl<'ast> Visit<'ast> for Audit {
         let relative_sdk = self.source == Path::new("windows_relative_sdk.rs")
             && matches!(
                 name.as_str(),
-                "open_relative" | "query_directory" | "directory_buffer_bytes"
+                "open_relative" | "reopen_directory" | "query_directory" | "directory_buffer_bytes"
             );
         let core_identity = self.domain == SourceDomain::Core
             && self.source == Path::new("graphit-core/native_file_identity.rs")
@@ -229,7 +229,8 @@ impl<'ast> Visit<'ast> for Audit {
                 | (Some("windows_relative_sdk.rs"), Some("open_relative")) => 3,
                 (Some("macos_private_file.rs"), Some("configure_acl"))
                 | (_, Some("create_file"))
-                | (Some("windows_private_file.rs"), Some("descriptor_ace_header")) => 2,
+                | (Some("windows_private_file.rs"), Some("descriptor_ace_header"))
+                | (Some("windows_relative_sdk.rs"), Some("reopen_directory")) => 2,
                 _ => 1,
             };
             if (
@@ -430,6 +431,18 @@ fn expected_arguments(source: &Path, function: &str, ordinal: usize, call: &syn:
             ("RtlNtStatusToDosError", &["status"])
         }
         (Some("windows_relative_sdk.rs"), "open_relative", 3) => {
+            ("OwnedHandle::from_raw_handle", &["raw"])
+        }
+        (Some("windows_relative_sdk.rs"), "reopen_directory", 1) => (
+            "ReOpenFile",
+            &[
+                "parent.as_raw_handle()",
+                "FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_TRAVERSE | SYNCHRONIZE",
+                "FILE_SHARE_READ | FILE_SHARE_WRITE",
+                "FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT",
+            ],
+        ),
+        (Some("windows_relative_sdk.rs"), "reopen_directory", 2) => {
             ("OwnedHandle::from_raw_handle", &["raw"])
         }
         (Some("windows_relative_sdk.rs"), "query_directory", 1) => (
@@ -968,7 +981,7 @@ mod tests {
             include_str!("../../crates/graphit-fs/src/windows_relative_sdk.rs"),
         );
         assert!(relative.errors.is_empty(), "{:?}", relative.errors);
-        assert_eq!((relative.exceptions, relative.blocks), (3, 5));
+        assert_eq!((relative.exceptions, relative.blocks), (4, 7));
         let identity_path = Path::new("graphit-core").join("native_file_identity.rs");
         let identity = audit_in(
             identity_path.to_str().unwrap(),
@@ -989,6 +1002,15 @@ mod tests {
                 3,
                 "NtCreateFile",
                 "disposition",
+            ),
+            (
+                "windows_relative_sdk.rs",
+                "reopen_directory",
+                "pub(super) ",
+                "unsafe { ReOpenFile(parent.as_raw_handle(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | FILE_TRAVERSE | SYNCHRONIZE, FILE_SHARE_READ | FILE_SHARE_WRITE, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT) }; unsafe { OwnedHandle::from_raw_handle(raw) }",
+                2,
+                "ReOpenFile",
+                "parent.as_raw_handle()",
             ),
             (
                 "windows_relative_sdk.rs",
@@ -1066,6 +1088,32 @@ mod tests {
                     !audit_in(source, &invalid).errors.is_empty(),
                     "escaped {source}::{name}: {invalid}"
                 );
+            }
+            if name == "reopen_directory" {
+                for invalid in [
+                    code.replace("FILE_READ_ATTRIBUTES", "FILE_WRITE_DATA"),
+                    code.replace(" | SYNCHRONIZE", ""),
+                    code.replace(
+                        "FILE_SHARE_READ | FILE_SHARE_WRITE",
+                        "FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE",
+                    ),
+                    code.replace("FILE_FLAG_OPEN_REPARSE_POINT", "0"),
+                    code.replace(
+                        "OwnedHandle::from_raw_handle",
+                        "OtherOwner::from_raw_handle",
+                    ),
+                    code.replace(
+                        "OwnedHandle::from_raw_handle(raw)",
+                        "OwnedHandle::from_raw_handle(foreign)",
+                    ),
+                    code.replace("unsafe { OwnedHandle::from_raw_handle(raw) }", ""),
+                ] {
+                    assert_ne!(invalid, code);
+                    assert!(
+                        !audit_in(source, &invalid).errors.is_empty(),
+                        "escaped {name}: {invalid}"
+                    );
+                }
             }
             if name == "open_relative" {
                 for invalid in [

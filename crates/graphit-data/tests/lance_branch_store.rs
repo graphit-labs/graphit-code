@@ -745,6 +745,7 @@ async fn disjoint_concurrent_and_late_patches_publish_only_base_plus_one() -> Te
 struct Faults {
     mode: AtomicU8,
     calls: AtomicUsize,
+    manifest_faults: AtomicUsize,
     pause_manifest: AtomicBool,
     manifest_entered: tokio::sync::Notify,
     manifest_resume: tokio::sync::Notify,
@@ -789,6 +790,21 @@ impl FaultStore {
     fn tick(&self) {
         self.faults.calls.fetch_add(1, Ordering::SeqCst);
     }
+    fn before_manifest(&self, path: &Path, mode: u8) -> object_store::Result<()> {
+        if mode == 2 && manifest(path) {
+            self.faults.manifest_faults.fetch_add(1, Ordering::SeqCst);
+            return Err(fault());
+        }
+        Ok(())
+    }
+    fn after_manifest(&self, path: &Path, mode: u8) -> object_store::Result<()> {
+        if mode == 3 && manifest(path) {
+            self.faults.manifest_faults.fetch_add(1, Ordering::SeqCst);
+            self.faults.mode.store(4, Ordering::SeqCst);
+            return Err(fault());
+        }
+        Ok(())
+    }
 }
 #[async_trait::async_trait]
 impl ObjectStore for FaultStore {
@@ -803,14 +819,9 @@ impl ObjectStore for FaultStore {
         if mode == 1 && path.as_ref().contains("/_refs/branches/") {
             return Err(fault());
         }
-        if mode == 2 && manifest(path) {
-            return Err(fault());
-        }
+        self.before_manifest(path, mode)?;
         let result = self.inner.put_opts(path, payload, opts).await?;
-        if mode == 3 && manifest(path) {
-            self.faults.mode.store(4, Ordering::SeqCst);
-            return Err(fault());
-        }
+        self.after_manifest(path, mode)?;
         Ok(result)
     }
     async fn put_multipart_opts(
@@ -886,7 +897,10 @@ impl ObjectStore for FaultStore {
         opts: RenameOptions,
     ) -> object_store::Result<()> {
         self.tick();
-        self.inner.rename_opts(from, to, opts).await
+        let mode = self.faults.mode.load(Ordering::SeqCst);
+        self.before_manifest(to, mode)?;
+        self.inner.rename_opts(from, to, opts).await?;
+        self.after_manifest(to, mode)
     }
 }
 async fn fault_store(uri: &str) -> Result<(LanceBranchStore, Arc<Faults>), Box<dyn Error>> {
@@ -942,8 +956,10 @@ async fn valid_fork_survives_failed_delta_and_lost_ack_recovers() -> TestResult 
         .prepare_merge(vec![rows(&[("head", Some("t"), 2, "changed")])], keys())
         .await?;
     let key = pending.recovery_key().clone();
+    faults.manifest_faults.store(0, Ordering::SeqCst);
     faults.mode.store(2, Ordering::SeqCst);
     assert!(pending.commit().await.is_err());
+    assert!(faults.manifest_faults.load(Ordering::SeqCst) > 0);
     faults.mode.store(0, Ordering::SeqCst);
     assert_eq!(store.capture_target(Some("valid")).await?.version(), 1);
     assert_eq!(child.resolve(&key).await?, DeltaResolution::Unresolved);
@@ -952,8 +968,10 @@ async fn valid_fork_survives_failed_delta_and_lost_ack_recovers() -> TestResult 
         .prepare_merge(vec![rows(&[("head", Some("t"), 3, "changed")])], keys())
         .await?;
     let bytes = serde_json::to_vec(pending.recovery_key())?;
+    faults.manifest_faults.store(0, Ordering::SeqCst);
     faults.mode.store(3, Ordering::SeqCst);
     let failure = pending.commit().await.err().unwrap();
+    assert!(faults.manifest_faults.load(Ordering::SeqCst) > 0);
     assert!(failure.sdk_error().is_commit_status_unknown());
     assert!(matches!(
         child.resolve(failure.recovery_key()).await,
@@ -966,6 +984,60 @@ async fn valid_fork_survives_failed_delta_and_lost_ack_recovers() -> TestResult 
         DeltaResolution::Applied { version: 2 }
     );
     assert_eq!(store.capture_target(Some("valid")).await?.version(), 2);
+    Ok(())
+}
+
+#[tokio::test]
+async fn official_rename_commit_faults_preserve_pre_and_post_effect_state() -> TestResult {
+    let (_temp, uri, base) = fixture().await?;
+    let faults = Arc::new(Faults::default());
+    for (mode, revision) in [(2, 2), (3, 3)] {
+        let dataset = Arc::new(
+            lance::dataset::builder::DatasetBuilder::from_uri(&uri)
+                .with_store_params(ObjectStoreParams {
+                    object_store_wrapper: Some(Arc::new(Wrapper(Arc::clone(&faults)))),
+                    ..Default::default()
+                })
+                .load()
+                .await?,
+        );
+        let transaction = lance::dataset::InsertBuilder::new(Arc::clone(&dataset))
+            .with_params(&lance::dataset::WriteParams {
+                mode: lance::dataset::WriteMode::Overwrite,
+                skip_auto_cleanup: true,
+                ..Default::default()
+            })
+            .execute_uncommitted(vec![image(revision)])
+            .await?;
+        faults.manifest_faults.store(0, Ordering::SeqCst);
+        faults.mode.store(mode, Ordering::SeqCst);
+        let error = match lance::dataset::CommitBuilder::new(dataset)
+            .with_commit_handler(Arc::new(lance_table::io::commit::RenameCommitHandler))
+            .with_max_retries(0)
+            .with_skip_auto_cleanup(true)
+            .execute(transaction)
+            .await
+        {
+            Err(error) => error,
+            Ok(_) => panic!("the transport fault must reach the official rename handler"),
+        };
+        assert!(faults.manifest_faults.load(Ordering::SeqCst) > 0);
+        if mode == 3 {
+            assert!(error.is_commit_status_unknown());
+        }
+        faults.mode.store(0, Ordering::SeqCst);
+        let fresh = LanceBranchStore::open(&uri, schema(), None)
+            .await?
+            .capture_target(None)
+            .await?;
+        let (expected_version, expected_revision) = if mode == 2 { (1, 1) } else { (2, revision) };
+        assert_eq!(fresh.version(), expected_version);
+        assert_eq!(
+            values(&fresh).await?[&("head".into(), "t".into())].0,
+            expected_revision
+        );
+        assert_eq!(base.snapshot().version(), 1);
+    }
     Ok(())
 }
 

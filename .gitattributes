@@ -7,6 +7,10 @@ crates/graphit-ast/src/antlr_engine/grammars/** -whitespace
 # Preserve the upstream redistribution license byte-for-byte.
 crates/graphit-ai/licenses/NVIDIA-CUDA-LICENSE -whitespace
 
+# Canonical AST profiles and text oracles have stable bytes on every checkout.
+crates/graphit-ast/profiles/** text eol=lf
+crates/graphit-ast/tests/fixtures/** text=auto eol=lf
+
 # These fixtures exercise significant trailing spaces and implicit YAML nulls.
 crates/graphit-knowledge/tests/fixtures/document/rich.md -whitespace
 crates/graphit-ast/tests/fixtures/profiles/schema-cases/exports-null-implicit.yaml -whitespace

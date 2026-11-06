@@ -230,7 +230,10 @@ Não há configuração nova, quota cumulativa, ledger ou garantia de RSS.
 | GET na rota ou ausência de opt-in | 405 ou 404, respectivamente. |
 
 Deadline, cancelamento e parada conservam a categoria do ponto em que foram
-observados; não são convertidos indiscriminadamente em Request SDK. Original,
+observados; não são convertidos indiscriminadamente em Request SDK. Se o Original
+for cancelado ou expirar durante a captura física PROJECT ou de seu binding, a
+falha conserva `408 request_cancelled_or_expired`. Com o Original ainda válido,
+a falha de captura continua na categoria de negação existente. Original,
 admissão, stop e sessão são rechecados nas fronteiras atuais. Um handler aceito
 pode sobreviver ao EOF até seu deadline finito, conservando ownership até join.
 A consulta não publica, reconcilia, repara dados ou realiza retry automático.

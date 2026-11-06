@@ -73,7 +73,10 @@ pub fn write_file_nodes(
             .ok_or_else(|| invalid("missing FILE node shard"))?
             .to_owned();
         std::fs::copy(output.directory().join(&file), directory.join(&file))?;
-        File::open(directory.join(&file))?.sync_all()?;
+        OpenOptions::new()
+            .write(true)
+            .open(directory.join(&file))?
+            .sync_all()?;
         let columns = table["columns"]
             .as_array()
             .ok_or_else(|| invalid("missing FILE columns"))?
@@ -196,7 +199,7 @@ pub fn write_fact_rows(
         group.close().map_err(io::Error::other)?;
     }
     writer.close().map_err(io::Error::other)?;
-    File::open(path)?.sync_all()?;
+    OpenOptions::new().write(true).open(path)?.sync_all()?;
     original.check()
 }
 
@@ -265,7 +268,13 @@ pub fn write_csr_shard(
         ("", "", ""),
         original,
     )?;
-    File::open(directory.join("edges.indices"))?.sync_all()?;
-    File::open(directory.join("edges.indptr"))?.sync_all()?;
+    OpenOptions::new()
+        .write(true)
+        .open(directory.join("edges.indices"))?
+        .sync_all()?;
+    OpenOptions::new()
+        .write(true)
+        .open(directory.join("edges.indptr"))?
+        .sync_all()?;
     original.check()
 }

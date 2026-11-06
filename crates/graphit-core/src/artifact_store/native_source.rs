@@ -47,10 +47,37 @@ impl NativeHandle {
         kind: Option<NodeKind>,
         request: &std::sync::Arc<crate::file_io::SnapshotContext>,
     ) -> io::Result<Arc<Self>> {
+        let file = if kind == Some(NodeKind::File) {
+            read_directory::open_relative_source_readonly(
+                parent,
+                name,
+                tree::BUFFER_BYTES,
+                &mut || request.check(),
+            )?
+        } else {
+            read_directory::open_relative_readonly(
+                parent,
+                name,
+                kind,
+                tree::BUFFER_BYTES,
+                &mut || request.check(),
+            )?
+        };
+        request.check()?;
+        Ok(Arc::new(Self {
+            file: Arc::new(RwLock::new(file)),
+        }))
+    }
+    // A short-lived payload read keeps the existing strict file sharing profile.
+    fn open_read_child(
+        parent: &File,
+        name: &std::ffi::OsStr,
+        request: &Arc<SnapshotContext>,
+    ) -> io::Result<Arc<Self>> {
         let file = read_directory::open_relative_readonly(
             parent,
             name,
-            kind,
+            Some(NodeKind::File),
             tree::BUFFER_BYTES,
             &mut || request.check(),
         )?;
@@ -282,6 +309,35 @@ pub(super) struct NativeOpenedFile {
     pub(super) handle: Arc<NativeHandle>,
     _ancestors: AncestorHandles,
     _source: Arc<NativeSource>,
+}
+// Owns the freshly opened leaf and its held-root chain for one operation.
+#[cfg(windows)]
+pub(super) struct NativeReadFile {
+    pub(super) file: File,
+    _ancestors: AncestorHandles,
+    _source: Arc<NativeSource>,
+}
+#[cfg(windows)]
+impl NativeOpenedFile {
+    pub(super) fn into_read_file(self) -> io::Result<NativeReadFile> {
+        let Self {
+            handle,
+            _ancestors,
+            _source,
+        } = self;
+        let handle = Arc::try_unwrap(handle)
+            .map_err(|_| io::Error::other("active source handle unexpectedly shared"))?;
+        let lock = Arc::try_unwrap(handle.file)
+            .map_err(|_| io::Error::other("active source file unexpectedly shared"))?;
+        let file = lock
+            .into_inner()
+            .map_err(|_| io::Error::other("source reader lock poisoned"))?;
+        Ok(NativeReadFile {
+            file,
+            _ancestors,
+            _source,
+        })
+    }
 }
 impl NativeSource {
     pub(super) fn capture_selected_changes_metadata(
@@ -639,6 +695,22 @@ impl NativeSource {
         relative: &Path,
         plan: &SourcePlan,
     ) -> io::Result<NativeOpenedFile> {
+        self.open_file_with_profile(relative, plan, false)
+    }
+    pub(super) fn open_file_shared(
+        self: &Arc<Self>,
+        relative: &Path,
+        plan: &SourcePlan,
+    ) -> io::Result<NativeOpenedFile> {
+        self.open_file_with_profile(relative, plan, true)
+    }
+    fn open_file_with_profile(
+        self: &Arc<Self>,
+        relative: &Path,
+        plan: &SourcePlan,
+        idle: bool,
+    ) -> io::Result<NativeOpenedFile> {
+        self.admission.revalidate()?;
         self.validate_suffix(relative)?;
         let (_, node) = plan.node(relative).ok_or(io::ErrorKind::NotFound)?;
         if node.content.directory() {
@@ -648,8 +720,30 @@ impl NativeSource {
             if self.kind != NodeKind::File {
                 return Err(io::ErrorKind::InvalidInput.into());
             }
+            let handle = if idle {
+                Arc::clone(self.selected_handle()?)
+            } else {
+                let parent = if self.prefixes.len() > 1 {
+                    &self.prefixes[self.prefixes.len() - 2].handle
+                } else {
+                    &self.admission.anchor.root
+                };
+                let name = self
+                    .selection
+                    .file_name()
+                    .ok_or(io::ErrorKind::InvalidData)?;
+                let file = parent.lock()?;
+                NativeHandle::open_read_child(&file, name, self.request())?
+            };
+            self.request().check()?;
+            {
+                let file = handle.lock()?;
+                if !node.matches_native_file(&file)? {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+            }
             return Ok(NativeOpenedFile {
-                handle: Arc::clone(self.selected_handle()?),
+                handle,
                 _ancestors: AncestorHandles(Vec::new()),
                 _source: Arc::clone(self),
             });
@@ -675,7 +769,11 @@ impl NativeSource {
             };
             let next = {
                 let file = parent.lock()?;
-                NativeHandle::open_child(&file, name, Some(kind), self.request())?
+                if kind == NodeKind::File && !idle {
+                    NativeHandle::open_read_child(&file, name, self.request())?
+                } else {
+                    NativeHandle::open_child(&file, name, Some(kind), self.request())?
+                }
             };
             let file = next.lock()?;
             self.request().check()?;

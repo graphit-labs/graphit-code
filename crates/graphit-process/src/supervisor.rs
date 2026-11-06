@@ -2279,6 +2279,75 @@ mod tests {
         (observed, late)
     }
     #[cfg(unix)]
+    fn ready_peer(
+        mut peer: std::net::TcpStream,
+        endpoint: std::time::Instant,
+    ) -> io::Result<std::net::TcpStream> {
+        use std::io::Read;
+        // Darwin inherits O_NONBLOCK from the listener. The readiness read
+        // needs a blocking peer so SO_RCVTIMEO governs the same endpoint.
+        peer.set_nonblocking(false)?;
+        let budget = endpoint.saturating_duration_since(std::time::Instant::now());
+        if budget.is_zero() {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
+        peer.set_read_timeout(Some(budget))?;
+        let mut byte = [0];
+        peer.read_exact(&mut byte)?;
+        if &byte != b"R" {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        Ok(peer)
+    }
+    #[cfg(unix)]
+    #[test]
+    fn native_ready_peer_waits_on_nonblocking_peer_until_its_actual_socket_deadline() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let _silent_client = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (peer, _) = listener.accept().unwrap();
+        // Reproduce the actual BSD accepted-socket mode on every Unix host.
+        peer.set_nonblocking(true).unwrap();
+        let endpoint = std::time::Instant::now() + Duration::from_millis(30);
+        let error = ready_peer(peer, endpoint).unwrap_err();
+        assert!(
+            std::time::Instant::now() >= endpoint,
+            "readiness returned {:?} before the native read timeout",
+            error.kind()
+        );
+        assert!(matches!(
+            error.kind(),
+            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+        ));
+    }
+    #[cfg(unix)]
+    #[test]
+    fn native_ready_peer_accepts_readiness_and_preserves_protocol_eof_and_expiry_errors() {
+        use std::io::Write;
+        for (bytes, expired, expected) in [
+            (&b"R"[..], false, None),
+            (&b"X"[..], false, Some(io::ErrorKind::InvalidData)),
+            (&b""[..], false, Some(io::ErrorKind::UnexpectedEof)),
+            (&b"R"[..], true, Some(io::ErrorKind::TimedOut)),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let mut client = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+            let (peer, _) = listener.accept().unwrap();
+            peer.set_nonblocking(true).unwrap();
+            client.write_all(bytes).unwrap();
+            client.shutdown(std::net::Shutdown::Write).unwrap();
+            let endpoint = if expired {
+                std::time::Instant::now()
+            } else {
+                std::time::Instant::now() + Duration::from_secs(1)
+            };
+            match (ready_peer(peer, endpoint), expected) {
+                (Ok(_), None) => (),
+                (Err(error), Some(kind)) => assert_eq!(error.kind(), kind),
+                (result, expected) => panic!("readiness result {result:?}, expected {expected:?}"),
+            }
+        }
+    }
+    #[cfg(unix)]
     #[derive(Debug)]
     struct GroupCompanionWrapper {
         leader: std::net::TcpListener,
@@ -2293,13 +2362,13 @@ mod tests {
             child: Box<dyn ChildWrapper>,
             _: &CommandWrap,
         ) -> io::Result<Box<dyn ChildWrapper>> {
-            use std::io::{Read, Write};
+            use std::io::Write;
             fn ready(
                 socket: &std::net::TcpListener,
                 endpoint: std::time::Instant,
             ) -> io::Result<std::net::TcpStream> {
                 socket.set_nonblocking(true)?;
-                let mut peer = loop {
+                let peer = loop {
                     match socket.accept() {
                         Ok((peer, _)) => break peer,
                         Err(error)
@@ -2311,17 +2380,7 @@ mod tests {
                         Err(error) => return Err(error),
                     }
                 };
-                let budget = endpoint.saturating_duration_since(std::time::Instant::now());
-                if budget.is_zero() {
-                    return Err(io::ErrorKind::TimedOut.into());
-                }
-                peer.set_read_timeout(Some(budget))?;
-                let mut byte = [0];
-                peer.read_exact(&mut byte)?;
-                if &byte != b"R" {
-                    return Err(io::ErrorKind::InvalidData.into());
-                }
-                Ok(peer)
+                ready_peer(peer, endpoint)
             }
             let pid = child
                 .try_inner_child()

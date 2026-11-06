@@ -767,7 +767,7 @@ mod tests {
             semantic: None,
             corpus_key: "test-corpus".into(),
             project_id: "01KSH1CRFFG8Z74B5ZS78WW808".parse().unwrap(),
-            root: NativePath::new(std::path::PathBuf::from("/task-test")).unwrap(),
+            root: NativePath::new(std::env::current_dir().unwrap().join("task-test")).unwrap(),
             project_version: "main".into(),
             generation: TaskGeneration {
                 version: 1,

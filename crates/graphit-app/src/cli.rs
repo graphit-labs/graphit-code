@@ -2837,48 +2837,60 @@ async fn ensure_source(
     original: &graphit_hub::policy::RequestContext<'_>,
     checkout: Option<&std::path::Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    if variables
-        .iter()
-        .any(|(key, _)| key.as_encoded_bytes().starts_with(b"GRAPHIT_ROLE_"))
-    {
-        return Err(io::Error::new(
-            io::ErrorKind::PermissionDenied,
-            "Root Source startup is unavailable in a managed-role transport context",
-        )
-        .into());
-    }
-    original.check()?;
-    // Resolve the physical root before service effects. Requested read versions
-    // belong to the RPC; automatic maintenance observes the actual checkout.
-    let checkout = checkout
-        .map(|root| ProjectPaths::at(root, installation))
-        .transpose()?;
-    match daemon_service_request(
-        installation,
-        variables,
-        limits.0,
-        original,
-        &ServiceCommand::Start,
-    )
-    .await?
-    {
-        graphit_app::daemon_launcher::Outcome::Running(_) => (),
-        _ => {
-            return Err(
-                io::Error::other("daemon Start did not acknowledge a running service").into(),
-            );
+    // Keep the service bootstrap future off every synchronous dispatch frame.
+    // The original request still owns its cancellation and absolute deadline.
+    Box::pin(async {
+        if variables
+            .iter()
+            .any(|(key, _)| key.as_encoded_bytes().starts_with(b"GRAPHIT_ROLE_"))
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "Root Source startup is unavailable in a managed-role transport context",
+            )
+            .into());
         }
-    }
-    if let Some(project) = checkout {
-        let address = source_entry::address(installation, limits.0, original).await?;
-        let client = reqwest::Client::builder()
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
-        source_entry::maintain_checkout(installation, address, &client, &project, limits, original)
+        original.check()?;
+        // Resolve the physical root before service effects. Requested read versions
+        // belong to the RPC; automatic maintenance observes the actual checkout.
+        let checkout = checkout
+            .map(|root| ProjectPaths::at(root, installation))
+            .transpose()?;
+        match daemon_service_request(
+            installation,
+            variables,
+            limits.0,
+            original,
+            &ServiceCommand::Start,
+        )
+        .await?
+        {
+            graphit_app::daemon_launcher::Outcome::Running(_) => (),
+            _ => {
+                return Err(
+                    io::Error::other("daemon Start did not acknowledge a running service").into(),
+                );
+            }
+        }
+        if let Some(project) = checkout {
+            let address = source_entry::address(installation, limits.0, original).await?;
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()?;
+            source_entry::maintain_checkout(
+                installation,
+                address,
+                &client,
+                &project,
+                limits,
+                original,
+            )
             .await?;
-    }
-    Ok(())
+        }
+        Ok(())
+    })
+    .await
 }
 
 fn daemon_service_dispatch(

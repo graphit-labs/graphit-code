@@ -41,6 +41,14 @@ Configure, ManageCache and PublishedFilesystem for Native installation. Ordinary
 Source permissions, administrative permissions and Local origin remain independent.
 Neither the loopback address, discovery document nor protected header is authority.
 
+The HTTP owner compares the process-selected installation root in the OS's
+canonical representation, including Windows verbatim paths, and retains the
+brand check. That pathname comparison supplies no authority: the existing
+captured installation realm is physically revalidated before construction.
+The installer also checks the registry's canonical parent and global installation
+ID under the same Original. Another installation, a replaced owner root or an
+invalid retained realm remains an error.
+
 The installation policy is captured from Distribution, Global, Environment and
 Command configuration; PROJECT is excluded. `LocalGraphPolicy::CONFIG_KEY`
 (`data.local_graph`) is explicitly allowed in captured Environment input. Core parses

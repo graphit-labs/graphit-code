@@ -695,12 +695,14 @@ impl TaskServer {
             return Err(failure("stopped"));
         }
         let (paths, id, version) = selected;
+        let capture_failure = || match original.snapshot().check() {
+            Err(_) => failure("request_cancelled_or_expired"),
+            Ok(()) => ReadFailure::task(Failure::auth(AuthError::Denied)),
+        };
         let project =
             CapturedPublicationScope::project(paths, *id, self.0.policy.scope, original.snapshot())
-                .map_err(|_| ReadFailure::task(Failure::auth(AuthError::Denied)))?;
-        let binding = project
-            .binding()
-            .map_err(|_| ReadFailure::task(Failure::auth(AuthError::Denied)))?;
+                .map_err(|_| capture_failure())?;
+        let binding = project.binding().map_err(|_| capture_failure())?;
         let selection = || -> Result<codec::AdmittedSelection, ReadFailure> {
             Ok(codec::AdmittedSelection {
                 project_dir: graphit_core::native_path::NativePath::new(paths.root().to_owned())

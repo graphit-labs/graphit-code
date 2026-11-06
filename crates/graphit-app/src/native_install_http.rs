@@ -12,9 +12,11 @@ use axum::{
     routing::post,
 };
 use graphit_core::{
+    artifact_store::ScopeContext,
     config::{ConfigSnapshot, ConfigSource},
     file_io::SnapshotContext,
     file_lock::Cancellation,
+    local_files::canonical_directory,
     project_paths::InstallationPaths,
 };
 use graphit_daemon::auth_startup::DaemonAuth;
@@ -113,15 +115,22 @@ impl NativeInstallHttp {
                     "invalid native installation deadline",
                 )
             })?;
-        RequestContext::new(policy.hub.content(), &cancel, deadline).map_err(io::Error::other)?;
+        let original = RequestContext::new(policy.hub.content(), &cancel, deadline)
+            .map_err(io::Error::other)?;
+        original.check().map_err(io::Error::other)?;
         if installation.brand() != auth.installation().live.brand()
-            || installation.root() != auth.installation().live.owner_root()
+            || canonical_directory(installation.root())? != auth.installation().live.owner_root()
         {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "native installation owner mismatch",
             ));
         }
+        // Canonical spelling compares selection DATA, including Windows verbatim
+        // paths. Authority still comes from the unchanged retained physical realm.
+        auth.installation()
+            .live
+            .revalidate_installation(&ScopeContext::from_snapshot(original.snapshot()))?;
         Ok(Self(Arc::new(Shared {
             auth,
             installation,

@@ -836,7 +836,10 @@ fn cancelled_or_expired_factory_and_first_access_never_admit_body_io() {
 fn generated_metadata_reads_only_declared_ranges_without_payload_or_inventory_capture() {
     use std::io::{Seek, SeekFrom, Write};
     let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("nodes.parquet");
+    let parent = temp.path().join("shard");
+    fs::create_dir(&parent).unwrap();
+    let relative = Path::new("shard").join("nodes.parquet");
+    let path = temp.path().join(&relative);
     let mut output = fs::File::create(&path).unwrap();
     output.write_all(b"PAR1").unwrap();
     output.set_len(8 * 1024 * 1024 * 1024).unwrap();
@@ -849,22 +852,22 @@ fn generated_metadata_reads_only_declared_ranges_without_payload_or_inventory_ca
     let ctx = context();
     let reader = CapturedSourceReader::capture_generated_metadata(
         temp.path(),
-        &[PathBuf::from("nodes.parquet")],
+        std::slice::from_ref(&relative),
         SourceReadLimits::generated(16, 4).unwrap(),
         Arc::clone(&ctx),
     )
     .unwrap();
-    assert_eq!(reader.nodes().count(), 2);
+    assert_eq!(reader.nodes().count(), 3);
     assert!(reader.nodes().all(|node| node.digest().is_none()));
     assert_eq!(reader.retained_bytes(), 0);
-    let file = reader.open_file(Path::new("nodes.parquet")).unwrap();
+    let file = reader.open_file(&relative).unwrap();
     assert_eq!(
         file.read_range(file.len() - 4, 4).unwrap().as_ref(),
         b"tail"
     );
     assert_eq!(
         reader
-            .open_file(Path::new("unselected/dangling"))
+            .open_file(&Path::new("unselected").join("dangling"))
             .err()
             .unwrap()
             .kind(),
@@ -922,4 +925,93 @@ fn generated_metadata_rejects_links_escape_and_cancellation() {
         file.read_range(0, 4).err().unwrap().kind(),
         io::ErrorKind::Interrupted
     );
+}
+
+#[cfg(windows)]
+fn native_fence_fixture() -> (tempfile::TempDir, CapturedSourceReader, PathBuf) {
+    use crate::{
+        artifact_store::{CapturedPublicationScope, ScopeLimits},
+        brand::Brand,
+        installation_identity::InstallationId,
+        project_paths::InstallationPaths,
+    };
+    let temporary = tempfile::tempdir().unwrap();
+    let root = temporary.path().join("installation");
+    let parent = root.join("payload");
+    fs::create_dir_all(&parent).unwrap();
+    let path = parent.join("body");
+    fs::write(&path, b"native-data").unwrap();
+    fs::write(parent.join("staged"), b"replacement").unwrap();
+    let paths =
+        InstallationPaths::resolve(Brand::default(), temporary.path(), None, Some(&root)).unwrap();
+    let request = context();
+    let scope = CapturedPublicationScope::installation(
+        &paths,
+        InstallationId::new("source-fence").unwrap(),
+        [root],
+        ScopeLimits::new(4, 4096, 256).unwrap(),
+        &request,
+    )
+    .unwrap();
+    let reader = CapturedSourceReader::capture_native_scope(
+        &scope,
+        Path::new("payload"),
+        NodeKind::Directory,
+        &policy(&[]),
+        limits(),
+        &request,
+    )
+    .unwrap();
+    (temporary, reader, path)
+}
+#[cfg(windows)]
+#[test]
+fn native_read_fence_covers_range_stream_and_metadata_and_ends_on_return() {
+    for operation in 0..3 {
+        let (_temporary, reader, path) = native_fence_fixture();
+        let file = reader.open_file(Path::new("body")).unwrap();
+        let mut stream = file.stream(0).unwrap();
+        let staged = path.with_file_name("staged");
+        let retained_lock = file.file.fd.write().unwrap();
+        assert_eq!(kind(file.read_range(0, 1)), io::ErrorKind::WouldBlock);
+        drop(retained_lock);
+        let active_path = path.clone();
+        let active_staged = staged.clone();
+        let check = move |_: &OpenFile| {
+            assert_eq!(
+                fs::write(&active_path, b"denied")
+                    .unwrap_err()
+                    .raw_os_error(),
+                Some(32)
+            );
+            assert_eq!(
+                fs::rename(&active_staged, &active_path)
+                    .unwrap_err()
+                    .raw_os_error(),
+                Some(32)
+            );
+        };
+        let _metadata_guard = if operation == 2 {
+            Some(metadata_hook(check))
+        } else {
+            hook(1, check);
+            None
+        };
+        match operation {
+            0 => assert_eq!(file.read_range(0, 11).unwrap().as_ref(), b"native-data"),
+            1 => {
+                let mut body = [0; 11];
+                stream.read_exact(&mut body).unwrap();
+                assert_eq!(&body, b"native-data");
+            }
+            _ => {
+                file.last_modified().unwrap();
+            }
+        }
+        // The facade and stream remain alive; only effective IO owns the fence.
+        fs::write(&path, b"idle-edit!!").unwrap();
+        fs::rename(&staged, &path).unwrap();
+        assert!(file.read_range(0, 1).is_err());
+        assert!(file.last_modified().is_err());
+    }
 }

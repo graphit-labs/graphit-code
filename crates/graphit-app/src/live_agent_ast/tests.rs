@@ -32,8 +32,10 @@ fn parameters(value: Value) -> SourceParameters {
 async fn live_ast_project_capture_without_graph_or_index_reads_only_authorized_disk_source() {
     let (mut source, graphs, destination) = web_fixture().await;
     std::fs::remove_dir_all(destination).unwrap();
+    let nested = source.projects[0].0.root().join("nested");
+    std::fs::create_dir(&nested).unwrap();
     std::fs::write(
-        source.projects[0].0.root().join("arbitrary.unsupported"),
+        nested.join("arbitrary.unsupported"),
         "one\ntwo\nthree\nfour\nfive",
     )
     .unwrap();
@@ -146,7 +148,7 @@ async fn live_ast_project_capture_without_graph_or_index_reads_only_authorized_d
             "     2: two\n>    3: three\n     4: four",
         ),
     ] {
-        let mut input = json!({"path":"arbitrary.unsupported"});
+        let mut input = json!({"path":"nested/arbitrary.unsupported"});
         input
             .as_object_mut()
             .unwrap()
@@ -155,12 +157,31 @@ async fn live_ast_project_capture_without_graph_or_index_reads_only_authorized_d
         assert_eq!(page["origin"], "physical");
         assert_eq!(page["selection"]["source"], expected);
     }
-    assert!(
-        capture
-            .source(&parameters(json!({"path":"../outside"})))
-            .await
-            .is_err()
-    );
+    for path in [
+        "../outside",
+        "nested/../outside",
+        "/outside",
+        "nested/\0bad",
+        "nested//arbitrary.unsupported",
+        "nested/./arbitrary.unsupported",
+        "nested/arbitrary.unsupported/",
+    ] {
+        assert!(
+            capture
+                .source(&parameters(json!({"path":path})))
+                .await
+                .is_err()
+        );
+    }
+    #[cfg(windows)]
+    for path in [r"C:\outside", r"C:outside", r"\\server\share\outside"] {
+        assert!(
+            capture
+                .source(&parameters(json!({"path":path})))
+                .await
+                .is_err()
+        );
+    }
     assert_eq!(f.issuer.userinfo.load(Ordering::SeqCst), 0);
     f.service.shutdown().await.unwrap();
     graphs.shutdown().await.unwrap();

@@ -412,7 +412,7 @@ impl CapturedSourceReader {
             .check_reader_binding(index, None, &self.shared.context)?;
         let (native, fd) = match self.shared.snapshot.native() {
             Some(backing) => {
-                let owner = backing.open_file(relative, plan)?;
+                let owner = backing.open_file_shared(relative, plan)?;
                 let fd = Arc::clone(&owner.handle.file);
                 #[cfg(test)]
                 let owner = {
@@ -456,15 +456,51 @@ struct OpenFile {
     index: usize,
     length: u64,
 }
+struct ReadHandle<'a> {
+    retained: RwLockReadGuard<'a, File>,
+    #[cfg(windows)]
+    active: Option<super::native_source::NativeReadFile>,
+}
+impl std::ops::Deref for ReadHandle<'_> {
+    type Target = File;
+    fn deref(&self) -> &File {
+        #[cfg(windows)]
+        if let Some(active) = &self.active {
+            return &active.file;
+        }
+        &self.retained
+    }
+}
 impl OpenFile {
-    fn read_handle(&self) -> io::Result<RwLockReadGuard<'_, File>> {
+    fn read_handle(&self) -> io::Result<ReadHandle<'_>> {
         self.shared.context.check()?;
         let guard = self.fd.try_read().map_err(|error| match error {
             std::sync::TryLockError::WouldBlock => io::Error::from(io::ErrorKind::WouldBlock),
             std::sync::TryLockError::Poisoned(_) => io::Error::other("source reader lock poisoned"),
         })?;
         self.shared.context.check()?;
-        Ok(guard)
+        #[cfg(windows)]
+        let active = match self.shared.snapshot.native() {
+            Some(backing) => {
+                // Validate Original, the held root and the idle descriptor before
+                // acquiring a strict handle through the authorized parent chain.
+                self.check(&guard)?;
+                let plan = self.shared.snapshot.plan();
+                let node = plan.indexed_node(self.index)?;
+                Some(
+                    backing
+                        .open_file(&node.relative.0, plan)?
+                        .into_read_file()?,
+                )
+            }
+            None => None,
+        };
+        self.shared.context.check()?;
+        Ok(ReadHandle {
+            retained: guard,
+            #[cfg(windows)]
+            active,
+        })
     }
     fn check(&self, fd: &File) -> io::Result<()> {
         self.shared

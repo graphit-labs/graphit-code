@@ -74,6 +74,26 @@ fn populate(store: &AuthStore, server: &Server, ctx: &RequestContext<'_>, raw: &
     );
 }
 
+#[cfg(windows)]
+pub(super) fn assert_retained_scope_refuses_rename(
+    scope: &CapturedPublicationScope,
+    destination: &std::path::Path,
+    request: &RequestContext<'_>,
+) {
+    let context = ScopeContext::from_snapshot(request.snapshot());
+    scope.revalidate_bounded(&context).unwrap();
+    let before = scope.binding().unwrap();
+    let error = std::fs::rename(scope.owner_root(), destination).unwrap_err();
+    assert_eq!(error.raw_os_error(), Some(32), "expected sharing violation");
+    assert!(std::fs::metadata(scope.owner_root()).unwrap().is_dir());
+    assert_eq!(
+        std::fs::symlink_metadata(destination).unwrap_err().kind(),
+        std::io::ErrorKind::NotFound
+    );
+    scope.revalidate_bounded(&context).unwrap();
+    assert!(scope.binding().unwrap() == before);
+}
+
 #[tokio::test]
 async fn native_installation_keeps_same_runtime_and_uses_no_network_at_barriers() {
     let server = Server::new().await;
@@ -142,8 +162,21 @@ async fn native_installation_keeps_same_runtime_and_uses_no_network_at_barriers(
     );
     assert_eq!(server.count("/userinfo"), 0);
     assert_eq!(server.count("/token"), 0);
-    // An unrelated vanished checkout does not change installation-only authority.
+    // Unix can remove the unrelated checkout; Windows retains its captured
+    // directory handle. Neither outcome changes installation-only authority.
+    #[cfg(unix)]
     std::fs::remove_dir(&f.source_root).unwrap();
+    #[cfg(windows)]
+    {
+        let before = f.project.binding().unwrap();
+        let error = std::fs::remove_dir(&f.source_root).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(32), "expected sharing violation");
+        assert!(std::fs::metadata(&f.source_root).unwrap().is_dir());
+        f.project
+            .revalidate_bounded(&ScopeContext::from_snapshot(ctx.snapshot()))
+            .unwrap();
+        assert!(f.project.binding().unwrap() == before);
+    }
     assert!(
         caller
             .authorize_native_installation(Permission::ManageCache)
@@ -535,13 +568,34 @@ async fn native_installation_rejects_signed_expiry_and_physical_key_replacement(
         .await
         .unwrap();
     let root = replacement.installation.owner_root();
-    std::fs::rename(root, root.with_extension("retired-installation")).unwrap();
-    std::fs::create_dir(root).unwrap();
-    assert!(
-        retained
-            .authorize_native_installation(Permission::Configure)
-            .is_err()
-    );
+    #[cfg(unix)]
+    {
+        std::fs::rename(root, root.with_extension("retired-installation")).unwrap();
+        std::fs::create_dir(root).unwrap();
+        assert!(
+            retained
+                .authorize_native_installation(Permission::Configure)
+                .is_err()
+        );
+    }
+    #[cfg(windows)]
+    {
+        assert!(matches!(
+            retained.authorize_native_installation(Permission::Configure),
+            Ok(Obligation::Unconditional)
+        ));
+        let document = std::fs::read(root.join("auth.json")).unwrap();
+        assert_retained_scope_refuses_rename(
+            &replacement.installation,
+            &root.with_extension("retired-installation"),
+            &ctx,
+        );
+        assert!(std::fs::read(root.join("auth.json")).unwrap() == document);
+        assert!(matches!(
+            retained.authorize_native_installation(Permission::Configure),
+            Ok(Obligation::Unconditional)
+        ));
+    }
 }
 
 #[tokio::test]
@@ -836,22 +890,28 @@ async fn native_provider_keeps_original_physical_cancel_deadline_and_decode_caus
     ));
 
     let deadline_cancel = Cancellation::default();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    let expired = request_before(&deadline_cancel, deadline);
-    let timed = Fixture::new(&expired);
-    let timed_store = super::native_installation::store(&timed, &expired);
+    let preparation = context(&deadline_cancel);
+    let timed = Fixture::new(&preparation);
+    let timed_store = super::native_installation::store(&timed, &preparation);
     populate(
         &timed_store,
         &server,
-        &expired,
+        &preparation,
         &server.token(true, expiry),
         expiry,
     );
-    let timed_issuer = super::native_installation::issuer(&timed, timed_store, &expired, &[]);
+    let timed_issuer = super::native_installation::issuer(&timed, timed_store, &preparation, &[]);
+    let secret = timed.secret();
+    // Bootstrap/publication precede the operation budget. Authenticate and
+    // observe expiry with this same Original; its one-second value is unchanged.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let expired = request_before(&deadline_cancel, deadline);
     let timed_caller = timed_issuer
-        .authenticate_runtime(&timed.secret(), &expired)
+        .authenticate_runtime(&secret, &expired)
         .unwrap();
-    assert!(timed_caller.native_provider().is_ok());
+    timed_caller
+        .native_provider()
+        .expect("prepared native provider before operation deadline");
     tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await;
     assert!(matches!(
         timed_caller.native_provider(),
@@ -876,12 +936,26 @@ async fn native_provider_keeps_original_physical_cancel_deadline_and_decode_caus
         .unwrap();
     assert!(retained.native_provider().is_ok());
     let root = physical.installation.owner_root();
-    std::fs::rename(root, root.with_extension("replaced-installation")).unwrap();
-    std::fs::create_dir(root).unwrap();
-    assert!(matches!(
-        retained.native_provider(),
-        Err(ServiceUseError::Auth(_))
-    ));
+    #[cfg(unix)]
+    {
+        std::fs::rename(root, root.with_extension("replaced-installation")).unwrap();
+        std::fs::create_dir(root).unwrap();
+        assert!(matches!(
+            retained.native_provider(),
+            Err(ServiceUseError::Auth(_))
+        ));
+    }
+    #[cfg(windows)]
+    {
+        let document = std::fs::read(root.join("auth.json")).unwrap();
+        assert_retained_scope_refuses_rename(
+            &physical.installation,
+            &root.with_extension("replaced-installation"),
+            &current,
+        );
+        assert!(std::fs::read(root.join("auth.json")).unwrap() == document);
+        assert!(retained.native_provider().is_ok());
+    }
     assert_eq!(server.count("/keys"), 0);
     assert_eq!(server.count("/userinfo"), 0);
 }

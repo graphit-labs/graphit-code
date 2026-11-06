@@ -47,7 +47,35 @@ pub fn open_relative_readonly(
     max_component_bytes: usize,
     before: &mut impl FnMut() -> io::Result<()>,
 ) -> io::Result<File> {
-    open_relative_profile(parent, name, kind, max_component_bytes, false, before)
+    open_relative_profile(
+        parent,
+        name,
+        kind,
+        max_component_bytes,
+        false,
+        false,
+        before,
+    )
+}
+
+/// Idle Source FILE observation. Windows allows external write/delete/rename;
+/// callers must reopen through the held parent with the strict read profile for
+/// each actual read and reject a changed captured binding. Rights stay read-only.
+pub fn open_relative_source_readonly(
+    parent: &File,
+    name: &OsStr,
+    max_component_bytes: usize,
+    before: &mut impl FnMut() -> io::Result<()>,
+) -> io::Result<File> {
+    open_relative_profile(
+        parent,
+        name,
+        Some(NodeKind::File),
+        max_component_bytes,
+        false,
+        true,
+        before,
+    )
 }
 
 /// Existing-file document read, including native access observation rights.
@@ -63,6 +91,7 @@ pub fn open_relative_document_read(
         Some(NodeKind::File),
         max_component_bytes,
         true,
+        false,
         before,
     )
 }
@@ -73,6 +102,7 @@ fn open_relative_profile(
     kind: Option<NodeKind>,
     max_component_bytes: usize,
     document_read: bool,
+    source_read: bool,
     before: &mut impl FnMut() -> io::Result<()>,
 ) -> io::Result<File> {
     let path = Path::new(name);
@@ -94,7 +124,7 @@ fn open_relative_profile(
         return Err(io::ErrorKind::FileTooLarge.into());
     }
     #[cfg(not(windows))]
-    let _ = document_read;
+    let _ = (document_read, source_read);
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     let file = super::unix_relative::relative(parent, name, kind, before)?;
     #[cfg(windows)]
@@ -103,8 +133,8 @@ fn open_relative_profile(
         name,
         kind,
         max_component_bytes,
-        false,
         document_read,
+        source_read,
         before,
     )?;
     #[cfg(any(target_os = "linux", target_os = "macos", windows))]
@@ -210,18 +240,9 @@ impl DirectoryEntries {
         }
         #[cfg(windows)]
         {
-            // Fixed private "." reopens an independent file object relative to
-            // the held parent. Public selection/component APIs still deny dot.
-            let file = super::windows_relative_sdk::open_relative_readonly(
-                parent,
-                OsStr::new("."),
-                Some(NodeKind::Directory),
-                2,
-                true,
-                false,
-                before,
-            )?;
-            inspect(&file, Some(NodeKind::Directory), before)?;
+            // Reopen the retained object, not an NT pathname containing ".".
+            // DuplicateHandle would share the original enumeration cursor.
+            let file = super::windows_relative_sdk::reopen_directory(parent, before)?;
             let words = buffer_bytes
                 .checked_add(7)
                 .ok_or(io::ErrorKind::FileTooLarge)?
@@ -407,6 +428,116 @@ mod tests {
         names.sort();
         assert_eq!(names, collect(&mut b));
         assert_eq!(names, vec![OsString::from("alpha"), OsString::from("beta")]);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn source_readers_allow_external_write_but_document_readers_keep_their_fence() {
+        use std::io::Write;
+        let (directory, root) = root();
+        let path = directory.path().join("source.rs");
+        std::fs::write(&path, b"old").unwrap();
+        let mut source =
+            open_relative_source_readonly(&root, OsStr::new("source.rs"), 256, &mut || Ok(()))
+                .unwrap();
+        assert!(source.write_all(b"denied").is_err());
+        std::fs::write(&path, b"edited while retained").unwrap();
+        let document =
+            open_relative_document_read(&root, OsStr::new("source.rs"), 256, &mut || Ok(()))
+                .unwrap();
+        assert!(std::fs::write(&path, b"denied by document profile").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"edited while retained");
+        drop(document);
+        std::fs::write(&path, b"editable again").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"editable again");
+    }
+    #[cfg(windows)]
+    #[test]
+    fn source_file_idle_sharing_allows_replace_but_strict_read_and_directory_do_not() {
+        let (directory, root) = root();
+        let path = directory.path().join("source.rs");
+        let staged = directory.path().join("staged.rs");
+        std::fs::write(&path, b"old").unwrap();
+        std::fs::write(&staged, b"new").unwrap();
+        let source =
+            open_relative_source_readonly(&root, OsStr::new("source.rs"), 256, &mut || Ok(()))
+                .unwrap();
+        let strict = open_relative_readonly(
+            &root,
+            OsStr::new("source.rs"),
+            Some(NodeKind::File),
+            256,
+            &mut || Ok(()),
+        )
+        .unwrap();
+        assert!(std::fs::rename(&staged, &path).is_err());
+        assert!(std::fs::remove_file(&path).is_err());
+        drop(strict);
+        std::fs::rename(&staged, &path).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        std::fs::remove_file(&path).unwrap();
+        drop(source);
+        let child_path = directory.path().join("child");
+        std::fs::create_dir(&child_path).unwrap();
+        assert!(
+            open_relative_source_readonly(&root, OsStr::new("child"), 256, &mut || Ok(())).is_err()
+        );
+        let child = open_relative_readonly(
+            &root,
+            OsStr::new("child"),
+            Some(NodeKind::Directory),
+            256,
+            &mut || Ok(()),
+        )
+        .unwrap();
+        assert!(std::fs::rename(&child_path, directory.path().join("moved")).is_err());
+        drop(child);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn relative_directory_enumerators_retain_identity_cursor_and_rename_barrier() {
+        let (directory, root) = root();
+        let child_path = directory.path().join("child");
+        let moved = directory.path().join("moved");
+        std::fs::create_dir(&child_path).unwrap();
+        for name in ["alpha", "beta"] {
+            std::fs::write(child_path.join(name), name).unwrap();
+        }
+        let child = open_relative_readonly(
+            &root,
+            OsStr::new("child"),
+            Some(NodeKind::Directory),
+            256,
+            &mut || Ok(()),
+        )
+        .unwrap();
+        let error =
+            DirectoryEntries::new(&child, 4096, &mut || Err(io::ErrorKind::Interrupted.into()))
+                .err()
+                .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        let mut a = DirectoryEntries::new(&child, 4096, &mut || Ok(())).unwrap();
+        let mut b = DirectoryEntries::new(&child, 4096, &mut || Ok(())).unwrap();
+        drop(child);
+        drop(root);
+        let first = a.next_name(256, &mut || Ok(())).unwrap().unwrap();
+        let collect = |entries: &mut DirectoryEntries| {
+            let mut names = Vec::new();
+            while let Some(name) = entries.next_name(256, &mut || Ok(())).unwrap() {
+                names.push(name);
+            }
+            names.sort();
+            names
+        };
+        let mut names = collect(&mut a);
+        names.push(first);
+        names.sort();
+        assert_eq!(names, collect(&mut b));
+        assert_eq!(names, [OsString::from("alpha"), OsString::from("beta")]);
+        assert!(std::fs::rename(&child_path, &moved).is_err());
+        drop(a);
+        assert!(std::fs::rename(&child_path, &moved).is_err());
+        drop(b);
+        std::fs::rename(child_path, moved).unwrap();
     }
     #[test]
     fn denied_native_attempt_precedes_acquisition() {

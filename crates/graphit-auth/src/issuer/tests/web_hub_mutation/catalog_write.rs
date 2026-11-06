@@ -1,7 +1,18 @@
 use super::*;
 
+#[cfg(unix)]
 #[tokio::test]
 async fn remote_catalog_write_retains_session_without_local_source_or_admin() {
+    incoming_catalog_session_survives_project_root_change_attempt().await;
+}
+
+#[cfg(windows)]
+#[tokio::test]
+async fn remote_catalog_write_refused_project_rename_preserves_session_without_admin() {
+    incoming_catalog_session_survives_project_root_change_attempt().await;
+}
+
+async fn incoming_catalog_session_survives_project_root_change_attempt() {
     let key = pair();
     let oauth = OAuthFixture::new(&key).await;
     let cancel = Cancellation::default();
@@ -37,11 +48,18 @@ async fn remote_catalog_write_retains_session_without_local_source_or_admin() {
         .verify_access(&registered, &raw, context)
         .await
         .unwrap();
+    #[cfg(unix)]
     std::fs::rename(
         f.project.owner_root(),
         f.project.owner_root().with_extension("unused"),
     )
     .unwrap();
+    #[cfg(windows)]
+    crate::issuer::tests::native_installation::assert_retained_scope_refuses_rename(
+        &f.project,
+        &f.project.owner_root().with_extension("unused"),
+        &ctx,
+    );
     decision(&oauth, "web-a", "read", 403);
     let before = oauth.count("/v1/project/access/authorize");
     let mut selection = issuer
@@ -262,15 +280,42 @@ async fn remote_catalog_write_rechecks_observation_installation_and_original() {
             0 => configure(&issuer, &setup, json!([])),
             1 => {
                 let root = f.installation.owner_root();
-                std::fs::rename(root, root.with_extension("replaced")).unwrap();
-                std::fs::create_dir(root).unwrap();
+                #[cfg(unix)]
+                {
+                    std::fs::rename(root, root.with_extension("replaced")).unwrap();
+                    std::fs::create_dir(root).unwrap();
+                }
+                #[cfg(windows)]
+                crate::issuer::tests::native_installation::assert_retained_scope_refuses_rename(
+                    &f.installation,
+                    &root.with_extension("replaced"),
+                    &setup,
+                );
             }
             2 => cancel.cancel(),
             _ => tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)).await,
         }
-        assert!(lease.credential().is_err());
-        assert!(lease.binding().is_err());
-        assert!(lease.user_subject().is_err());
+        if cfg!(windows) && ending == 1 {
+            // The refused filesystem operation did not replace the bound
+            // installation. Its incoming session remains the same authority.
+            assert_eq!(lease.credential().unwrap(), Some(raw.as_str()));
+            assert!(matches!(
+                lease.binding().unwrap(),
+                ServiceBindingView::Broker {
+                    purpose: ServicePurpose::HubWrite,
+                    provider: "broker",
+                    ..
+                }
+            ));
+            assert_eq!(
+                lease.user_subject().unwrap().unwrap().subject().unwrap(),
+                "web-a"
+            );
+        } else {
+            assert!(lease.credential().is_err());
+            assert!(lease.binding().is_err());
+            assert!(lease.user_subject().is_err());
+        }
     }
     assert_eq!(oauth.count("/v1/project/access/authorize"), 0);
     assert_eq!(oauth.count("/userinfo"), 0);
