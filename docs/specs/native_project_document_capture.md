@@ -3,6 +3,8 @@ title: PROJECT document reads and owner-root records
 status: implemented-main
 task: tsk-a987
 references:
+  - target: {type: task, id: 2ZR5P9MTG26JS2FFYCXJVFACT3}
+    relation: derived_from
   - target: {type: task, id: tsk-a987}
     relation: implements
   - target: {type: task, id: tsk-014c}
@@ -26,6 +28,15 @@ revalidate(current) checks the actual caller against the original captured reque
 probe_child_directory(child, current) observes one exact child under the captured directory. It validates a single normal name component and the original request, then revalidates the chain before and after a native no-follow directory open. The temporary child handle and directory lock are released before the final checks. Only NotFound from that exact child open under valid parents returns DirectoryPresence::Absent; PresentDirectory is a momentary observation, not a retained child handle. Missing or replaced parents, files, links, denied access, cancellation and deadline expiry remain errors. This allows first-use readers to observe an absent runtime, knowledge or index.lance directory without creating it.
 
 read(name, context) accepts one document-name component and the same operation context. The chain is checked before opening, before reading and after the observations. Only a missing child under valid parents yields absence. Missing or replaced parents, links, hard links and nonfiles remain errors. A physically read-only regular file is accepted when the held handle can read it.
+
+The shared document-name admission rejects NUL, traversal and multiple components
+before native I/O. On Windows it also rejects ADS, reserved DOS device names
+(including case variants, extensions and superscript COM/LPT digits), reserved
+characters and a final space or period. `NativeDocumentLock::acquire` uses this
+same admission before creating its permanent private entry; invalid names return
+`InvalidInput` without creating an entry. Valid Unicode names retain their exact
+spelling. These are the Windows [filename conventions](https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file),
+applied explicitly even when a native namespace would admit an alias.
 
 revalidate_observation(observation, current) checks the original request and requires the observation to retain this same captured chain and directory identity. It rereads the exact document name and compares the observed value. A foreign chain, changed identity or changed document yields a conflict; it does not adopt a fresh directory or treat decoded receipt data as authority.
 

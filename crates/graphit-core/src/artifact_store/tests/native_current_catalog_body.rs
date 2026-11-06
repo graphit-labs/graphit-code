@@ -30,6 +30,71 @@ fn no_scratch(fixture: &Fixture) {
     );
 }
 #[test]
+fn ordinary_and_native_writers_retain_one_private_permanent_lock() {
+    let fixture = Fixture::new();
+    let path = fixture.store.runtime_root().join("artifact-store.lock");
+    let writer = fixture.writer();
+    graphit_fs::verify_private_file(writer._lock.file()).unwrap();
+    let identity = crate::native_file_identity::handle_id(writer._lock.file()).unwrap();
+    assert_eq!(writer._lock.file().metadata().unwrap().len(), 0);
+    assert!(FileLock::is_locked(&path).unwrap());
+    drop(writer);
+    let request = original(Cancellation::default());
+    let writer = fixture.store.writer_with_context(&request).unwrap();
+    graphit_fs::verify_private_file(writer._lock.file()).unwrap();
+    assert!(crate::native_file_identity::handle_id(writer._lock.file()).unwrap() == identity);
+    assert!(FileLock::is_locked(&path).unwrap());
+    writer.revalidate(&request).unwrap();
+    drop(writer);
+    let writer = fixture.writer();
+    graphit_fs::verify_private_file(writer._lock.file()).unwrap();
+    assert!(crate::native_file_identity::handle_id(writer._lock.file()).unwrap() == identity);
+    assert!(FileLock::is_locked(&path).unwrap());
+    drop(writer);
+    assert!(!FileLock::is_locked(&path).unwrap());
+}
+
+#[cfg(windows)]
+#[test]
+fn foreign_default_lock_stays_denied_without_repair_or_replacement() {
+    let fixture = Fixture::new();
+    let context = ScopeContext::new(
+        Instant::now() + Duration::from_secs(30),
+        Cancellation::default(),
+    );
+    native_source::ensure_control_parent(&fixture.store.scope, &context).unwrap();
+    let _control =
+        control::ControlDirectory::create_or_open(&fixture.store.scope, &context).unwrap();
+    let path = fixture.store.runtime_root().join("artifact-store.lock");
+    let foreign = FileLock::try_acquire(&path).unwrap();
+    let file = foreign.file().try_clone().unwrap();
+    foreign.release().unwrap();
+    let identity = crate::native_file_identity::handle_id(&file).unwrap();
+    assert_eq!(
+        graphit_fs::verify_private_file(&file).unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
+    let request = original(Cancellation::default());
+    let native_error = fixture.store.writer_with_context(&request).err().unwrap();
+    assert_eq!(native_error.stage(), ArtifactStage::Lock);
+    assert_eq!(native_error.kind(), io::ErrorKind::PermissionDenied);
+    let normal_error = fixture
+        .store
+        .writer(Duration::from_secs(30), &Cancellation::default())
+        .err()
+        .unwrap();
+    assert_eq!(normal_error.stage(), ArtifactStage::Lock);
+    assert_eq!(normal_error.kind(), io::ErrorKind::PermissionDenied);
+    assert_eq!(
+        graphit_fs::verify_private_file(&file).unwrap_err().kind(),
+        io::ErrorKind::PermissionDenied
+    );
+    let metadata = fs::symlink_metadata(&path).unwrap();
+    assert!(crate::native_file_identity::physical_id(&path, &metadata).unwrap() == identity);
+    assert_eq!(metadata.len(), 0);
+}
+
+#[test]
 fn loaded_catalogue_decodes_the_current_physical_body() {
     let fixture = Fixture::new();
     seed(&fixture);

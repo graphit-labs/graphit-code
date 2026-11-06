@@ -209,6 +209,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: code-sources-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: code-sources-v2-${{ runner.os }}-${{ runner.arch }}-
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked
       - name: Save locked Cargo sources before compilation
@@ -339,6 +340,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: code-sources-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: code-sources-v2-${{ runner.os }}-${{ runner.arch }}-
       - name: Fetch locked Rust dependencies
         run: cargo fetch --locked
       - name: Save locked Cargo sources before compilation

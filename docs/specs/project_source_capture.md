@@ -3,6 +3,8 @@ title: Captured PROJECT source
 status: private-integration-pending
 task: tsk-2706
 references:
+  - target: {type: task, id: 3Q1RADNF4Z9RB9HXQ4J9Q3JSAK}
+    relation: derived_from
   - target: {type: task, id: tsk-cab0}
     relation: implements
   - target: {type: task, id: tsk-852b}
@@ -22,6 +24,15 @@ references:
 CapturedPublicationScope::project receives ProjectPaths, ProjectId, ScopeLimits and Arc<SnapshotContext>. CapturedSourceReader::capture_project receives that scope, a strict relative selection, expected kind, SnapshotPolicy, SourceReadLimits and the current shared context. Metadata, files, streams and retained ranges use the same captured backing. `CapturedSourceReader::matches_binding(&SnapshotBindingRecord)` compares the stored full snapshot binding against that retained backing without I/O, allocation or admission; source/canonical path, kind, policy and node observations must match. It does not replace authority, Original or physical rechecks before access. Public PROJECT factories reject Installation scopes; the common private engine also supports selected Installation subtrees.
 
 A selection rejects empty paths, dot/parent components, repeated or trailing separators, NUL and absolute paths. Windows additionally rejects slash and colon aliases. Non-Unicode native names, including Unix invalid UTF-8 and Windows unpaired UTF-16, fail explicitly. Paths use JSON strings with exact Unicode spelling; no OS/units alternative is decoded. The captured root uses an empty suffix internally; a selected root file can be read by that suffix, while a directory cannot be opened as a file.
+
+Relative data admitted by `GeneratedNode`, `PayloadOverlay` and `RetainedFileSet`
+also retains the per-entry 64 KiB native path bound: Unix bytes or twice the
+Windows UTF-16 unit count. The Unicode string's UTF-8 bound remains independent.
+Generated nodes and overlays check the original path before normalizing admitted
+interior dots or redundant separators; aggregate metadata bounds charge the
+canonical stored path. Retained selections and decoded receipts require canonical
+spelling and do not normalize malformed input. A larger aggregate retention bound
+does not enlarge the per-entry native bound.
 
 CopyPolicy::RejectFileLinks is required. Symlinks, magic links, reparse points, hard-linked files, unexpected types and observable filesystem crossings fail before selected payload reads. Capture first inspects the selected subtree, checks tree and retained-byte limits, then hashes selected files with one reusable buffer. Generic tree captures keep their directory handles through readers, files and streams; fresh relative opens check namespace continuity. Selected PROJECT captures use the active-chain lifetime described below. Returned ranges own their bytes and release the capture independently.
 

@@ -529,6 +529,7 @@ impl SnapshotNode<'_> {
 
 pub(super) fn validate_relative(path: &Path) -> io::Result<()> {
     crate::native_path::valid_native(path)?;
+    native_selection_units(path, crate::native_path::MAX_PATH_BYTES)?;
     let bytes = path.as_os_str().as_encoded_bytes();
     if bytes.is_empty() {
         return Ok(());
@@ -560,6 +561,7 @@ pub(super) fn validate_relative(path: &Path) -> io::Result<()> {
 // validate_relative instead and must already be canonical.
 pub(super) fn canonical_relative(path: &Path) -> io::Result<PathBuf> {
     crate::native_path::valid_native(path)?;
+    native_selection_units(path, crate::native_path::MAX_PATH_BYTES)?;
     let mut canonical = PathBuf::new();
     for part in path.components() {
         match part {

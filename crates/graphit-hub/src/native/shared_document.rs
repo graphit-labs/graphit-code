@@ -312,6 +312,8 @@ impl Persistence {
         let write = (|| {
             file.write_all(&bytes)?;
             file.sync_all()?;
+            // The private Windows handle excludes delete sharing needed by rename.
+            drop(file);
             fs::rename(&stage, &self.path)?;
             Ok(())
         })();

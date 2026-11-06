@@ -116,6 +116,12 @@ document. Values needed for recovery may include supplied environment/header
 secrets, so the state uses the existing OS-private filesystem helpers and must
 never be copied into logs, Task or Knowledge.
 
+Saving this private state writes and syncs its stage, closes that file handle,
+then renames the stage into place. Closing the handle permits the legitimate
+rename on Windows without changing SDK sharing flags or releasing the provider
+lock, Core writer or captured ancestor handles. Reopening the writer reads the
+saved registration for subsequent sync, update and removal.
+
 ## Kiro hook tuples
 
 The same writer consumes the typed [Kiro hook plan](rust_kiro_hook_plans.md).

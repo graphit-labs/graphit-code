@@ -309,10 +309,11 @@ pub(super) fn validate_name(name: &OsStr) -> io::Result<()> {
         || name.as_encoded_bytes().contains(&0)
         || name.as_encoded_bytes().contains(&b'/')
         || (cfg!(windows)
-            && name
-                .as_encoded_bytes()
-                .iter()
-                .any(|b| matches!(b, b':' | b'\\')))
+            && (crate::brand::windows_device_name(text)
+                || text.ends_with(['.', ' '])
+                || text.chars().any(|c| {
+                    c <= '\u{1f}' || matches!(c, ':' | '\\' | '*' | '?' | '"' | '<' | '>' | '|')
+                })))
     {
         return Err(io::ErrorKind::InvalidInput.into());
     }

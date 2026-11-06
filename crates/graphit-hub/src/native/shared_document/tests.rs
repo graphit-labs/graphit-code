@@ -108,6 +108,8 @@ fn real_writer_installs_updates_and_removes_without_changing_foreign_options() {
     let plan = plan(NativeBinding::Codex);
     let mut writer = f.writer("config.toml", &request);
     assert_eq!(writer.sync(&plan).unwrap(), SharedDocumentChange::Created);
+    drop(writer);
+    let mut writer = f.writer("config.toml", &request);
     let original = fs::read(&path).unwrap();
     assert_eq!(writer.sync(&plan).unwrap(), SharedDocumentChange::Unchanged);
     assert_eq!(fs::read(&path).unwrap(), original);
@@ -125,6 +127,12 @@ fn real_writer_installs_updates_and_removes_without_changing_foreign_options() {
         writer.sync(&updated).unwrap(),
         SharedDocumentChange::Updated
     );
+    drop(writer);
+    let mut writer = f.writer("config.toml", &request);
+    assert_eq!(
+        writer.sync(&updated).unwrap(),
+        SharedDocumentChange::Unchanged
+    );
     let output = fs::read_to_string(&path).unwrap();
     assert!(output.contains("# personal theme"));
     assert!(output.contains("startup_timeout_sec = 250 # personal timeout"));
@@ -138,6 +146,12 @@ fn real_writer_installs_updates_and_removes_without_changing_foreign_options() {
     assert!(output.contains("startup_timeout_sec = 250 # personal timeout"));
     assert!(output.contains("enabled = false"));
     assert!(!output.contains("command ="));
+    drop(writer);
+    let mut writer = f.writer("config.toml", &request);
+    assert_eq!(
+        writer.remove(&updated).unwrap(),
+        SharedDocumentChange::Unchanged
+    );
     assert!(writer.core.load().unwrap().unwrap().pending().is_none());
 }
 #[test]

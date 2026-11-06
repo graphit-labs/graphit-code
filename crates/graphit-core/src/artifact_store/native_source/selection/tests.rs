@@ -184,7 +184,8 @@ fn ignored_first_readme_membership_invalidates_only_when_readme_selection_is_ena
                 std::fs::write(&ignored_first, b"ignored").unwrap();
             }
             let original = request();
-            let extras = [Path::new("docs/main.md")];
+            let extra = Path::new("docs").join("main.md");
+            let extras = [extra.as_path()];
             let input = || {
                 let mut input = criteria(None, &extras, &[".md", ".mdx"]);
                 input.include_readme = include_readme;
@@ -266,7 +267,7 @@ fn ignored_build_churn_with_unrelated_negation_preserves_selected_metadata() {
     assert_eq!(documents(&reader), [PathBuf::from("a.rs")]);
     assert_eq!(reader.retained_bytes(), 0);
     assert!(documents(&capture(Some(Path::new("target")), &[])).is_empty());
-    assert!(documents(&capture(None, &[Path::new("target/hidden.rs")])).is_empty());
+    assert!(documents(&capture(None, &[&Path::new("target").join("hidden.rs")])).is_empty());
     std::fs::write(paths.root().join("target/new.rs"), b"build churn").unwrap();
     reader.revalidate_content().unwrap();
     std::fs::write(paths.root().join("a.rs"), b"fn changed() {}").unwrap();
@@ -1269,7 +1270,7 @@ fn selected_file_keeps_no_delete_ancestors_only_while_io_is_owned() {
         &original,
     )
     .unwrap();
-    let file = reader.open_file(Path::new("docs/a.md")).unwrap();
+    let file = reader.open_file(&Path::new("docs").join("a.md")).unwrap();
     assert!(
         std::fs::rename(&docs, &saved).is_err(),
         "active IO must retain no-delete ancestors"
@@ -1421,8 +1422,8 @@ fn indexed_selection_preserves_native_order_dedup_and_component_ancestors() {
             Some(Path::new(".")),
             &[
                 Path::new("z.rs"),
-                Path::new("parent/nested/code.rs"),
-                Path::new("a-else/code.rs"),
+                &Path::new("parent").join("nested").join("code.rs"),
+                &Path::new("a-else").join("code.rs"),
                 Path::new("z.rs"),
             ],
             &[".rs"],
@@ -1455,7 +1456,7 @@ fn indexed_selection_preserves_native_order_dedup_and_component_ancestors() {
     reader.revalidate_content().unwrap();
     assert_eq!(
         reader
-            .open_file(Path::new("parent/nested/code.rs"))
+            .open_file(&Path::new("parent").join("nested").join("code.rs"))
             .unwrap()
             .read_range(0, 6)
             .unwrap()
@@ -1521,8 +1522,8 @@ fn local_file_read_defers_other_selected_changes_to_global_validation_and_public
             CopyLimits::new(65536, 16, 4096, 16).unwrap(),
         );
         let payload = ValidatedPayloadPlan::new(snapshot, [], &policy, &original).unwrap();
-        let a = reader.open_file(Path::new("a/file.md")).unwrap();
-        let b = reader.open_file(Path::new("b/file.md")).unwrap();
+        let a = reader.open_file(&Path::new("a").join("file.md")).unwrap();
+        let b = reader.open_file(&Path::new("b").join("file.md")).unwrap();
         let mut stream = a.stream(0).unwrap();
         let mut bytes = [0; 2];
         assert_eq!(stream.read(&mut bytes).unwrap(), 2);
@@ -1568,8 +1569,14 @@ fn local_file_read_defers_other_selected_changes_to_global_validation_and_public
         assert_eq!(stream.read(&mut bytes).unwrap(), 0);
         assert_eq!(a.read_range(0, 5).unwrap().as_ref(), b"alpha");
         assert_eq!(a.read_range(5, 0).unwrap().as_ref(), b"");
-        assert_eq!(reader.open_file(Path::new("a/file.md")).unwrap().len(), 5);
-        let fresh = metadata.open_file(Path::new("a/file.md")).unwrap();
+        assert_eq!(
+            reader
+                .open_file(&Path::new("a").join("file.md"))
+                .unwrap()
+                .len(),
+            5
+        );
+        let fresh = metadata.open_file(&Path::new("a").join("file.md")).unwrap();
         assert_eq!(fresh.read_range(0, 5).unwrap().as_ref(), b"alpha");
         assert_eq!(fresh.read_range(5, 0).unwrap().as_ref(), b"");
         assert!(metadata.revalidate_bindings().is_err());
@@ -1691,12 +1698,15 @@ fn local_stream_rechecks_present_and_absent_controls_of_every_applicable_scope()
                     std::fs::write(&control, b"#a\n").unwrap();
                 }
                 let original = request();
-                let mut input = criteria(Some(Path::new("outer/docs")), &[], &[".md"]);
+                let selected_directory = Path::new("outer").join("docs");
+                let mut input = criteria(Some(&selected_directory), &[], &[".md"]);
                 // Equal names identify one physical control; distinct names use both receipts.
                 input.ignore.custom_control = Some(".wikiignore");
                 input.ignore.git_control = Some(git_name);
                 let reader = capture_with(&scope, input, limits(), &original).unwrap();
-                let file = reader.open_file(Path::new("outer/docs/a.md")).unwrap();
+                let file = reader
+                    .open_file(&Path::new("outer").join("docs").join("a.md"))
+                    .unwrap();
                 let mut stream = file.stream(0).unwrap();
                 let mut bytes = [0; 2];
                 assert_eq!(stream.read(&mut bytes).unwrap(), 2);
@@ -1812,10 +1822,10 @@ fn ignored_build_entries_do_not_invalidate_selected_file_or_eof() {
             _ => unreachable!(),
         }
         if mutation.ends_with("ignored") {
-            let file = reader.open_file(Path::new("ui/main.rs")).unwrap();
+            let file = reader.open_file(&Path::new("ui").join("main.rs")).unwrap();
             let bytes = file.read_range(0, file.len() as usize).unwrap();
             reader
-                .validate_file_bytes(Path::new("ui/main.rs"), bytes.as_ref(), &original)
+                .validate_file_bytes(&Path::new("ui").join("main.rs"), bytes.as_ref(), &original)
                 .unwrap();
             assert_eq!(bytes.as_ref(), b"fn original() {}\n");
             reader.revalidate_bindings().unwrap();

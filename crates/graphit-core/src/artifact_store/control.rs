@@ -105,6 +105,27 @@ impl ControlDirectory {
         Ok(captured)
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+    pub(super) fn open_private_lock_file(
+        &self,
+        scope: &CapturedPublicationScope,
+        context: &ScopeContext,
+    ) -> io::Result<File> {
+        context.check()?;
+        // Preserve a disappeared control parent's native NotFound cause before
+        // scope revalidation classifies a changed namespace as a conflict.
+        fs::symlink_metadata(scope.runtime_root())?;
+        self.revalidate(scope, Some(context))?;
+        let file = graphit_fs::write_relative::open_private_lock_relative(
+            &self.file,
+            std::ffi::OsStr::new("artifact-store.lock"),
+            64 * 1024,
+            &mut || context.check(),
+        )?;
+        self.revalidate(scope, Some(context))?;
+        Ok(file)
+    }
+
     pub(super) fn revalidate(
         &self,
         scope: &CapturedPublicationScope,

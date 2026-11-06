@@ -29,6 +29,178 @@ fn input<'a>(f: &'a Fixture, alias: Option<&'a str>) -> ImportedKnowledgeInput<'
         context_alias: alias,
     }
 }
+
+#[test]
+fn registry_spelling_preserves_cache_metadata_and_rejects_foreign_brand_and_root() {
+    native_test(async {
+        use graphit_core::{
+            artifact_store::{PublicationSlot, StoreOwner},
+            brand::Brand,
+            project_paths::InstallationPaths,
+        };
+        use graphit_hub::{
+            ArtifactType, InstallationTarget, RemoteFileOrigin, SourceRef,
+            registry::{
+                HubRegistry, Installation, InstalledArtifact, InstalledBackend, InstalledPayload,
+            },
+        };
+        let cancel = Cancellation::default();
+        let ctx = context(&cancel);
+        let mut f = Fixture::new(&ctx);
+        let StoreOwner::Installation { installation_id } = f.installation.owner() else {
+            panic!()
+        };
+        let installation_id = installation_id.clone();
+        // Keep an explicit spelling component in the registry's parent without
+        // relying on TMP or introducing parent traversal, which NativePath rejects.
+        let root = f.paths.root();
+        let spelling = root
+            .parent()
+            .unwrap()
+            .join(".")
+            .join(root.file_name().unwrap());
+        f.paths = InstallationPaths::resolve(
+            f.paths.brand().clone(),
+            f.installation.owner_root(),
+            None,
+            Some(&spelling),
+        )
+        .unwrap();
+        f.registry = HubRegistry::global(&f.paths, &installation_id, f.registry.limits()).unwrap();
+        f.source = SourceRef::hub_cache(
+            &f.paths,
+            f.source.producer(),
+            ArtifactType::Knowledge,
+            f.id.clone(),
+            None,
+            f.artifact_version.clone(),
+            f.registry.limits().projection(),
+        )
+        .unwrap();
+        let issuer = f.issuer(&ctx);
+        f.seed(&issuer, &ctx, &[page("captured", &[])], None).await;
+        let secret =
+            std::fs::read_to_string(f.installation.owner_root().join("daemon/mcp.key")).unwrap();
+        let caller = issuer.authenticate_runtime(&secret, &ctx).unwrap();
+        let read = issuer
+            .admit_authenticated_imported_knowledge_read(&caller, f.realm())
+            .unwrap();
+        let projection = f.registry.limits().projection();
+        let cache_id = ArtifactId::new("vendor/cached-skill", projection).unwrap();
+        let cache_source = SourceRef::hub_cache(
+            &f.paths,
+            f.source.producer(),
+            ArtifactType::Skill,
+            cache_id.clone(),
+            None,
+            ConcreteVersion::new("cache-v1", projection).unwrap(),
+            projection,
+        )
+        .unwrap()
+        .with_remote_file_origin(
+            RemoteFileOrigin::Broker {
+                provider: "service".into(),
+            },
+            [7; 32],
+            projection,
+        )
+        .unwrap();
+        let cache = InstalledArtifact {
+            consumer: PublicationSlot::Scope,
+            artifact_type: ArtifactType::Skill,
+            id: cache_id,
+            installations: vec![Installation {
+                target: InstallationTarget::GlobalCache,
+                original_source: cache_source,
+                display: None,
+                alias: None,
+                entry_name: None,
+                backend: InstalledBackend::GlobalCache,
+                payload: InstalledPayload::Original {
+                    selection_binding: None,
+                },
+            }],
+        };
+        f.registry
+            .writer(ctx.remaining().unwrap().unwrap(), ctx.cancellation())
+            .unwrap()
+            .put_metadata(cache.clone())
+            .unwrap();
+        let before = std::fs::read(f.registry.path()).unwrap();
+        let configured = f.registry.path();
+        let source_record = f.source.clone();
+        assert_ne!(
+            configured.parent().unwrap().as_os_str(),
+            f.installation.owner_root().as_os_str()
+        );
+        assert_eq!(
+            graphit_core::local_files::canonical_directory(configured.parent().unwrap()).unwrap(),
+            f.installation.owner_root()
+        );
+        let ImportedKnowledgeOpen::Published(reader) =
+            open_imported_knowledge(&read, input(&f, None), limits())
+                .await
+                .unwrap()
+        else {
+            panic!("configured spelling must bind to the admitted owner")
+        };
+        assert!(matches!(reader.heads(heads_limits()).await.unwrap(),
+            KnowledgeHeadRead::Published { heads, .. } if heads.len() == 1 && heads[0].slug == "captured"));
+        assert_eq!(f.registry.path(), configured);
+        assert_eq!(f.source, source_record);
+        assert_eq!(std::fs::read(f.registry.path()).unwrap(), before);
+        assert_eq!(
+            f.registry.load().unwrap().get_version(
+                ArtifactType::Skill,
+                cache.id.as_str(),
+                cache.installations[0].original_source.version()
+            ),
+            Some(&cache)
+        );
+
+        let wrong_brand = InstallationPaths::resolve(
+            Brand::new("another-brand").unwrap(),
+            f.installation.owner_root(),
+            None,
+            Some(f.installation.owner_root()),
+        )
+        .unwrap();
+        let wrong_brand =
+            HubRegistry::global(&wrong_brand, &installation_id, f.registry.limits()).unwrap();
+        assert!(matches!(
+            open_imported_knowledge(
+                &read,
+                ImportedKnowledgeInput {
+                    registry: &wrong_brand,
+                    ..input(&f, None)
+                },
+                limits()
+            )
+            .await,
+            Err(ImportedKnowledgeReadError::InvalidRegistryScope)
+        ));
+        let foreign = f._dir.path().join("foreign-installation");
+        std::fs::create_dir(&foreign).unwrap();
+        let foreign =
+            InstallationPaths::resolve(f.paths.brand().clone(), &foreign, None, Some(&foreign))
+                .unwrap();
+        let foreign = HubRegistry::global(&foreign, &installation_id, f.registry.limits()).unwrap();
+        assert!(matches!(
+            open_imported_knowledge(
+                &read,
+                ImportedKnowledgeInput {
+                    registry: &foreign,
+                    ..input(&f, None)
+                },
+                limits()
+            )
+            .await,
+            Err(ImportedKnowledgeReadError::InvalidRegistryScope)
+        ));
+        read.recheck().unwrap();
+        assert_eq!(std::fs::read(f.registry.path()).unwrap(), before);
+    });
+}
 #[test]
 fn signed_web_native_source_preserves_observation_state_and_same_pin() {
     native_test(async {

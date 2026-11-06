@@ -25,6 +25,12 @@ Rust steps set `CARGO_NET_OFFLINE=true`; forwarded Cargo commands also pass
 `--locked --offline`. The wrapper still resolves the official Ladybug dependency
 through Cargo metadata and keeps its native build lock.
 
+The source cache prefers the exact lockfile key, then can restore sources from
+another lockfile on the same OS and architecture. Cargo still performs the locked
+fetch, selects the pinned packages and checks their checksums; missing sources
+are fetched before offline execution. This fallback contains no compiled outputs
+and does not widen the compatibility rules for native or Rust build caches.
+
 Preparation installs `cargo-nextest@0.9.151` with
 [taiki-e/install-action](https://github.com/taiki-e/install-action), checksums
 enabled and installer fallback disabled, before the offline steps. Test scheduling

@@ -61,8 +61,15 @@ as chamadas posteriores reutilizam essas capturas e os limites lógicos Data.
 
 ## Seleção e abertura
 
-O Registry é global, pertence à mesma instalação admitida e tem seu parent
-exatamente no owner root capturado. O lookup usa Knowledge, ID completo e
+O Registry é global, conserva o ID e o brand da instalação admitida e seu parent
+resolvido por `canonical_directory` corresponde ao owner root capturado. A
+grafia configurada não é reescrita. O reader retém uma captura desse owner root
+Auth e `HubRegistry::load_captured` lê por sua raiz canônica, com Original e
+identidade revalidados antes e depois. Os limites do documento Hub e a validação
+do Registry lógico original continuam vigentes, inclusive a igualdade dos roots
+lexicais persistidos em entradas GlobalCache. Links observados no parent continuam
+rejeitados pela política Hub; comparar somente IDs não admite outro diretório.
+O lookup usa Knowledge, ID completo e
 ConcreteVersion exatos. A instalação exige target GlobalNative, backend Native,
 payload Original com selection_binding None, ausência de alias e entry name,
 e original_source com tipo Knowledge, ID e versão iguais à seleção.
@@ -72,8 +79,12 @@ nos guards. Desaparecimento ou substituição produz `SourceSelectionChanged`;
 erros de leitura ou parsing conservam sua causa.
 
 O [locator local](../architecture/rust-knowledge-import-locator.md) é
-`SourceRef.directory()/index.lance`. Raiz e filho são capturados readonly pelo
-Core. O pathname canônico deve corresponder ao selecionado; capturas e
+`SourceRef.directory()/index.lance`. Para HubCache cujo root é exatamente o parent
+lógico do Registry, somente o sufixo já validado é resolvido sob o owner canônico
+capturado. O SourceRef persistido e o tuple usado pelos guards permanecem literais;
+outras origens não são redirecionadas. Raiz e filho são capturados readonly pelo
+Core. O pathname canônico deve corresponder à seleção física assim composta;
+links no payload ou em `index.lance` continuam erros. Capturas e
 ancestrais são revalidados. `package.json` é envelope, sem leitura no payload.
 O caminho OS capturado vira file URL pela biblioteca `url`, sem conversão lossy.
 

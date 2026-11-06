@@ -1123,6 +1123,10 @@ impl HubRegistry {
     pub fn limits(&self) -> HubLimits {
         self.limits
     }
+    /// Configured brand data; this observation grants no filesystem authority.
+    pub fn brand(&self) -> &str {
+        &self.brand
+    }
     pub fn project(
         project: &ProjectPaths,
         identity: &ProjectIdentity,
@@ -1260,6 +1264,40 @@ impl HubRegistry {
         };
         let document = codec::decode(&bytes, self.limits)?.restore(self.limits)?;
         document.validate(self)?;
+        Ok(document)
+    }
+    /// Read through an already captured parent, preserving this registry's logical
+    /// paths, brand, scope and limits when validating the persisted document.
+    /// The caller retains its own authority; this does not admit a new owner.
+    pub fn load_captured(
+        &self,
+        parent: &graphit_core::native_document_file::CapturedDocumentDirectory,
+        original: &graphit_core::file_io::SnapshotContext,
+    ) -> io::Result<HubDocument> {
+        original.check()?;
+        self.validate_context()?;
+        if !self.check_parent()?
+            || local_files::canonical_directory(self.parent.as_path())? != parent.canonical_path()
+        {
+            return Err(invalid());
+        }
+        parent.revalidate(original)?;
+        // Keep the configured Hub document bound, rather than imposing the
+        // unrelated byte bound used to capture a consumer's directory.
+        let bytes = local_files::read_regular(
+            &parent.canonical_path().join("hub.json"),
+            self.limits.document_bytes,
+        )?;
+        parent.revalidate(original)?;
+        let document = if let Some((bytes, _)) = bytes {
+            let document = codec::decode(&bytes, self.limits)?.restore(self.limits)?;
+            document.validate(self)?;
+            document
+        } else {
+            self.empty()
+        };
+        original.check()?;
+        parent.revalidate(original)?;
         Ok(document)
     }
     pub fn writer(&self, timeout: Duration, cancellation: &Cancellation) -> io::Result<HubWriter> {

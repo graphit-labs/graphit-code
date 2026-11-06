@@ -39,6 +39,105 @@ fn cached(f: &Fixture, kind: ArtifactType, version: &str) -> InstalledArtifact {
 }
 
 #[test]
+fn captured_registry_keeps_logical_cache_roots_and_rejects_replaced_parent() {
+    use graphit_core::{
+        file_io::SnapshotContext,
+        native_document_file::{CapturedDocumentDirectory, NativeDocumentFileLimits},
+    };
+    let f = Fixture::new();
+    let registry = f.global();
+    let one = cached(&f, ArtifactType::Skill, "captured-one");
+    writer(&registry).put_metadata(one.clone()).unwrap();
+    let parent = registry.path().parent().unwrap().to_owned();
+    let original = SnapshotContext::new(
+        Instant::now() + Duration::from_secs(30),
+        Cancellation::default(),
+    );
+    // Hub's document limit remains independent of the directory capture bound.
+    let native = NativeDocumentFileLimits::new(1, 32768, 128, 65536).unwrap();
+    let captured = CapturedDocumentDirectory::capture(&parent, native, &original).unwrap();
+    let before = fs::read(registry.path()).unwrap();
+    assert!(before.len() > 1);
+    assert_eq!(
+        one.installations[0].original_source.root().as_path(),
+        parent
+    );
+    let document = registry.load_captured(&captured, &original).unwrap();
+    assert_eq!(
+        document.get_version(
+            ArtifactType::Skill,
+            one.id.as_str(),
+            one.installations[0].original_source.version(),
+        ),
+        Some(&one)
+    );
+    assert_eq!(fs::read(registry.path()).unwrap(), before);
+    let cancelled = SnapshotContext::service(Cancellation::default());
+    cancelled.cancellation().cancel();
+    let error = match registry.load_captured(&captured, &cancelled) {
+        Err(error) => error,
+        Ok(_) => panic!("cancelled registry read must fail"),
+    };
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    let expired = SnapshotContext::new(Instant::now(), Cancellation::default());
+    let error = match registry.load_captured(&captured, &expired) {
+        Err(error) => error,
+        Ok(_) => panic!("expired registry read must fail"),
+    };
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+
+    let other = Fixture::new();
+    let other_registry = other.global();
+    writer(&other_registry)
+        .put_metadata(cached(&other, ArtifactType::Skill, "other"))
+        .unwrap();
+    let foreign = CapturedDocumentDirectory::capture(
+        other_registry.path().parent().unwrap(),
+        native,
+        &original,
+    )
+    .unwrap();
+    assert!(registry.load_captured(&foreign, &original).is_err());
+
+    let moved = f.temp.path().join("held-installation");
+    #[cfg(unix)]
+    {
+        fs::rename(&parent, &moved).unwrap();
+        let two = cached(&f, ArtifactType::Skill, "replacement-two");
+        writer(&registry).put_metadata(two).unwrap();
+        // The replacement is a valid registry with the same logical scope and brand.
+        assert_eq!(registry.load().unwrap().entries().count(), 1);
+        assert!(registry.load_captured(&captured, &original).is_err());
+    }
+    #[cfg(windows)]
+    {
+        let identity = captured.directory_identity();
+        // The retained directory handle deliberately denies FILE_SHARE_DELETE.
+        let error = fs::rename(&parent, &moved).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(32));
+        assert!(!moved.exists());
+        assert!(parent.is_dir());
+        captured.revalidate(&original).unwrap();
+        assert!(captured.directory_identity() == identity);
+        assert_eq!(fs::read(registry.path()).unwrap(), before);
+        for document in [
+            registry.load().unwrap(),
+            registry.load_captured(&captured, &original).unwrap(),
+        ] {
+            assert_eq!(
+                document.get_version(
+                    ArtifactType::Skill,
+                    one.id.as_str(),
+                    one.installations[0].original_source.version(),
+                ),
+                Some(&one)
+            );
+        }
+    }
+    original.check().unwrap();
+}
+
+#[test]
 fn global_cache_versions_roundtrip_and_removal_preserves_payload() {
     for kind in ArtifactType::ALL {
         if matches!(kind, ArtifactType::Ast | ArtifactType::Knowledge) {

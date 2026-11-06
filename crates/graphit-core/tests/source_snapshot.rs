@@ -938,6 +938,14 @@ fn relative_raw_native_cap_and_invalid_syntax_are_checked_before_normalization()
     let at_cap = format!("d/{}f/", "./".repeat((units - 4) / 2));
     assert_eq!(at_cap.len(), units);
     assert!(GeneratedNode::file(PathBuf::from(&at_cap), vec![], mode).is_ok());
+    let canonical_at_cap = PathBuf::from("x".repeat(units));
+    assert!(
+        RetainedFileSet::new(
+            [canonical_at_cap],
+            RetainedBytesLimits::new(1, 1, 128 * 1024).unwrap()
+        )
+        .is_ok()
+    );
     assert!(
         RetainedFileSet::new(
             [PathBuf::from(&at_cap)],
@@ -947,6 +955,7 @@ fn relative_raw_native_cap_and_invalid_syntax_are_checked_before_normalization()
     );
     for path in [
         format!("{at_cap}/"),
+        "x".repeat(units + 1),
         "./d/f".into(),
         "../d/f".into(),
         "d/../f".into(),
@@ -958,8 +967,14 @@ fn relative_raw_native_cap_and_invalid_syntax_are_checked_before_normalization()
     .map(PathBuf::from)
     .chain(std::iter::once(temp.path().to_path_buf()))
     {
-        assert!(GeneratedNode::file(path.clone(), vec![], mode).is_err());
-        assert!(GeneratedNode::directory(path.clone(), mode).is_err());
+        assert!(
+            GeneratedNode::file(path.clone(), vec![], mode).is_err(),
+            "{path:?}"
+        );
+        assert!(
+            GeneratedNode::directory(path.clone(), mode).is_err(),
+            "{path:?}"
+        );
         assert!(
             RetainedFileSet::new(
                 [path.clone()],

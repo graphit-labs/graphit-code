@@ -61,8 +61,17 @@ fn lock_content_io_and_reservations_are_zero() {
     let (_tmp, root) = fixture();
     let ctx = context(Duration::from_secs(30), Cancellation::default());
     let directory = capture(&root, &ctx);
-    let guard = acquire(&directory, &ctx).unwrap();
-    guard.revalidate().unwrap();
+    for name in [
+        "document.lock",
+        ".config.lock",
+        "ação-日本語.lock",
+        "COM10.lock",
+        "NUL-safe.lock",
+    ] {
+        let guard = NativeDocumentLock::acquire(&directory, OsStr::new(name), &ctx).unwrap();
+        guard.revalidate().unwrap();
+        assert_eq!(fs::metadata(root.join(name)).unwrap().len(), 0);
+    }
 }
 
 #[test]
@@ -94,8 +103,43 @@ fn prebirth_cancel_deadline_invalid_name_and_path_limit_create_nothing() {
         assert!(NativeDocumentLock::acquire(&directory, OsStr::new(name), &ctx).is_err());
     }
     #[cfg(windows)]
-    for name in ["file:stream", "NUL", "entry.", "nested\\file"] {
-        assert!(NativeDocumentLock::acquire(&directory, OsStr::new(name), &ctx).is_err());
+    for name in [
+        "file:stream",
+        "NUL",
+        "nul.tar.gz",
+        "CON",
+        "prn.lock",
+        "AUX",
+        "COM1",
+        "com9.lock",
+        "COM¹",
+        "com².lock",
+        "COM³",
+        "LPT1",
+        "lpt9.lock",
+        "LPT¹",
+        "lpt².lock",
+        "LPT³",
+        "entry.",
+        "entry ",
+        "nested\\file",
+        "entry*",
+        "entry?",
+        "entry\"",
+        "entry<",
+        "entry>",
+        "entry|",
+        "entry\u{1f}",
+    ] {
+        assert_eq!(
+            NativeDocumentLock::acquire(&directory, OsStr::new(name), &ctx)
+                .err()
+                .unwrap_or_else(|| panic!("accepted invalid document name {name:?}"))
+                .kind(),
+            io::ErrorKind::InvalidInput,
+            "{name:?}"
+        );
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 0, "{name:?}");
     }
     let limited = CapturedDocumentDirectory::capture(
         &root,

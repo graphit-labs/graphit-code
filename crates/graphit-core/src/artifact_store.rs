@@ -678,6 +678,21 @@ impl ArtifactStore {
         regular_metadata(&path).map_err(|e| at(ArtifactStage::Lock, e))?;
         #[cfg(test)]
         control::test_hooks::before_lock();
+        #[cfg(any(target_os = "linux", target_os = "macos", windows))]
+        let lock = {
+            let file = control
+                .open_private_lock_file(&self.scope, &scope_context)
+                .map_err(|e| at(ArtifactStage::Lock, e))?;
+            FileLock::acquire_owned_file_checked(
+                file,
+                path,
+                Some(deadline),
+                cancellation,
+                &mut || scope_context.check(),
+            )
+            .map_err(|e| at(ArtifactStage::Lock, e))?
+        };
+        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
         let lock = FileLock::acquire_in_existing_parent(
             &path,
             deadline.saturating_duration_since(std::time::Instant::now()),

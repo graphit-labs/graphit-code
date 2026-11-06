@@ -61,6 +61,13 @@ raiz e o filho `index.lance`, abre o default corrente pelo SDK e retém seu
 ModuleSnapshot privado durante toda a operação. Grant, request original,
 Registry e capturas são rechecados nos limites de I/O, linhas, EOF e entrega.
 
+O parent lógico do Registry conserva sua grafia; o vínculo físico usa o owner
+canônico da instalação Auth capturada, além de ID e brand. A leitura capturada
+valida o documento contra o Registry lógico original, sem alterar os roots
+persistidos de GlobalCache. Para HubCache desse mesmo root lógico, o reader
+compõe somente o sufixo validado sob a captura canônica antes de abrir o payload;
+o SourceRef selecionado permanece literal e os children continuam sem links.
+
 O Registry atual não armazena um selector SDK imutável. Portanto a leitura
 promete a consistência da pin observada, sem afirmar que a versão do artifact
 fixa uma geração Lance específica. A pin também não promete imunidade a GC ou

@@ -131,6 +131,7 @@ pub struct CapturedImportedKnowledge<'a> {
     admission: &'a ImportedKnowledgeReadAdmission<'a>,
     input: ImportedKnowledgeInput<'a>,
     installation: Installation,
+    registry_directory: CapturedDocumentDirectory,
     root: CapturedDocumentDirectory,
     directory: CapturedDocumentDirectory,
     snapshot: ModuleSnapshot,
@@ -140,6 +141,7 @@ pub struct CapturedImportedKnowledge<'a> {
 fn select(
     admission: &ImportedKnowledgeReadAdmission<'_>,
     input: ImportedKnowledgeInput<'_>,
+    registry_directory: &CapturedDocumentDirectory,
 ) -> Result<Option<Installation>, ImportedKnowledgeReadError> {
     admission
         .recheck()
@@ -149,13 +151,24 @@ fn select(
         return Err(ImportedKnowledgeReadError::InvalidRegistryScope);
     };
     if !matches!(input.registry.scope(), HubScope::Global { installation_id: id } if id == installation_id.as_str())
-        || input.registry.path().parent() != Some(scope.live.owner_root())
+        || input.registry.brand() != scope.live.brand().key()
+    {
+        return Err(ImportedKnowledgeReadError::InvalidRegistryScope);
+    }
+    let path = input.registry.path();
+    let parent = path
+        .parent()
+        .ok_or(ImportedKnowledgeReadError::InvalidRegistryScope)?;
+    let canonical = graphit_core::local_files::canonical_directory(parent)
+        .map_err(ImportedKnowledgeReadError::Registry)?;
+    if canonical != scope.live.owner_root()
+        || registry_directory.canonical_path() != scope.live.owner_root()
     {
         return Err(ImportedKnowledgeReadError::InvalidRegistryScope);
     }
     let document = input
         .registry
-        .load()
+        .load_captured(registry_directory, admission.request().snapshot())
         .map_err(ImportedKnowledgeReadError::Registry)?;
     admission
         .recheck()
@@ -196,9 +209,10 @@ fn check_binding(
 fn current(
     admission: &ImportedKnowledgeReadAdmission<'_>,
     input: ImportedKnowledgeInput<'_>,
+    registry_directory: &CapturedDocumentDirectory,
     expected: &Installation,
 ) -> Result<(), ImportedKnowledgeReadError> {
-    if select(admission, input)?.as_ref() != Some(expected) {
+    if select(admission, input, registry_directory)?.as_ref() != Some(expected) {
         return Err(ImportedKnowledgeReadError::SourceSelectionChanged);
     }
     Ok(())
@@ -234,22 +248,39 @@ pub async fn open_imported_knowledge<'a>(
     {
         return Err(ImportedKnowledgeReadError::InvalidLocator);
     }
-    let Some(installation) = select(admission, input)? else {
-        if select(admission, input)?.is_some() {
+    let registry_directory = capture(
+        admission,
+        admission.installation().live.owner_root(),
+        limits.directory,
+    )?;
+    let Some(installation) = select(admission, input, &registry_directory)? else {
+        if select(admission, input, &registry_directory)?.is_some() {
             return Err(ImportedKnowledgeReadError::SourceSelectionChanged);
         }
         return Ok(ImportedKnowledgeOpen::RegistryAbsent);
     };
     check_binding(&installation, input)?;
-    let root = capture(
-        admission,
-        installation.original_source.directory().as_path(),
-        limits.directory,
-    )?;
-    current(admission, input, &installation)?;
+    let source = &installation.original_source;
+    let registry_path = input.registry.path();
+    let root_path = if source.origin() == graphit_hub::SourceOrigin::HubCache
+        && Some(source.root().as_path()) == registry_path.parent()
+    {
+        // Resolve only the validated cache suffix against the captured owner.
+        // Selection retains the original SourceRef and its configured spelling.
+        let relative = source
+            .directory()
+            .as_path()
+            .strip_prefix(source.root().as_path())
+            .map_err(|_| ImportedKnowledgeReadError::InvalidLocator)?;
+        registry_directory.canonical_path().join(relative)
+    } else {
+        source.directory().as_path().to_owned()
+    };
+    let root = capture(admission, &root_path, limits.directory)?;
+    current(admission, input, &registry_directory, &installation)?;
     let path = root.canonical_path().join("index.lance");
     let directory = capture(admission, &path, limits.directory)?;
-    current(admission, input, &installation)?;
+    current(admission, input, &registry_directory, &installation)?;
     root.revalidate(admission.request().snapshot())
         .map_err(ImportedKnowledgeReadError::Capture)?;
     directory
@@ -281,6 +312,7 @@ pub async fn open_imported_knowledge<'a>(
             generation,
         },
         installation,
+        registry_directory,
         root,
         directory,
         snapshot,
@@ -420,7 +452,12 @@ impl<'a> CapturedImportedKnowledge<'a> {
         &self.observation
     }
     fn revalidate(&self) -> Result<(), ImportedKnowledgeReadError> {
-        current(self.admission, self.input, &self.installation)?;
+        current(
+            self.admission,
+            self.input,
+            &self.registry_directory,
+            &self.installation,
+        )?;
         let original = self.admission.request().snapshot();
         self.root
             .revalidate(original)

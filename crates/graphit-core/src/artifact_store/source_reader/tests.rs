@@ -216,7 +216,7 @@ fn generated_payload_streams_captured_eof_without_tree_quotas_or_retention() {
     assert_eq!(reader.nodes().len(), 6);
     assert_eq!(reader.retained_bytes(), 0);
     let file = reader
-        .open_file(Path::new("generated/a/b/ação.txt"))
+        .open_file(&Path::new("generated").join("a").join("b").join("ação.txt"))
         .unwrap();
     let mut content = Vec::new();
     file.stream(0).unwrap().read_to_end(&mut content).unwrap();

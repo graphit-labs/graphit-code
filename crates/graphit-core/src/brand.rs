@@ -128,24 +128,9 @@ pub(crate) fn portable_segment(segment: &str) -> io::Result<()> {
     if segment.is_empty() || segment.len() > 128 {
         return Err(invalid_input("filename component exceeds its byte budget"));
     }
-    let stem = segment
-        .split('.')
-        .next()
-        .unwrap_or_default()
-        .to_ascii_uppercase();
-    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
-        || stem
-            .strip_prefix("COM")
-            .or_else(|| stem.strip_prefix("LPT"))
-            .is_some_and(|suffix| {
-                matches!(
-                    suffix,
-                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
-                )
-            });
     if matches!(segment, "." | "..")
         || segment.ends_with(['.', ' '])
-        || device
+        || windows_device_name(segment)
         || segment.chars().any(|character| {
             character.is_control()
                 || matches!(
@@ -158,4 +143,22 @@ pub(crate) fn portable_segment(segment: &str) -> io::Result<()> {
     } else {
         Ok(())
     }
+}
+
+pub(crate) fn windows_device_name(segment: &str) -> bool {
+    let stem = segment
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || stem
+            .strip_prefix("COM")
+            .or_else(|| stem.strip_prefix("LPT"))
+            .is_some_and(|suffix| {
+                matches!(
+                    suffix,
+                    "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                )
+            })
 }
