@@ -373,7 +373,7 @@ impl<'ast> Visit<'ast> for Audit {
 }
 fn expected_arguments(source: &Path, function: &str, ordinal: usize, call: &syn::ExprCall) -> bool {
     let (name, expected): (&str, &[&str]) = match (source.to_str(), function, ordinal) {
-        (Some("graphit-process/windows_job.rs"), "active_processes", 1) => (
+        (_, "active_processes", 1) if source == Path::new("graphit-process/windows_job.rs") => (
             "QueryInformationJobObject",
             &[
                 "job.handle() as _",
@@ -653,7 +653,9 @@ mod tests {
     #[test]
     fn process_job_allows_only_exact_private_accounting_query() {
         let source = include_str!("../../crates/graphit-process/src/windows_job.rs");
-        let valid = audit_in("graphit-process/windows_job.rs", source);
+        let source_path = Path::new("graphit-process").join("windows_job.rs");
+        let source_path = source_path.to_str().unwrap();
+        let valid = audit_in(source_path, source);
         assert!(valid.errors.is_empty(), "{:?}", valid.errors);
         assert_eq!((valid.exceptions, valid.blocks), (1, 1));
         for invalid in [
@@ -666,11 +668,7 @@ mod tests {
             source.replace("std::mem::size_of_val(&information) as u32,", "0,"),
             source.replace("unsafe {", "unsafe { other();"),
         ] {
-            assert!(
-                !audit_in("graphit-process/windows_job.rs", &invalid)
-                    .errors
-                    .is_empty()
-            );
+            assert!(!audit_in(source_path, &invalid).errors.is_empty());
         }
         assert!(
             !audit_in("graphit-process/other.rs", source)

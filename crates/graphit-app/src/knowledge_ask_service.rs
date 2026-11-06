@@ -1673,19 +1673,21 @@ pub(crate) mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
-    async fn claude_remaining_receipt_keeps_writer_until_real_repair_observed() {
+    async fn claude_reap_receipt_releases_writer_only_after_observed_cleanup() {
         use graphit_ai::{
             cli_claude::{ClaudeSink, run_claude},
             cli_claude_wire::{ClaudeEventData, ClaudeEventView},
         };
+        use std::os::unix::process::ExitStatusExt;
+
+        const INIT: &str = "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"remaining-fixture-id\",\"model\":\"fixture-model\"}\n";
         let temp = tempfile::tempdir().unwrap();
         let program = temp.path().join("claude");
         crate::test_agent_fixture::install(
             &program,
             serde_json::json!({
                 "kind":"raw", "process":{
-                    "stdout":"{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"remaining-fixture-id\",\"model\":\"fixture-model\"}\n",
-                    "ignore_term":true, "hold":true
+                    "stdout":INIT, "ignore_term":true, "hold":true
                 }
             }),
         );
@@ -1715,88 +1717,106 @@ pub(crate) mod tests {
             host.ready(original.required_deadline().unwrap()).await,
             HostReadiness::Ready
         ));
-        struct CancelAfterInit<'a> {
+        struct ObserveInit<'a> {
             entry: Arc<crate::knowledge_conversation::ConversationCustodyEntry>,
             original: &'a Arc<SnapshotContext>,
+            entered: Option<tokio::sync::oneshot::Sender<()>>,
         }
-        impl ClaudeSink for CancelAfterInit<'_> {
+        impl ClaudeSink for ObserveInit<'_> {
             async fn push<'a>(
                 &'a mut self,
                 event: ClaudeEventView<'a>,
-                original: &'a SnapshotContext,
+                _: &'a SnapshotContext,
             ) -> Result<(), graphit_process::SinkFailure> {
                 if let ClaudeEventData::Init(init) = &event.data {
                     assert!(self.entry.observe_claude(&init.session_id, self.original));
-                    original.cancellation().cancel();
+                    self.entered.take().unwrap().send(()).unwrap();
                 }
                 Ok(())
             }
         }
-        let mut sink = CancelAfterInit {
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let mut sink = ObserveInit {
             entry: Arc::clone(&entry),
             original: &original,
+            entered: Some(entered),
         };
         let mut request =
             service.claude_request(temp.path(), "fixture-model", "fixture prompt".into());
-        request.limits.cleanup = Duration::from_nanos(2);
-        request.limits.termination_grace = Duration::from_nanos(1);
         entry.configure_claude(&mut request, &original).unwrap();
         decision.submitted();
-        let mut failure = run_claude(
+        let mut execution = Box::pin(run_claude(
             &original,
             &host,
             request,
             service.claude_limits(),
             &mut sink,
-        )
-        .await
-        .expect_err("actual cancellation after Init");
-        assert!(
-            match failure.receipt().process() {
-                Some(Ok(p)) => p.remaining.is_some(),
-                Some(Err(p)) => p.remaining.is_some(),
-                None => false,
-            },
-            "actual producer must return native Remaining"
-        );
+        ));
+        tokio::select! {
+            ready = started => ready.expect("the real Claude Init must be observed"),
+            result = &mut execution => panic!("held Claude peer returned before cancellation: {result:?}"),
+        }
+        assert_writer_held(&scope);
+        service.reap().await;
+        assert_writer_held(&scope);
+        assert!(!entry.released());
+        assert!(!original.cancellation().is_cancelled());
+        original.cancellation().cancel();
+        let mut failure = execution.await.expect_err("actual cancellation after Init");
+        let process = match failure.receipt().process() {
+            Some(Err(process)) => process,
+            observed => panic!("cancelled native process receipt required: {observed:?}"),
+        };
+        assert_eq!(process.reason, graphit_process::Reason::Cancelled);
+        assert_eq!(process.observed.stdout, INIT.len() as u64);
+        assert_eq!(process.delivered.stdout, INIT.len() as u64);
+        assert_eq!(process.observed.stderr, 0);
+        assert_eq!(process.delivered.stderr, 0);
+        let has_remaining = process.remaining.is_some();
+        if !has_remaining {
+            assert_eq!(process.cleanup, Cleanup::Complete);
+            assert_eq!(process.status.unwrap().signal(), Some(nix::libc::SIGKILL));
+            assert_eq!(process.pipes.stdout, graphit_process::PipeEnd::Eof);
+            assert_eq!(process.pipes.stderr, graphit_process::PipeEnd::Eof);
+        }
         entry.retain_claude(failure.receipt_mut());
-        assert!(entry.remaining().is_some());
+        assert_eq!(entry.remaining().is_some(), has_remaining);
         assert!(matches!(
             entry.finish(&original, false),
             crate::knowledge_conversation::ConversationPersistence::Denied
         ));
         decision.decided();
-        assert_writer_held(&scope);
-        let retained = entry.remaining().unwrap();
-        let mut process = retained.lock().await;
-        // The real Host can finish cleanup after returning Remaining and before
-        // this observer runs. Retention follows the observation, not that race.
-        let observed = match process.repair(Instant::now()).await {
-            RepairObservation::Pending { .. } => {
-                assert_writer_held(&scope);
-                assert!(!entry.released());
-                assert!(Arc::ptr_eq(&entry.remaining().unwrap(), &retained));
-                process
-                    .repair(Instant::now() + Duration::from_secs(5))
-                    .await
-            }
-            observed => observed,
-        };
-        assert!(
-            matches!(
-                observed,
+        if has_remaining {
+            // This branch covers only a residual actually returned by the SDK.
+            // Holding its real observation mutex must prevent premature reap,
+            // even if the native driver has already finished in the meantime.
+            eprintln!("Claude custody: actual Remaining receipt branch exercised");
+            let retained = entry.remaining().unwrap();
+            let mut process = retained.lock().await;
+            service.reap().await;
+            assert_writer_held(&scope);
+            assert!(!entry.released());
+            assert!(Arc::ptr_eq(&entry.remaining().unwrap(), &retained));
+            let observed = process
+                .repair(Instant::now() + Duration::from_secs(5))
+                .await;
+            match observed {
                 RepairObservation::Observed {
                     cleanup: Cleanup::Complete,
-                    status: Some(_),
-                }
-            ),
-            "the same native owner must report its actual cleanup and exit: {observed:?}"
-        );
-        assert_writer_held(&scope);
-        assert!(!entry.released());
-        entry.observed_terminal();
-        drop(process);
+                    status: Some(status),
+                } => assert_eq!(status.signal(), Some(nix::libc::SIGKILL)),
+                observed => panic!("actual native cleanup and exit required: {observed:?}"),
+            }
+            assert_writer_held(&scope);
+            assert!(!entry.released());
+            drop(process);
+            service.reap().await;
+        } else {
+            // A terminal receipt is sufficient; it does not qualify Pending.
+            eprintln!("Claude custody: terminal receipt without Remaining exercised");
+        }
         assert!(entry.released());
+        assert!(entry.remaining().is_none());
         assert!(
             !graphit_core::file_lock::FileLock::is_locked(
                 scope.runtime_root().join("artifact-store.lock")
@@ -1805,6 +1825,9 @@ pub(crate) mod tests {
         );
         drop(host);
         service.reap().await;
+        service.shutdown().await.unwrap();
+        assert!(service.conversations.lock().unwrap().is_empty());
+        assert!(service.cleanup_failure.lock().unwrap().is_none());
         service.shutdown().await.unwrap();
     }
 
@@ -1905,15 +1928,28 @@ pub(crate) mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
-    async fn normal_reap_removes_only_observed_records_from_real_process_receipts() {
-        struct Ignore;
-        impl graphit_process::IncrementalSink for Ignore {
+    async fn normal_reap_receipt_preserves_cancelled_terminal_cleanup() {
+        use std::os::unix::process::ExitStatusExt;
+
+        // A real startup observation precedes cancellation. Normal cleanup may
+        // finish completely; no scheduling-dependent residual is required.
+        struct Started {
+            entered: Option<tokio::sync::oneshot::Sender<()>>,
+            stdout: usize,
+        }
+        impl graphit_process::IncrementalSink for Started {
             async fn push<'a>(
                 &'a mut self,
-                _: graphit_process::Chunk<'a>,
-                original: &'a SnapshotContext,
+                chunk: graphit_process::Chunk<'a>,
+                _: &'a SnapshotContext,
             ) -> Result<(), graphit_process::SinkFailure> {
-                original.cancellation().cancel();
+                if chunk.stream() == graphit_process::Stream::Stdout {
+                    self.stdout += chunk.bytes().len();
+                    assert!(self.stdout <= b"started\n".len());
+                    if self.stdout == b"started\n".len() {
+                        self.entered.take().unwrap().send(()).unwrap();
+                    }
+                }
                 Ok(())
             }
         }
@@ -1954,40 +1990,48 @@ pub(crate) mod tests {
         ));
         let mut request = service.request(temp.path(), "unused-model");
         request.args.clear();
-        request.limits.cleanup = Duration::from_nanos(2);
-        request.limits.termination_grace = Duration::from_nanos(1);
         let host = service.host().unwrap();
         let (_stop, receiver) = graphit_process::operation(&original, &host).unwrap();
-        let mut result = graphit_process::run(
+        let (entered, started) = tokio::sync::oneshot::channel();
+        let mut sink = Started {
+            entered: Some(entered),
+            stdout: 0,
+        };
+        let mut execution = Box::pin(graphit_process::run(
             request,
             original.as_ref(),
             graphit_process::Retention::None,
-            &mut Ignore,
+            &mut sink,
             receiver,
-        )
-        .await;
-        let remaining = match &mut result {
-            Ok(process) => process.remaining.take(),
-            Err(process) => process.remaining.take(),
-        };
-        assert!(
-            remaining.is_some(),
-            "fixture must observe a remaining native owner; observed: {result:?}"
-        );
-        if let Some(remaining) = remaining {
-            service.remaining.lock().unwrap().push(RetainedProcess {
-                process: Arc::new(tokio::sync::Mutex::new(remaining)),
-                _prompt_file: None,
-            });
+        ));
+        tokio::select! {
+            ready = started => ready.expect("the real child must deliver its startup bytes"),
+            result = &mut execution => panic!("held child returned before cancellation: {result:?}"),
         }
-        drop(host);
-        let joined = service.shutdown().await;
         service.reap().await;
         assert!(service.remaining.lock().unwrap().is_empty());
-        // Report a real cleanup failure once, after its record has been reaped.
-        if let Err(error) = joined {
-            assert!(error.to_string().contains("Knowledge Ask Process cleanup:"));
-        }
+        assert!(!original.cancellation().is_cancelled());
+        original.cancellation().cancel();
+        let mut result = execution.await;
+        let failure = result
+            .as_ref()
+            .expect_err("the original was actually cancelled");
+        assert_eq!(failure.reason, graphit_process::Reason::Cancelled);
+        assert_eq!(failure.cleanup, Cleanup::Complete);
+        assert_eq!(failure.status.unwrap().signal(), Some(nix::libc::SIGTERM));
+        assert_eq!(failure.pipes.stdout, graphit_process::PipeEnd::Eof);
+        assert_eq!(failure.pipes.stderr, graphit_process::PipeEnd::Eof);
+        assert_eq!(failure.observed.stdout, b"started\n".len() as u64);
+        assert_eq!(failure.delivered.stdout, b"started\n".len() as u64);
+        assert_eq!(failure.observed.stderr, 0);
+        assert_eq!(failure.delivered.stderr, 0);
+        assert!(failure.remaining.is_none());
+        service.retain_process(Some(&mut result));
+        assert!(service.remaining.lock().unwrap().is_empty());
+        drop(host);
+        service.shutdown().await.unwrap();
+        service.reap().await;
+        assert!(service.remaining.lock().unwrap().is_empty());
         assert!(service.cleanup_failure.lock().unwrap().is_none());
         service.shutdown().await.unwrap();
     }

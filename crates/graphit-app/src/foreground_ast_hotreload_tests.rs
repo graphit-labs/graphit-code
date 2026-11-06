@@ -53,29 +53,57 @@ async fn raw_version(uri: &Path) -> io::Result<u64> {
     )
 }
 
+async fn raw_images(uris: &[PathBuf]) -> io::Result<Vec<lance::Dataset>> {
+    let mut images = Vec::new();
+    for uri in uris {
+        images.push(
+            lance::Dataset::open(uri.to_str().ok_or(io::ErrorKind::InvalidData)?)
+                .await
+                .map_err(io_error)?,
+        );
+    }
+    Ok(images)
+}
+
 async fn unchanged_raw_rows(
+    phase: &str,
     uris: &[PathBuf],
+    before: &[lance::Dataset],
     expected: &[(&str, Option<&str>)],
     original: &Arc<graphit_core::file_io::SnapshotContext>,
 ) -> io::Result<()> {
-    let mut versions = Vec::new();
-    for uri in uris {
-        versions.push(raw_version(uri).await?);
-    }
-    // The App's real native debounce is 200ms. Observe more than three intervals
-    // without driving any callback or requesting a rescan.
+    // Source becomes readable before the admitted job finishes index maintenance.
+    // Compare its immutable row image, including deletion/overlay metadata, and
+    // allow only a proven metadata-only CreateIndex to advance the native HEAD.
     let deadline = Instant::now() + Duration::from_millis(700);
     loop {
-        for (uri, version) in uris.iter().zip(&versions) {
-            if raw_version(uri).await? != *version {
-                return Err(io::Error::other(
-                    "unrelated/disabled edit published a Raw version",
-                ));
+        for (uri, before) in uris.iter().zip(before) {
+            let current = lance::Dataset::open(uri.to_str().ok_or(io::ErrorKind::InvalidData)?)
+                .await
+                .map_err(io_error)?;
+            let transaction = current.read_transaction().await.map_err(io_error)?;
+            let operation = transaction
+                .as_ref()
+                .map(|transaction| transaction.operation.name());
+            let metadata_only = transaction.as_ref().is_some_and(|transaction| {
+                matches!(
+                    &transaction.operation,
+                    lance::dataset::transaction::Operation::CreateIndex { .. }
+                )
+            });
+            if current.fragments() != before.fragments()
+                || (current.version_id() != before.version_id() && !metadata_only)
+            {
+                return Err(io::Error::other(format!(
+                    "{phase}: unexpected Source write at {uri:?}: Raw {}->{}, operation {operation:?}",
+                    before.version_id(),
+                    current.version_id()
+                )));
             }
             for (path, text) in expected {
                 if observed_text(uri, path, original).await?.as_deref() != *text {
                     return Err(io::Error::other(format!(
-                        "unexpected Raw change for {path}"
+                        "{phase}: unexpected Raw change for {path}"
                     )));
                 }
             }
@@ -209,9 +237,12 @@ async fn automatic_external_runtime_user_and_global_config_reload_two_projects()
         let sibling = installation
             .framework_runtime("unrelated-sibling-version")?
             .join("ast/queries/rust.yaml");
+        let before_sibling = raw_images(&uris).await?;
         profile(&sibling, ".sibling")?;
         unchanged_raw_rows(
+            "unrelated runtime sibling",
             &uris,
+            &before_sibling,
             &[
                 ("selected.runtime", Some("current runtime body")),
                 ("selected.sibling", None),
@@ -249,6 +280,7 @@ async fn automatic_external_runtime_user_and_global_config_reload_two_projects()
         )
         .await?;
 
+        let before_disabled = raw_images(&uris).await?;
         global.set(
             ConfigKey::new("modules.ast")?,
             json!(false),
@@ -262,7 +294,9 @@ async fn automatic_external_runtime_user_and_global_config_reload_two_projects()
             )?;
         }
         unchanged_raw_rows(
+            "AST disabled",
             &uris,
+            &before_disabled,
             &[
                 ("while-disabled.user", None),
                 ("selected.user", Some("user override body")),
