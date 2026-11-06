@@ -144,7 +144,7 @@ revocation, cancellation and deadlines. Consumer verification includes native
 package export/import and the Memory/Task S3 runner:
 
 ```sh
-cargo test --locked -p graphit-data --test lance_integrity --test lance_native_branch_clone
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- lance_integrity:: lance_native_branch_clone::
 python scripts/test-record-storage-s3.py --test-binary PATH_TO_APP_TEST_EXECUTABLE
 ```
 

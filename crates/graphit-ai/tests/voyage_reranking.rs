@@ -1,3 +1,4 @@
+use crate::rerank_http;
 use graphit_ai::{
     context::{ContextError, InferenceContext},
     native_rerank::{NativeRerankError, NativeRerankLimits},
@@ -6,6 +7,7 @@ use graphit_ai::{
 use graphit_core::file_lock::Cancellation;
 use graphit_http::client::{BoundedClient, ClientPolicy, Limits, NetworkError};
 use http::StatusCode;
+use rerank_http::{Reply, fixture, fixture_with_barriers, reply};
 use secrecy::SecretString;
 use serde_json::{Value, json};
 use std::{
@@ -13,9 +15,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{net::TcpListener, sync::Semaphore};
-#[path = "support/rerank_http.rs"]
-mod rerank_http;
-use rerank_http::{Reply, fixture, fixture_with_barriers, reply};
 
 fn limits() -> NativeRerankLimits {
     NativeRerankLimits::new(10000, 200, 200000, 200000, 400000).unwrap()

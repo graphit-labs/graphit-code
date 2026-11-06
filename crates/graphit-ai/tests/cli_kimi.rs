@@ -1,3 +1,4 @@
+use crate::kimi_cleanup as cleanup;
 use graphit_ai::cli_kimi::{KimiEndpoint, KimiReason, spawn_kimi_server};
 use graphit_core::{file_io::SnapshotContext, file_lock::Cancellation};
 use graphit_http::client::{
@@ -11,13 +12,11 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-#[path = "support/kimi_cleanup.rs"]
-mod cleanup;
 #[path = "support/kimi_peer.rs"]
 mod peer;
 
 // This is the child entry point, not a qualification test. The ordinary tests
-// below launch this test binary again with --ignored --exact native_kimi_peer.
+// below launch this test binary again with --ignored --exact cli_kimi::native_kimi_peer.
 #[test]
 #[ignore = "subprocess entry point launched by the default Kimi tests"]
 fn native_kimi_peer() {
@@ -58,7 +57,7 @@ fn request(dir: &std::path::Path, mode: &str) -> Request {
         args: [
             "--ignored",
             "--exact",
-            "native_kimi_peer",
+            "cli_kimi::native_kimi_peer",
             "--nocapture",
             "--format",
             "terse",

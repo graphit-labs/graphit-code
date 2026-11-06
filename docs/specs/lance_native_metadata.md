@@ -68,8 +68,9 @@ including a real BTree index, verify distinct pinned physical metadata, preserve
 raw index data after writer release, and check Original cancellation/deadline and
 the SDK cause of a deleted index-bearing manifest.
 
-`cargo test --locked --offline -p graphit-data --test lance_native_metadata`
-passed all three tests. The existing snapshot opener and module store suites
+The earlier Linux qualification passed all three metadata tests. The current
+focused command is `cargo xtask cargo test --locked --offline -p graphit-data --test integration -- lance_native_metadata::`.
+The existing snapshot opener and module store suites
 passed eight regressions. Scoped Clippy for the library, metadata target and
 snapshot opener passed with `--no-deps -- -D warnings`; scoped rustfmt, whitespace,
 frontmatter and four local documentation links also passed. This qualifies the

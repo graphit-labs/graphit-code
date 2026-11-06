@@ -1,9 +1,7 @@
 //! Authorized Source → provider embeddings → Knowledge NN publication and reindex.
+pub(crate) use crate::model_fixture as descriptor_fixture;
 use graphit_app::embedding_service::EmbeddingMetadata;
 use graphit_app::knowledge_semantic::*;
-use graphit_daemon::model_service as model_api;
-#[path = "../../graphit-daemon/tests/support/model_fixture.rs"]
-pub mod descriptor_fixture;
 use graphit_auth::*;
 use graphit_auth::{profile::*, store::AuthStore};
 use graphit_core::{
@@ -1818,12 +1816,7 @@ fn semantic_identifier_limit_preserves_data_cause_before_transport() {
         .join()
         .unwrap();
 }
-#[allow(
-    dead_code,
-    reason = "existing shared HTTP fixture also covers rerank clients"
-)]
-#[path = "../../graphit-ai/tests/support/rerank_http.rs"]
-mod remote_http;
+use crate::rerank_http as remote_http;
 
 struct RemoteInference<'a> {
     issuer: &'a RoleIssuer,

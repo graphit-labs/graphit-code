@@ -985,17 +985,17 @@ async fn interruption_before_first_client_poll_preserves_context_error_without_c
     let fixture = Fixture::metadata(TaskKind::Embedding);
     let config = fixture.config(&["a"]);
     let expected = ExpectedModel::new(&config, "a", "service").unwrap();
+    // Issuer construction and key I/O are setup; the tested Original starts below.
+    let issuer = f.issuer(&setup, ServicePurpose::Embedding, auth::cpu());
+    let borrow = f.runtime.check(setup.snapshot()).unwrap();
+    let runtime_secret = Zeroizing::new(*borrow.secret(setup.snapshot()).unwrap());
+    drop(borrow);
     for expire in [false, true] {
         let cancel = Cancellation::default();
         let deadline = Instant::now() + Duration::from_millis(500);
         let ctx = auth::request(&cancel, deadline);
-        let issuer = f.issuer(&ctx, ServicePurpose::Embedding, auth::cpu());
-        let borrow = f.runtime.check(ctx.snapshot()).unwrap();
         let caller = issuer
-            .authenticate_runtime(
-                std::str::from_utf8(borrow.secret(ctx.snapshot()).unwrap()).unwrap(),
-                &ctx,
-            )
+            .authenticate_runtime(std::str::from_utf8(runtime_secret.as_ref()).unwrap(), &ctx)
             .unwrap();
         let mut selection = issuer
             .capture_service(&caller, ServicePurpose::Embedding)
@@ -1177,6 +1177,11 @@ async fn embedding_operation_service_original_cancel_and_rpc_deadline_close_conn
                     std::future::pending::<std::io::Result<tokio::io::DuplexStream>>().await
                 }
             };
+            // Prepare real admissions before freezing only the RPC operation clock.
+            // The phase barrier below uses in-runtime duplex/oneshot I/O.
+            tokio::time::pause();
+            let operation_started = tokio::time::Instant::now();
+            let operation_deadline = operation_started + Duration::from_secs(5);
             let call = client.embed(
                 &lease,
                 &f.runtime,
@@ -1184,7 +1189,7 @@ async fn embedding_operation_service_original_cancel_and_rpc_deadline_close_conn
                 EmbedOperation {
                     input: EmbedInput::Query,
                     texts: vec!["a".into()],
-                    deadline: Instant::now() + Duration::from_secs(5),
+                    deadline: operation_deadline.into_std(),
                 },
                 connect,
             );
@@ -1201,7 +1206,10 @@ async fn embedding_operation_service_original_cancel_and_rpc_deadline_close_conn
                     out = phase => out.unwrap()
                 }
             }
-            if !expire {
+            assert_eq!(tokio::time::Instant::now(), operation_started);
+            if expire {
+                tokio::time::advance(operation_deadline - operation_started).await;
+            } else {
                 signal.cancel();
             }
             let error = tokio::time::timeout(Duration::from_secs(7), call)
@@ -1218,6 +1226,10 @@ async fn embedding_operation_service_original_cancel_and_rpc_deadline_close_conn
             );
             assert!(ctx.snapshot().deadline().is_none());
             if expire {
+                assert_eq!(
+                    std::error::Error::source(&error).unwrap().to_string(),
+                    "DeadlineLocalOperation"
+                );
                 ctx.check().unwrap();
                 assert!(Arc::ptr_eq(
                     ctx.snapshot(),
@@ -1237,6 +1249,7 @@ async fn embedding_operation_service_original_cancel_and_rpc_deadline_close_conn
                     .unwrap()
                     .unwrap();
             }
+            tokio::time::resume();
         }
     }
 }

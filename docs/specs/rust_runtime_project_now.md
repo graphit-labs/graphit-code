@@ -86,6 +86,16 @@ examples and scoped daemon lib/tests Clippy passed. Receipts are in
 `.build/rust-managed-roles-20261011/role-now/`. These results do not qualify a
 Role MCP transport, a remote Presence request or a running native agent.
 
+The current Daemon regression
+`native_role_now_rechecks_closed_run_and_request_deadline_without_head_data`
+admits a real live run, closes it and requires a fresh Now read to withhold heads;
+it also rejects an expired request. It does not require issuance and verification
+to finish within a 200ms run or claim to observe run expiry. The Auth producer's
+`actual_expiry_without_request_renewal_invalidates_every_getter` uses its private
+clock to prove that read admission and retained getters fail at grant expiry
+while the request and administrative parent remain live. That temporal proof
+and the Daemon recheck integration are separate evidence boundaries.
+
 Use `NowLocal::project_id()`, `generated_at()` and `sections()` for read-only
 access. `NowSections` exposes each section; `NowSection` exposes availability,
 items, total, has_more and error. Item fields are the allowlisted observations.

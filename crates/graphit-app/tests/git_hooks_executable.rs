@@ -1,6 +1,5 @@
 //! Native Git registry -> installed-style CLI dispatcher -> supervised commands.
-#[path = "support/finite_cli.rs"]
-mod finite_cli;
+use crate::finite_cli;
 use finite_cli::FiniteOutput;
 use graphit_core::{
     brand::Brand,
@@ -129,7 +128,7 @@ fn success(output: Output) -> Result<Output> {
 }
 fn fixture_command(step: &str) -> String {
     format!(
-        "GRAPHIT_TEST_STEP={step} GRAPHIT_TEST_POSITIONAL_1=\"$1\" GRAPHIT_TEST_POSITIONAL_2=\"$2\" exec \"$GRAPHIT_TEST_EXECUTABLE\" --exact native_hook_fixture --nocapture"
+        "GRAPHIT_TEST_STEP={step} GRAPHIT_TEST_POSITIONAL_1=\"$1\" GRAPHIT_TEST_POSITIONAL_2=\"$2\" exec \"$GRAPHIT_TEST_EXECUTABLE\" --exact git_hooks_executable::native_hook_fixture --nocapture"
     )
 }
 
@@ -556,7 +555,11 @@ fn native_hook_fixture() -> Result {
         #[cfg(unix)]
         "tree" => {
             let mut child = Command::new(std::env::current_exe()?)
-                .args(["--exact", "native_hook_fixture", "--nocapture"])
+                .args([
+                    "--exact",
+                    "git_hooks_executable::native_hook_fixture",
+                    "--nocapture",
+                ])
                 .env("GRAPHIT_TEST_STEP", "descendant")
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())

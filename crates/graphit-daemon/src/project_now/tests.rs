@@ -1225,17 +1225,20 @@ fn projection_activity_totals_top20_numeric_order_and_all_contributors() {
 fn projection_times_are_lossless_strings_and_unknown_last() {
     assert_eq!(milliseconds_ns(u64::MAX), "18446744073709551615000000");
     assert_eq!(system_time_ns(UNIX_EPOCH).unwrap(), "0");
+    // Windows SystemTime represents 100ns ticks. These exact instants exceed
+    // i64 nanoseconds in both directions without relying on finer precision.
+    let wide = Duration::from_secs(10_000_000_000);
     assert_eq!(
-        system_time_ns(UNIX_EPOCH - Duration::from_nanos(i64::MIN.unsigned_abs())).unwrap(),
-        i64::MIN.to_string()
+        system_time_ns(UNIX_EPOCH - wide).unwrap(),
+        "-10000000000000000000"
     );
     assert_eq!(
-        system_time_ns(UNIX_EPOCH + Duration::from_nanos(i64::MAX as u64)).unwrap(),
-        i64::MAX.to_string()
+        system_time_ns(UNIX_EPOCH + wide).unwrap(),
+        "10000000000000000000"
     );
-    assert!(Observation::at(UNIX_EPOCH - Duration::from_nanos(1)).is_err());
-    let at = Observation::at(UNIX_EPOCH + Duration::from_nanos(1_234_567)).unwrap();
-    assert_eq!(at.generated_at, "1234567");
+    assert!(Observation::at(UNIX_EPOCH - Duration::from_nanos(100)).is_err());
+    let at = Observation::at(UNIX_EPOCH + Duration::from_nanos(1_234_500)).unwrap();
+    assert_eq!(at.generated_at, "1234500");
     assert_eq!(at.milliseconds, 1);
     let heads = vec![
         KnowledgeHead {
@@ -1246,17 +1249,17 @@ fn projection_times_are_lossless_strings_and_unknown_last() {
         KnowledgeHead {
             slug: "b".into(),
             title: "".into(),
-            updated_at: Some(UNIX_EPOCH - Duration::from_nanos(1)),
+            updated_at: Some(UNIX_EPOCH - Duration::from_nanos(100)),
         },
         KnowledgeHead {
             slug: "a".into(),
             title: "".into(),
-            updated_at: Some(UNIX_EPOCH - Duration::from_nanos(1)),
+            updated_at: Some(UNIX_EPOCH - Duration::from_nanos(100)),
         },
         KnowledgeHead {
             slug: "latest".into(),
             title: "".into(),
-            updated_at: Some(UNIX_EPOCH + Duration::from_nanos(10)),
+            updated_at: Some(UNIX_EPOCH + Duration::from_nanos(1_000)),
         },
     ];
     let section = knowledge_section(heads);
@@ -1269,7 +1272,7 @@ fn projection_times_are_lossless_strings_and_unknown_last() {
         vec!["latest", "a", "b", "unknown"]
     );
     let wire = serde_json::to_value(section).unwrap();
-    assert_eq!(wire["items"][1]["updated_at"], "-1");
+    assert_eq!(wire["items"][1]["updated_at"], "-100");
     assert!(wire["items"][3]["updated_at"].is_null());
 }
 
@@ -1441,25 +1444,55 @@ async fn native_final_boundary_rechecks_revocation_cancel_and_physical_identity(
         .await
         .unwrap();
     let parked = f2._directory.path().join("parked");
-    std::fs::rename(&f2.root, &parked).unwrap();
-    std::fs::create_dir(&f2.root).unwrap();
-    assert!(matches!(
-        reauthorize_project_now(&authority2, &caller2, &ctx, f2.scope(), &snapshot),
-        Err(ProjectNowError::Scope(_))
-    ));
-    assert!(matches!(
-        finish(
+    let swapped = match std::fs::rename(&f2.root, &parked) {
+        Ok(()) => true,
+        Err(error) if cfg!(windows) && error.raw_os_error() == Some(32) => false,
+        Err(error) => panic!("unexpected root replacement failure: {error}"),
+    };
+    if swapped {
+        std::fs::create_dir(&f2.root).unwrap();
+        assert!(matches!(
+            reauthorize_project_now(&authority2, &caller2, &ctx, f2.scope(), &snapshot),
+            Err(ProjectNowError::Scope(_))
+        ));
+        assert!(matches!(
+            finish(
+                ctx.snapshot(),
+                &f2.scope().project.unwrap(),
+                None,
+                None,
+                None,
+                snapshot
+            ),
+            Err(ProjectNowError::Scope(_))
+        ));
+        std::fs::remove_dir(&f2.root).unwrap();
+        std::fs::rename(parked, &f2.root).unwrap();
+    } else {
+        // Pinned Windows ancestors omit share-delete: the attempted replacement
+        // has no effect, and the same admitted caller must remain usable.
+        assert!(f2.root.is_dir());
+        assert!(!parked.exists());
+        let retained =
+            reauthorize_project_now(&authority2, &caller2, &ctx, f2.scope(), &snapshot).unwrap();
+        assert_eq!(
+            serde_json::to_value(retained).unwrap(),
+            serde_json::to_value(&snapshot).unwrap()
+        );
+        let denied = finish(
             ctx.snapshot(),
             &f2.scope().project.unwrap(),
             None,
             None,
             None,
-            snapshot
-        ),
-        Err(ProjectNowError::Scope(_))
-    ));
-    std::fs::remove_dir(&f2.root).unwrap();
-    std::fs::rename(parked, &f2.root).unwrap();
+            snapshot,
+        )
+        .unwrap();
+        failed(denied.sections().tasks(), NowErrorCode::Forbidden);
+        failed(denied.sections().sessions(), NowErrorCode::Forbidden);
+        failed(denied.sections().memories(), NowErrorCode::Forbidden);
+        failed(denied.sections().knowledge(), NowErrorCode::Forbidden);
+    }
     let snapshot = read_project_now(&authority2, &caller2, &ctx, f2.scope(), limits())
         .await
         .unwrap();
@@ -1743,14 +1776,30 @@ async fn native_role_now_preserves_original_version_and_physical_identity() {
     );
 
     let parked = f._directory.path().join("role-parked");
-    std::fs::rename(&f.root, &parked).unwrap();
-    std::fs::create_dir(&f.root).unwrap();
-    assert!(matches!(
-        read_project_now_role(&authority, &grant, &ctx, f.scope(), limits()).await,
-        Err(ProjectNowError::Scope(_))
-    ));
-    std::fs::remove_dir(&f.root).unwrap();
-    std::fs::rename(&parked, &f.root).unwrap();
+    let swapped = match std::fs::rename(&f.root, &parked) {
+        Ok(()) => true,
+        Err(error) if cfg!(windows) && error.raw_os_error() == Some(32) => false,
+        Err(error) => panic!("unexpected role root replacement failure: {error}"),
+    };
+    if swapped {
+        std::fs::create_dir(&f.root).unwrap();
+        assert!(matches!(
+            read_project_now_role(&authority, &grant, &ctx, f.scope(), limits()).await,
+            Err(ProjectNowError::Scope(_))
+        ));
+        std::fs::remove_dir(&f.root).unwrap();
+        std::fs::rename(&parked, &f.root).unwrap();
+    } else {
+        assert!(f.root.is_dir());
+        assert!(!parked.exists());
+        let retained = read_project_now_role(&authority, &grant, &ctx, f.scope(), limits())
+            .await
+            .unwrap();
+        assert_eq!(retained.sections().tasks().total(), Some(1));
+        assert_eq!(retained.sections().sessions().total(), Some(1));
+        assert_eq!(retained.sections().memories().total(), Some(1));
+        assert_eq!(retained.sections().knowledge().total(), Some(1));
+    }
     f.issuer.close_run(&parent, &run).unwrap();
     cancel.cancel();
     assert!(
@@ -1762,7 +1811,7 @@ async fn native_role_now_preserves_original_version_and_physical_identity() {
 }
 
 #[tokio::test]
-async fn native_role_now_expiry_and_deadline_never_emit_head_data() {
+async fn native_role_now_rechecks_closed_run_and_request_deadline_without_head_data() {
     let cancel = Cancellation::default();
     let ctx = request(&cancel);
     let f = Fixture::with_administrative(&ctx, &reads_and_writes(), &role_administrative());
@@ -1772,8 +1821,10 @@ async fn native_role_now_expiry_and_deadline_never_emit_head_data() {
     let parent = f.issuer.admin_parent(&caller, &session).unwrap();
     let permissions = [Permission::Read(Module::Task)];
     let reference = configure_role(&f, &parent, Role::Tracker, &permissions);
-    let lifetime = Duration::from_millis(200);
-    let run = f.issuer.start_run(&parent, &f.scope(), lifetime).unwrap();
+    let run = f
+        .issuer
+        .start_run(&parent, &f.scope(), Duration::from_secs(60))
+        .unwrap();
     let bearer = f
         .issuer
         .issue(&parent, &run, &reference, &permissions, &f.scope())
@@ -1787,12 +1838,14 @@ async fn native_role_now_expiry_and_deadline_never_emit_head_data() {
         .await
         .unwrap();
     empty(valid.sections().tasks(), SectionAvailability::NoCorpus);
-    tokio::time::sleep(lifetime + Duration::from_millis(10)).await;
-    let expired = read_project_now_role(&authority, &grant, &ctx, f.scope(), limits())
+    // Auth owns deterministic expiry coverage with its private clock. Here the
+    // real run is closed after admission to prove Now performs a fresh recheck.
+    f.issuer.close_run(&parent, &run).unwrap();
+    let revoked = read_project_now_role(&authority, &grant, &ctx, f.scope(), limits())
         .await
         .unwrap();
-    failed(expired.sections().tasks(), NowErrorCode::Forbidden);
-    failed(expired.sections().sessions(), NowErrorCode::Forbidden);
+    failed(revoked.sections().tasks(), NowErrorCode::Forbidden);
+    failed(revoked.sections().sessions(), NowErrorCode::Forbidden);
 
     let expired_cancel = Cancellation::default();
     let request_deadline = Instant::now() + Duration::from_millis(50);

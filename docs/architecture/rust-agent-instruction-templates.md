@@ -114,6 +114,8 @@ This emits the literal `{{filePath}}` and `${var}`. It preserves the native host
 
 Trailing LF is preserved. Whitespace trimming is disabled unless the template itself explicitly requests Jinja whitespace control. UTF-8 and Markdown characters such as `<&>` are preserved.
 
+The repository checks out `templates/agent-instructions/**` and the canonical role snapshots in `crates/graphit-runtime/tests/fixtures/agent-instructions/*.md` with LF through `.gitattributes`. Compiled `include_str!` sources therefore use the same bytes on Windows, macOS and Linux, matching the escaped LF in the catalog fixtures and the native-rendering metadata contract. This checkout policy takes effect on a fresh checkout or when those paths are checked out again. Captured Project, Global, Hub and Broker overrides retain their supplied text and the normal rendering rules.
+
 ## Results, errors and bounds
 
 `RenderedInstruction` exposes the completed body, the selected entry origin and all selected template name/origin pairs. The selections identify the captured bundle, not which include branches executed, a SourceRef proof or publication authority. Its Debug output reports lengths/counts without the body; it has no implicit serde or Clone projection. A caller may consume the body in memory for the existing Hub `AgentDescriptor`.

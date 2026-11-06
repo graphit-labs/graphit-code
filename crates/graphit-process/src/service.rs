@@ -378,7 +378,7 @@ async fn spawn_service_inner(
         result = &mut receiver => match result { Ok(initial) => initial, Err(_) => {
             control.close();
             let snapshot = control.slot.completed().await;
-            Err(supervisor::cleanup_failure(snapshot.supervision.cleanup, snapshot.supervision.observation.status).unwrap_or(Reason::Stopped))
+            Err(supervisor::cleanup_failure(snapshot.supervision.cleanup).unwrap_or(Reason::Stopped))
         } },
         _ = startup.cancellation().cancelled() => Err(Reason::Cancelled),
         _ = sleep_until(deadline.into()) => Err(Reason::TimedOut),
@@ -568,7 +568,6 @@ async fn drive_service(
         control.close();
     }
     let supervision = supervisor::supervise(owner, limits, None, observations).await;
-    #[cfg(unix)]
     if owner.group_error.is_none()
         && matches!(
             supervision.cleanup,
@@ -669,7 +668,7 @@ pub async fn join_inherited_service(
                 .wait_error
                 .map(|error| Reason::Io(Stage::Wait, error))
         })
-        .or_else(|| supervisor::cleanup_failure(cleanup, observation.status));
+        .or_else(|| supervisor::cleanup_failure(cleanup));
     let pipes = PipeFinalization {
         stdout: PipeEnd::NotSpawned,
         stderr: PipeEnd::NotSpawned,
@@ -932,7 +931,7 @@ fn service_event(state: &mut State, event: supervisor::Event) {
             state.observe(result.observation);
             state.cleanup = Some(result.cleanup);
             state.supervision_done = true;
-            if let Some(reason) = supervisor::cleanup_failure(result.cleanup, state.status) {
+            if let Some(reason) = supervisor::cleanup_failure(result.cleanup) {
                 state.reject(reason);
             }
         }

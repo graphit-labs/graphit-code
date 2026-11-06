@@ -1,3 +1,6 @@
+use crate::direct_rerank_auth as auth;
+use crate::rerank_http as wire;
+use auth::{AuthFixture, MCP_KEY, RERANK_KEY, request};
 use graphit_ai::{
     cohere_rerank::CohereReranker,
     context::{ContextError, InferenceContext},
@@ -19,11 +22,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::Semaphore;
-#[path = "support/direct_rerank_auth.rs"]
-mod auth;
-#[path = "support/rerank_http.rs"]
-mod wire;
-use auth::{AuthFixture, MCP_KEY, RERANK_KEY, request};
 use wire::{fixture, fixture_with_barriers, reply};
 
 fn configured_key() -> HeaderMap {
@@ -110,7 +108,14 @@ async fn await_response_headers(
         result = call => {
             tcp.server.abort();
             let _ = (&mut tcp.server).await;
-            panic!("rerank completed before fixture headers: {result:?}");
+            let profile_cause = match &result {
+                Err(DirectNativeRerankError::Service {
+                    source: ServiceUseError::Profile(cause),
+                    ..
+                }) => Some(*cause),
+                _ => None,
+            };
+            panic!("rerank completed before fixture headers: {result:?}; profile cause: {profile_cause:?}");
         }
         result = &mut tcp.server => panic!(
             "rerank fixture stopped before sending headers: {result:?}",

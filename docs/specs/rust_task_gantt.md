@@ -160,7 +160,7 @@ Strict03 passed the current affected App check in 17.803 s wall, with no test
 harness:
 
 ```text
-cargo xtask cargo clippy --locked --offline -p graphit-app --lib --test foreground_tasks --no-deps -j4 -- -D warnings
+cargo xtask cargo clippy --locked --offline -p graphit-app --lib --test integration --no-deps -j4 -- -D warnings
 ```
 
 That historical qualification has 62 distinct cases, zero ignored and one added test; no new Gantt execution or rerun sum is claimed.

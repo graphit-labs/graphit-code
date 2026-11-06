@@ -81,7 +81,7 @@ async fn started_closed(lease: &ControlLease, original: &SnapshotContext) -> Sta
         _ = original.cancellation().cancelled() => Started::rejected(Reason::Cancelled, PipeEnd::Closed),
         _ = sleep_until(lease.deadline.into()) => Started::rejected(Reason::TimedOut, PipeEnd::Closed),
         snapshot = lease.slot.completed() => Started::rejected(
-            cleanup_failure(snapshot.supervision.cleanup, snapshot.supervision.observation.status)
+            cleanup_failure(snapshot.supervision.cleanup)
                 .unwrap_or(Reason::Stopped), PipeEnd::Closed),
     }
 }
@@ -127,7 +127,10 @@ pub(crate) fn command_for_output(
     #[cfg(unix)]
     command.wrap(process_wrap::tokio::ProcessGroup::leader());
     #[cfg(windows)]
-    command.wrap(process_wrap::tokio::JobObject);
+    {
+        command.wrap(crate::windows_job::JobObservation::default());
+        command.wrap(process_wrap::tokio::JobObject);
+    }
     command
 }
 
@@ -481,7 +484,7 @@ impl State {
                 self.observe(result.observation);
                 self.cleanup = Some(result.cleanup);
                 self.supervision_done = true;
-                if let Some(reason) = cleanup_failure(result.cleanup, self.status) {
+                if let Some(reason) = cleanup_failure(result.cleanup) {
                     self.reject(reason);
                 }
             }
@@ -491,21 +494,12 @@ impl State {
     }
 }
 
-pub(crate) fn cleanup_failure(cleanup: Cleanup, status: Option<ExitStatus>) -> Option<Reason> {
+pub(crate) fn cleanup_failure(cleanup: Cleanup) -> Option<Reason> {
     match cleanup {
         Cleanup::Complete => None,
         Cleanup::Unconfirmed(
             UnconfirmedCleanup::DriverPanic | UnconfirmedCleanup::HostPumpPanic,
         ) => Some(Reason::Panic(Stage::Wait)),
-        Cleanup::Unconfirmed(UnconfirmedCleanup::TreeUnknownWindows {
-            leader: LeaderCleanup::Reaped,
-            control:
-                ControlFailures {
-                    group: None,
-                    terminate: None,
-                    kill: None,
-                },
-        }) if status.is_some() => None,
         _ => Some(Reason::Cleanup),
     }
 }
@@ -923,7 +917,14 @@ async fn drive(
                 }
         );
     #[cfg(windows)]
-    let closure_observed = false;
+    let closure_observed = matches!(
+        supervision.cleanup,
+        Cleanup::Complete
+            | Cleanup::ControlFailed {
+                leader: LeaderCleanup::Reaped,
+                ..
+            }
+    );
     if closure_observed {
         owner.guard.armed = false;
     }
@@ -1006,6 +1007,9 @@ pub(crate) async fn supervise(
     };
     observation.status = observation.status.or(status);
     let control = observation.control;
+    #[cfg(windows)]
+    let cleanup = crate::windows_job::cleanup(owner._command.as_ref(), leader, control).await;
+    #[cfg(unix)]
     let cleanup = if let Some(error) = owner.group_error {
         let mut control = control;
         control.group = Some(error);
@@ -1014,16 +1018,7 @@ pub(crate) async fn supervise(
         Cleanup::ControlFailed { leader, control }
     } else {
         match leader {
-            LeaderCleanup::Reaped => {
-                #[cfg(unix)]
-                {
-                    Cleanup::Complete
-                }
-                #[cfg(windows)]
-                {
-                    Cleanup::Unconfirmed(UnconfirmedCleanup::TreeUnknownWindows { leader, control })
-                }
-            }
+            LeaderCleanup::Reaped => Cleanup::Complete,
             LeaderCleanup::Failed(error) => Cleanup::Failed(error),
             LeaderCleanup::TimedOut => unreachable!("no timeout destroys native wait"),
         }
@@ -2219,19 +2214,19 @@ mod tests {
                 assert_eq!(failure.cleanup, Cleanup::Complete);
                 #[cfg(windows)]
                 {
-                    let Cleanup::Unconfirmed(UnconfirmedCleanup::TreeUnknownWindows {
-                        leader,
-                        control,
-                    }) = failure.cleanup
-                    else {
-                        panic!("original Job is unconfirmed");
-                    };
-                    assert_eq!(leader, LeaderCleanup::Reaped);
-                    assert!(control.group.is_none());
-                    assert!(control.terminate.is_none());
-                    // Dropping the SDK Job may already have requested native
-                    // termination. A subsequent kill error is retained, not
-                    // rewritten as absence or tree completion.
+                    // The parent Job remains in CommandWrap after SDK wrapper
+                    // failure. Its observed zero is required; real kill errors
+                    // remain visible when the SDK's Drop terminated first.
+                    match failure.cleanup {
+                        Cleanup::Complete => (),
+                        Cleanup::ControlFailed { leader, control } => {
+                            assert_eq!(leader, LeaderCleanup::Reaped);
+                            assert!(control.group.is_none());
+                            assert!(control.terminate.is_none());
+                            assert!(control.kill.is_some());
+                        }
+                        other => panic!("retained Job was not observed empty: {other:?}"),
+                    }
                 }
             }
             assert_eq!(failure.observed, Counts::default());
@@ -2434,20 +2429,19 @@ mod tests {
             if abort_caller {
                 caller.abort();
             }
-            match caller.await {
+            let caller_observation = match caller.await {
                 Ok(result) => {
-                    let status = match &result {
-                        Ok(outcome) => Some(outcome.status),
-                        Err(failure) => {
-                            assert!(matches!(failure.reason, Reason::Cleanup));
-                            failure.status
-                        }
+                    let observation = match &result {
+                        Ok(outcome) => (None, Some(outcome.status), outcome.cleanup),
+                        Err(failure) => (Some(failure.reason), failure.status, failure.cleanup),
                     };
-                    assert_eq!(status.and_then(|status| status.code()), Some(7));
+                    // Drop the actual result before shutdown, but assert its
+                    // categories only after the same group wait has completed.
                     drop(result);
+                    Ok(observation)
                 }
-                Err(error) => assert!(abort_caller && error.is_cancelled()),
-            }
+                Err(error) => Err(error),
+            };
 
             let host = Arc::try_unwrap(host).expect("caller host owner closed");
             let mut retained_join = None;
@@ -2496,6 +2490,16 @@ mod tests {
             .await
             .expect("aborted operation closes after companion exit");
             drop(owned.lock().unwrap().take()); // Group's same wait already consumed native owners.
+            match caller_observation {
+                Ok((reason, status, cleanup)) => {
+                    assert!(
+                        reason.is_none() || reason == Some(Reason::Cleanup),
+                        "abort_caller={abort_caller}, detach_host={detach_host}: reason={reason:?}, cleanup={cleanup:?}"
+                    );
+                    assert_eq!(status.and_then(|status| status.code()), Some(7));
+                }
+                Err(error) => assert!(abort_caller && error.is_cancelled(), "{error}"),
+            }
             assert_eq!(leader_code, Some(7));
             assert_eq!(slot.observe().supervision.cleanup, Cleanup::Complete);
             assert!(original.check().is_ok());
@@ -2837,16 +2841,7 @@ mod tests {
                 assert!(failure.remaining.is_none());
                 (failure.cleanup, failure.status, failure.pipes)
             };
-            #[cfg(unix)]
             assert_eq!(cleanup, Cleanup::Complete);
-            #[cfg(windows)]
-            assert_eq!(
-                cleanup,
-                Cleanup::Unconfirmed(UnconfirmedCleanup::TreeUnknownWindows {
-                    leader: LeaderCleanup::Reaped,
-                    control: ControlFailures::default(),
-                })
-            );
             assert_eq!(status.unwrap().code(), Some(7));
             assert_eq!(pipes.stdout, PipeEnd::Eof);
             assert_eq!(pipes.stderr, PipeEnd::Eof);

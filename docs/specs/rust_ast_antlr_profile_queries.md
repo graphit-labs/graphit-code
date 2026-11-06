@@ -108,7 +108,7 @@ parser, runtime or cxx language bridge is replaced by this configuration change.
 cargo xtask cargo test --locked -p graphit-ast --test antlr_profile_queries --test antlr_semantic --test antlr_model
 cargo xtask cargo test --locked -p graphit-ast --test antlr_generic_graph --test scip_syntax --test native_nn_antlr
 cargo xtask cargo test --locked -p graphit-app --lib ast_parser_resources::tests::
-cargo xtask cargo test --locked -p graphit-app --test foreground_ast_semantic ast_only_publishes_current_graph_without_native_nn -- --exact
+cargo xtask cargo test --locked -p graphit-app --test integration -- --exact foreground_ast_semantic::ast_only_publishes_current_graph_without_native_nn
 ```
 
 The App checks compose the parser resources and publish through the real

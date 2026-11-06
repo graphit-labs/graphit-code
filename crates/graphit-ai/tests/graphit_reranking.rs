@@ -1,3 +1,4 @@
+use crate::rerank_http as wire;
 use graphit_ai::{
     cohere_rerank::CohereReranker,
     context::InferenceContext,
@@ -20,8 +21,6 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::Semaphore;
-#[path = "support/rerank_http.rs"]
-mod wire;
 use wire::{Reply, fixture, fixture_with_barriers, reply};
 
 fn limits(batch: usize) -> NativeRerankLimits {

@@ -102,10 +102,9 @@ foreign, input vazio e grupos que sobrevivem aos descritores temporários e à
 projeção, mantendo os dados originais vivos. Doctests compilefail cobrem os tipos
 de digest, o slice de rows e a retenção do contexto.
 
-Executar `cargo test -p graphit-data --test knowledge_document_projection` e
-`cargo test -p graphit-data --doc knowledge_document_projection`, com fmt/Clippy
-nos targets afetados. Guard global e integração final pertencem ao principal;
-esta folha valida apenas os targets afetados.
+Executar `cargo xtask cargo test --offline --locked -p graphit-data --test integration -- knowledge_document_projection::` e
+`cargo xtask cargo test --offline --locked -p graphit-data --doc -- knowledge_document_projection`, com fmt/Clippy
+nos targets afetados. Esta folha valida apenas os targets afetados.
 
 As fronteiras Knowledge/Data/Records continuam
 válidas quanto a Published/Current e fontes autorizadas. Esta API pura não implementa

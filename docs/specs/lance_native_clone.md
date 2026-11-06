@@ -46,6 +46,15 @@ normal local destination configuration. The SDK generates the clone's new
 manifest and transaction; the output's actual physical version and location come
 from that result and can differ from the input's version.
 
+For absolute Windows paths, the SDK call boundary uses the public URL and
+object-store path APIs to supply slash-separated native drive or UNC paths.
+This prevents verbatim-path `?` from becoming a branch query and backslashes
+from becoming encoded object-key bytes. Public corpus locators and recovery
+keys retain the caller's exact spelling; Linux paths, remote URIs and file URIs
+remain literal. Existing manifests and base declarations are not rewritten.
+The official SDK's `deep_clone` limitation on referenced file-URI bases remains:
+its `empty path segment` failure is returned with its cause.
+
 A standard Tokio `spawn_blocking` worker owns both the retained dataset and the
 staging directory. Inside it, the captured runtime runs the SDK future. The caller
 must retain the returned `JoinHandle`, join it during shutdown and before cleanup
@@ -98,7 +107,9 @@ base and Blob rejection, missing referenced-file SDK causes and Original/runtime
 boundaries. The queued worker fixture retains its directory until the caller
 unblocks and joins it; it does not claim hard cancellation during synchronous I/O.
 
-`cargo test --locked --offline -p graphit-data --test lance_native_clone` passed.
+The earlier Linux qualification of the `lance_native_clone` module passed.
+Its current focused command is
+`cargo xtask cargo test --locked --offline -p graphit-data --test integration -- lance_native_clone::`.
 Scoped Clippy for the Data library and clone/metadata targets passed with
 `--no-deps -- -D warnings`; scoped rustfmt, whitespace, frontmatter and five local
 links passed. These receipts qualify this local SDK input, while the mandatory

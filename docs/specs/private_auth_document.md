@@ -180,6 +180,18 @@ old/new physical identity and bytes qualify a native error. Effects are closed:
 remains `Applied` if cancellation or another failure happens afterward; native
 errors remain `Unknown` unless the bounded observation proves old or new.
 
+Windows file privacy is checked from the native owner and protected DACL, rather
+than requiring the creation descriptor's exact SDDL serialization.
+[ReplaceFileW preserves and merges DACL information](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-replacefilew).
+Equivalent duplicate explicit full-access ACEs for the current owner and
+auto-inheritance bookkeeping do not grant another principal access. The verifier
+still requires a nonempty protected DACL, the current user as owner, and only
+plain explicit owner full-access ACEs. Foreign principals, denied/conditional or
+inherited ACEs, nonzero raw ACE flags and incomplete masks remain denied. File
+type, hardlink count, readonly and reparse checks are retained. Directory privacy,
+retained namespace handles and their sharing rules are unchanged; captured access
+snapshots remain exact opaque observations for change detection.
+
 Failed cleanup exposes a separate static cleanup failure and an opaque
 `PendingCleanup` containing real process-local creation origin. It cannot be
 restored, cloned or debugged and does not delete anything on drop.

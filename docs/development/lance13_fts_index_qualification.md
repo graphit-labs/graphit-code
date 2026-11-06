@@ -99,16 +99,12 @@ A1 (`chk-28c58425fa87`) cobre Q1–Q2; A2 (`chk-dbcdd58408ed`) Q3–Q5; A3 (`chk
 
 ## Execução afetada e receipt
 
-Do root do projeto, Root autorizou o target compartilhado quente e execução serial `-j1`. Um Cargo por vez, com debug/incremental desabilitados:
+Na raiz do checkout, com a configuração canônica do projeto:
 
 ```sh
-CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
-cargo test --offline --locked -p graphit-data --test lance_fts_index \
-  --target-dir .build/rust-records-data/knowledge-index-source/target -j1 -- --show-output
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- lance_fts_index:: --show-output
 
-CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_INCREMENTAL=0 \
-cargo clippy --offline --locked -p graphit-data --test lance_fts_index \
-  --target-dir .build/rust-records-data/knowledge-index-source/target -j1 -- -D warnings
+cargo xtask cargo clippy --offline --locked -p graphit-data --test integration -- -D warnings
 
 rustfmt --edition 2024 --check crates/graphit-data/tests/lance_fts_index.rs
 ```

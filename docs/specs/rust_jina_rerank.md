@@ -66,7 +66,7 @@ NativeRerankError retains typed context, network, HTTP status, policy, limit, en
 The affected invocation is:
 
 ~~~text
-cargo test --locked -p graphit-ai --test jina_reranking
+cargo xtask cargo test --locked -p graphit-ai --test integration jina_reranking::
 ~~~
 
 The suite checks exact request/defaults/per-call Bearer, batching without hidden caps, complete remapping and f64 ranking, empty/preflight zero socket effects, malformed/incomplete/duplicate/wrong-envelope responses, exact/+1 UTF-8/request/response caps including HTTP client caps, 401/429/503/refused/origin errors, pre-cancel/expiry, stalled cancellation and absolute deadlines, late failure without a third request, and diagnostic redaction. The Main Linux run passed all ten cases with zero failures or ignored tests. Cargo reported 12.39 s for the warm build and the harness reported 1.93 s; observed total wall time was 14.476 s. Strict affected Clippy completed with exit 0 in 6.63 s reported by Cargo (7.012 s wall), and scoped rustfmt --check passed. These are validation costs, not authenticated provider latency or a performance benchmark. Logs are in .build/rust-ai/jina-rerank/main-tests.log and main-clippy.log; native/Cohere source and their shared fixture were not changed.

@@ -47,6 +47,9 @@ NetworkEffect starts at NotSent and becomes MayHaveApplied after a possible send
 
 ## Verification scope
 
+Current commands use the [AI integration target](../development/ai-tests.md)
+with the `direct_native_rerank::` filter.
+
 The fixture uses public installation bootstrap, runtime ownership, AuthDocumentStore/AuthStore publication, RoleIssuer, caller, selection and lease producers. CapturedPublicationScope::installation receives the original RequestContext snapshot directly. Real profile-key publication invalidates a previously captured lease. TCP barriers extend the existing shared rerank fixture.
 
 The consumer suite covers all six protocol enums, literal wire/model/endpoint and a Direct credential distinct from the MCP credential; complete f64 remapping; physical revocation before entry and during a response; a successful first batch followed by revocation during the second response with no third request; original cancellation/deadline before and after an observed send; complete preflight, empty input, late HTTP status, opaque typed causes and permit reuse after drop. The separate focused wire test proves a successful TCP batch followed by generic admission denial before the next send retains MayHaveApplied. That wire test is not proof of Auth revocation before the second send.

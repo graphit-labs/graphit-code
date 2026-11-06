@@ -23,16 +23,7 @@ use tokio::{
 };
 
 fn assert_owned_cleanup(cleanup: Cleanup) {
-    #[cfg(unix)]
     assert_eq!(cleanup, Cleanup::Complete);
-    #[cfg(windows)]
-    assert_eq!(
-        cleanup,
-        Cleanup::Unconfirmed(graphit_process::UnconfirmedCleanup::TreeUnknownWindows {
-            leader: graphit_process::LeaderCleanup::Reaped,
-            control: graphit_process::ControlFailures::default(),
-        })
-    );
 }
 
 const FIRST: &[u8] = &[0, 255, 128, b'1'];
@@ -90,6 +81,22 @@ async fn byte(peer: &mut TcpStream) -> Option<u8> {
                 sleep(Duration::from_millis(5)).await
             }
             Err(e) => panic!("fixture read kind {:?}", e.kind()),
+        }
+    }
+}
+// Only used after the fixture's readiness byte, while awaiting its native
+// exit. Windows may reset a socket closed by process exit instead of sending FIN.
+async fn disconnected(peer: &mut TcpStream) {
+    let mut bytes = [0];
+    loop {
+        match peer.read(&mut bytes) {
+            Ok(0) => return,
+            Err(error) if cfg!(windows) && error.kind() == io::ErrorKind::ConnectionReset => return,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                sleep(Duration::from_millis(5)).await
+            }
+            Ok(_) => panic!("unexpected fixture byte after readiness"),
+            Err(error) => panic!("fixture disconnect kind {:?}", error.kind()),
         }
     }
 }
@@ -490,7 +497,7 @@ impl IncrementalSink for ExitPendingSink {
         if !self.peer_closed {
             let mut child = peer(&self.socket).await;
             assert_eq!(byte(&mut child).await, Some(b'L'));
-            assert_eq!(byte(&mut child).await, None);
+            disconnected(&mut child).await;
             self.peer_closed = true;
             self.entered.notify_one();
             sleep(self.delay).await;

@@ -1225,7 +1225,7 @@ async fn native_knowledge_package_freezes_lexical_and_published_semantic_snapsho
     else {
         panic!("current corpus")
     };
-    let update_reader = crate::capture(&f, &ctx, "updated-native-a.md", Z);
+    let update_reader = self::capture(&f, &ctx, "updated-native-a.md", Z);
     let updated = compile(&update_reader, &ctx);
     let graphit_data::knowledge_document_update::KnowledgeDocumentUpdateResult::Updated {
         generation: next,
@@ -1235,7 +1235,7 @@ async fn native_knowledge_package_freezes_lexical_and_published_semantic_snapsho
         &read,
         &write,
         capture.source_generation(),
-        &[crate::input(&updated, "a")],
+        &[self::input(&updated, "a")],
         graphit_knowledge::document_republication::NativeDocumentRepublicationLimits {
             publication: limits(),
             read: read_limits(),

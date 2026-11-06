@@ -147,7 +147,7 @@ fn check(
     }
     let original = lease.original().map_err(service_error)?;
     original.snapshot().check().map_err(ModelServiceError::io)?;
-    if Instant::now() >= operation_deadline {
+    if tokio::time::Instant::now().into_std() >= operation_deadline {
         return Err(ModelServiceError::operation_deadline());
     }
     let key = runtime
@@ -155,7 +155,7 @@ fn check(
         .map_err(ModelServiceError::from)?;
     key.secret(original.snapshot())
         .map_err(ModelServiceError::from)?;
-    if Instant::now() >= operation_deadline {
+    if tokio::time::Instant::now().into_std() >= operation_deadline {
         return Err(ModelServiceError::operation_deadline());
     }
     Ok(())

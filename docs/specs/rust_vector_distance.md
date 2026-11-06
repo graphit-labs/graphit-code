@@ -88,15 +88,15 @@ qualify Memory capture/attach/query, ModelService, GGUF or another consumer;
 other operating systems remain unrun. The scoped suite does not intercept SDK
 lost acknowledgements or establish continuous Auth/SDK atomicity.
 
-Commands for this leaf, coordinated with the Root build window:
+Commands from the repository root, using the current checkout configuration:
 
 ```sh
-cargo test --offline --locked -p graphit-data --test vector_distance -j1
-cargo clippy --locked -p graphit-data --lib --test vector_distance --no-deps -- -D warnings
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- vector_distance::
+cargo xtask cargo clippy --offline --locked -p graphit-data --lib --test integration --no-deps -- -D warnings
 rustfmt --edition 2024 --check crates/graphit-data/src/vector_distance.rs crates/graphit-data/tests/vector_distance.rs
 ```
 
 Documentation validation here is Source/API/link agreement plus the library's
-`include_str!` compilation, not a new doctest suite. Root combines the warm
-target and global manifests/locks. No broad workspace gate
+`include_str!` compilation, not a new doctest suite. The commands use the
+checkout's Cargo configuration. No broad workspace gate
 or other SDK suite replay is part of this documentation delta.

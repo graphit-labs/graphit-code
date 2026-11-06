@@ -77,6 +77,19 @@ async fn connected(listener: &TcpListener) -> TcpStream {
     assert_eq!(byte, [b'L']);
     peer
 }
+async fn disconnected_after_native_stop(peer: &mut TcpStream) {
+    let mut byte = [0];
+    let result = timeout(Duration::from_secs(2), peer.read(&mut byte))
+        .await
+        .unwrap();
+    // The caller has already observed readiness and requested/observed native
+    // teardown. This socket is a closure check, separate from the Job receipt.
+    assert!(
+        matches!(result, Ok(0))
+            || cfg!(windows)
+                && result.is_err_and(|error| error.kind() == std::io::ErrorKind::ConnectionReset)
+    );
+}
 async fn joined(host: ProcessHost) {
     assert!(matches!(
         host.shutdown(Instant::now() + Duration::from_secs(5)).await,
@@ -84,13 +97,7 @@ async fn joined(host: ProcessHost) {
     ));
 }
 fn cleanup(cleanup: Cleanup) {
-    #[cfg(unix)]
     assert_eq!(cleanup, Cleanup::Complete);
-    #[cfg(windows)]
-    assert!(matches!(
-        cleanup,
-        Cleanup::Unconfirmed(graphit_process::UnconfirmedCleanup::TreeUnknownWindows { .. })
-    ));
 }
 #[derive(Default)]
 struct Collect {
@@ -238,14 +245,7 @@ async fn real_service_local_and_host_stop_do_not_cancel_other_signals() {
         if mode != "service" {
             assert!(!service.is_cancelled());
         }
-        let mut byte = [0];
-        assert_eq!(
-            timeout(Duration::from_secs(2), peer.read(&mut byte))
-                .await
-                .unwrap()
-                .unwrap(),
-            0
-        );
+        disconnected_after_native_stop(&mut peer).await;
         drop(stop);
         if let Some(host) = host {
             joined(host).await;
@@ -499,14 +499,7 @@ async fn aborting_bootstrap_closes_same_native_record() {
         tokio::pin!(pending);
         tokio::select! { peer=connected(&listener)=>peer, result=&mut pending=>panic!("unexpected bootstrap result {result:?}") }
     };
-    let mut byte = [0];
-    assert_eq!(
-        timeout(Duration::from_secs(2), peer.read(&mut byte))
-            .await
-            .unwrap()
-            .unwrap(),
-        0
-    );
+    disconnected_after_native_stop(&mut peer).await;
     joined(host).await;
     assert_eq!(Arc::strong_count(&startup), 1);
     assert!(!service.is_cancelled());

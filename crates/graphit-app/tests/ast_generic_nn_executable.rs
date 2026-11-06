@@ -1,5 +1,6 @@
 #![cfg(target_os = "linux")]
 //! Main, a custom extraction profile over linked TOML, and productive Raw/Graph/FTS/NN.
+pub(crate) use crate::model_fixture;
 use graphit_app::foreground_source::ForegroundSource;
 use graphit_core::{
     brand::Brand,
@@ -21,8 +22,6 @@ use std::{
     process::{Child, Command, Output, Stdio},
     time::{Duration, Instant},
 };
-#[path = "../../graphit-daemon/tests/support/model_fixture.rs"]
-pub mod model_fixture;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 

@@ -1,6 +1,5 @@
 //! Configuration through the actual Main, with private stores and no daemon.
-#[path = "support/finite_cli.rs"]
-mod finite_cli;
+use crate::finite_cli;
 use finite_cli::FiniteOutput;
 use graphit_core::{
     brand::Brand,

@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 //! Actual compiled install/sync commands, daemon issuer, retained tuples and native writer.
 use graphit_app::{
     foreground_source::ForegroundSource,

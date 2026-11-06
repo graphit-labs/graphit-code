@@ -100,8 +100,8 @@ pertence ao App consumer.
 O target `knowledge_index_page` usa RuntimeKeyOwner, scopes capturados, `authenticate_runtime` e `admit_authenticated_read/write` reais. Publicação H/Data e mutações de linhas usam o SDK efetivo. As fixtures protegem estados, geração nomeada/herdada, ausência de escrita, documento owned, soma dos bodies maior que o limite por documento, independência de registros alheios, invalidade/duplicação selecionadas, factory negada, classe/Original incorretos, slug, cancelamento concorrente/prévio, prazo expirado antes da chamada e Other/corrupt reais.
 
 ```text
-cargo test --offline --locked -p graphit-data --test knowledge_index_page -j2
-cargo clippy --offline --locked -p graphit-data --lib --test knowledge_index_page -j2 --no-deps -- -D warnings
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- knowledge_index_page::
+cargo xtask cargo clippy --offline --locked -p graphit-data --lib --test integration --no-deps -- -D warnings
 ```
 
 Qualificação histórica do reader anterior: suíte local **7 PASS**, sem falhas/ignored (harness 3,17 s); regressão focal do reader remoto **1 PASS** (0,02 s, quatro testes fora do filtro); Clippy estrito **exit 0**; rustfmt/diff e três links relativos válidos. O caso focal de documento owned também passou após a remoção do `drop` desnecessário (1 PASS, 2,88 s, seis fora do filtro). Receipts em `.build/rust-knowledge-selected-local`.

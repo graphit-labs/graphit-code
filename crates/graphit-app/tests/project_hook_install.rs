@@ -1,8 +1,7 @@
 //! Real Auth/Core/Hub publication and compiled CLI journeys. ACP peers test transport,
 //! not installed Kiro model perception.
 #![cfg(unix)]
-#[path = "support/runtime_peer.rs"]
-mod runtime_peer;
+use crate::runtime_peer;
 use graphit_app::{
     managed_roles::InstallResources,
     project_hook_install::{self, HookOutcome, HookRequest},

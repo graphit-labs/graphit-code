@@ -1,24 +1,7 @@
 #![cfg(target_os = "linux")]
 //! Compiled CLI + real Source/Auth/discovery; the WS peer exercises the Broker protocol, not SQL/TLS.
-use graphit_app::{
-    native_install_http::NativeInstallPolicy,
-    source_server::{SourcePolicy, SourceServer},
-};
-#[path = "support/knowledge_ask_server.rs"]
-#[expect(
-    dead_code,
-    reason = "Reuse the actual Source/Auth fixture; sibling ingress helpers are used by other suites"
-)]
-mod fixture_support;
-use fixture_support as support;
-#[path = "support/knowledge_cli_daemon.rs"]
-mod cli_daemon;
-#[path = "support/now_fixture.rs"]
-#[expect(
-    dead_code,
-    reason = "Reuse the actual Auth/profile fixture; the compiled CLI owns its controllable WS peer"
-)]
-mod wire;
+use crate::knowledge_cli_daemon as cli_daemon;
+use crate::now_fixture as wire;
 use graphit_core::{
     config::{ConfigKey, ConfigMutation, ConfigStore},
     file_lock::Cancellation,

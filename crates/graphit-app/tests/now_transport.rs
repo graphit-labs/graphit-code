@@ -1,17 +1,15 @@
 #![cfg(target_os = "linux")]
 //! Client framing only. These protocol fixtures do not assert Broker authorization.
-use graphit_app::{
-    native_install_http::NativeInstallPolicy,
-    now_transport::{NowTransportError, connect_now},
-    source_server::{BrokerRequest, SourcePolicy, SourceServer},
-};
-#[path = "support/knowledge_ask_server.rs"]
-mod support;
+use crate::knowledge_ask_server as support;
 use axum::{
     Router,
     body::{Body, Bytes},
     http::HeaderMap,
     routing::post,
+};
+use graphit_app::{
+    now_transport::{NowTransportError, connect_now},
+    source_server::BrokerRequest,
 };
 use graphit_auth::Permission;
 use graphit_core::{

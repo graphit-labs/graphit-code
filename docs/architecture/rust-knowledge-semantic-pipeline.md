@@ -293,10 +293,10 @@ pinado. Estar ignorado na suíte comum não constitui prova de execução. Com o
 produtores nativos configurados, os focais podem ser selecionados por nome:
 
 ```text
-cargo xtask cargo test --offline --locked -p graphit-app --test knowledge_semantic -- --ignored --exact authorized_gguf_corpus_index_query_reindex_errors_and_shutdown
-cargo xtask cargo test --offline --locked -p graphit-app --test knowledge_semantic -- --exact actual_direct_embedding_stream_generation_attach_skip_limits_and_cancel
+cargo xtask cargo test --offline --locked -p graphit-app --test integration -- --ignored --exact knowledge_semantic::authorized_gguf_corpus_index_query_reindex_errors_and_shutdown
+cargo xtask cargo test --offline --locked -p graphit-app --test integration -- --exact knowledge_semantic::actual_direct_embedding_stream_generation_attach_skip_limits_and_cancel
 cargo xtask cargo test --offline --locked -p graphit-app --lib knowledge_semantic::callback_tests::
-cargo xtask cargo clippy --offline --locked -p graphit-app --lib --test knowledge_semantic --no-deps -- -D warnings
+cargo xtask cargo clippy --offline --locked -p graphit-app --lib --test integration --no-deps -- -D warnings
 ```
 
 ## Geração documental observada pelo ForeGround

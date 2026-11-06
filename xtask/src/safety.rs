@@ -1,4 +1,4 @@
-//! Keep native filesystem exceptions within exact private SDK functions.
+//! Keep native filesystem, identity and Job exceptions within exact private SDK functions.
 use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
 use syn::visit::{self, Visit};
@@ -35,6 +35,11 @@ pub(super) fn run(root: &Path) -> Result<(), String> {
     let core_file = syn::parse_file(&core_boundary).map_err(|e| e.to_string())?;
     verify_crate_safety(&core_file)?;
     inspect_directory(&core, &core, SourceDomain::Core, &mut totals)?;
+    let process = root.join("crates/graphit-process/src");
+    let process_boundary = fs::read_to_string(process.join("lib.rs")).map_err(|e| e.to_string())?;
+    let process_file = syn::parse_file(&process_boundary).map_err(|e| e.to_string())?;
+    verify_crate_safety(&process_file)?;
+    inspect_directory(&process, &process, SourceDomain::Process, &mut totals)?;
     println!("Native safety boundary: scoped SDK functions and exact unsafe calls verified");
     Ok(())
 }
@@ -53,12 +58,14 @@ fn verify_crate_safety(file: &syn::File) -> Result<(), String> {
 enum SourceDomain {
     Filesystem,
     Core,
+    Process,
 }
 impl SourceDomain {
     fn namespace(self) -> &'static Path {
         match self {
             Self::Filesystem => Path::new(""),
             Self::Core => Path::new("graphit-core"),
+            Self::Process => Path::new("graphit-process"),
         }
     }
 }
@@ -156,7 +163,11 @@ impl<'ast> Visit<'ast> for Audit {
             || (self.source == Path::new("windows_private_file.rs")
                 && matches!(
                     name.as_str(),
-                    "create_directory" | "create_file" | "replace_file"
+                    "create_directory"
+                        | "create_file"
+                        | "replace_file"
+                        | "descriptor_control"
+                        | "descriptor_ace_header"
                 ))
             || (self.source == Path::new("macos_access.rs")
                 && matches!(
@@ -186,13 +197,17 @@ impl<'ast> Visit<'ast> for Audit {
         let core_identity = self.domain == SourceDomain::Core
             && self.source == Path::new("graphit-core/native_file_identity.rs")
             && name == "query_file_id128";
+        let process_job = self.domain == SourceDomain::Process
+            && self.source == Path::new("graphit-process/windows_job.rs")
+            && name == "active_processes";
         let exact_visibility = if relative_sdk && name != "open_relative" {
             matches!(&function.vis, syn::Visibility::Restricted(visibility) if visibility.in_token.is_none() && visibility.path.is_ident("super"))
         } else {
             matches!(function.vis, syn::Visibility::Inherited)
         };
         self.allowed = ((self.domain == SourceDomain::Filesystem && (listed || relative_sdk))
-            || core_identity)
+            || core_identity
+            || process_job)
             && self.depth == 0
             && exact_visibility
             && function.sig.unsafety.is_none();
@@ -213,7 +228,8 @@ impl<'ast> Visit<'ast> for Audit {
                 (Some("macos_private_file.rs"), Some("configure_filesec"))
                 | (Some("windows_relative_sdk.rs"), Some("open_relative")) => 3,
                 (Some("macos_private_file.rs"), Some("configure_acl"))
-                | (_, Some("create_file")) => 2,
+                | (_, Some("create_file"))
+                | (Some("windows_private_file.rs"), Some("descriptor_ace_header")) => 2,
                 _ => 1,
             };
             if (
@@ -357,6 +373,16 @@ impl<'ast> Visit<'ast> for Audit {
 }
 fn expected_arguments(source: &Path, function: &str, ordinal: usize, call: &syn::ExprCall) -> bool {
     let (name, expected): (&str, &[&str]) = match (source.to_str(), function, ordinal) {
+        (Some("graphit-process/windows_job.rs"), "active_processes", 1) => (
+            "QueryInformationJobObject",
+            &[
+                "job.handle() as _",
+                "JobObjectBasicAccountingInformation",
+                "(&mut information as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast()",
+                "std::mem::size_of_val(&information) as u32",
+                "std::ptr::null_mut()",
+            ],
+        ),
         (Some("windows_document_access.rs"), "snapshot", 1) => (
             "GetKernelObjectSecurity",
             &[
@@ -495,6 +521,21 @@ fn expected_arguments(source: &Path, function: &str, ordinal: usize, call: &syn:
                 "std::ptr::null_mut()",
             ],
         ),
+        (Some("windows_private_file.rs"), "descriptor_control", 1) => (
+            "GetSecurityDescriptorControl",
+            &[
+                "std::ptr::from_ref(descriptor).cast_mut().cast()",
+                "&mut control",
+                "&mut revision",
+            ],
+        ),
+        (Some("windows_private_file.rs"), "descriptor_ace_header", 1) => (
+            "GetAce",
+            &["std::ptr::from_ref(dacl).cast()", "index", "&mut entry"],
+        ),
+        (Some("windows_private_file.rs"), "descriptor_ace_header", 2) => {
+            ("std::ptr::read", &["entry.cast::<ACE_HEADER>()"])
+        }
         (Some("windows_private_file.rs"), "create_directory", 1) => {
             ("CreateDirectoryW", &["path.units.as_ptr()", "&attributes"])
         }
@@ -590,6 +631,8 @@ mod tests {
             source: source.into(),
             domain: if Path::new(source).starts_with("graphit-core") {
                 SourceDomain::Core
+            } else if Path::new(source).starts_with("graphit-process") {
+                SourceDomain::Process
             } else {
                 SourceDomain::Filesystem
             },
@@ -605,6 +648,35 @@ mod tests {
         };
         audit.visit_file(&syn::parse_file(code).unwrap());
         audit
+    }
+
+    #[test]
+    fn process_job_allows_only_exact_private_accounting_query() {
+        let source = include_str!("../../crates/graphit-process/src/windows_job.rs");
+        let valid = audit_in("graphit-process/windows_job.rs", source);
+        assert!(valid.errors.is_empty(), "{:?}", valid.errors);
+        assert_eq!((valid.exceptions, valid.blocks), (1, 1));
+        for invalid in [
+            source.replace("fn active_processes", "pub fn active_processes"),
+            source.replace("job.handle() as _", "other.handle() as _"),
+            source.replace(
+                "JobObjectBasicAccountingInformation,",
+                "JobObjectBasicProcessIdList,",
+            ),
+            source.replace("std::mem::size_of_val(&information) as u32,", "0,"),
+            source.replace("unsafe {", "unsafe { other();"),
+        ] {
+            assert!(
+                !audit_in("graphit-process/windows_job.rs", &invalid)
+                    .errors
+                    .is_empty()
+            );
+        }
+        assert!(
+            !audit_in("graphit-process/other.rs", source)
+                .errors
+                .is_empty()
+        );
     }
 
     #[test]
@@ -750,6 +822,14 @@ mod tests {
     fn sdk_sites_reject_wider_scope_arguments_and_extra_calls() {
         for (name, calls) in [
             (
+                "descriptor_control",
+                "unsafe { GetSecurityDescriptorControl(std::ptr::from_ref(descriptor).cast_mut().cast(), &mut control, &mut revision) }",
+            ),
+            (
+                "descriptor_ace_header",
+                "unsafe { GetAce(std::ptr::from_ref(dacl).cast(), index, &mut entry) }; unsafe { std::ptr::read(entry.cast::<ACE_HEADER>()) }",
+            ),
+            (
                 "create_directory",
                 "unsafe { CreateDirectoryW(path.units.as_ptr(), &attributes) }",
             ),
@@ -776,6 +856,10 @@ mod tests {
                     ", FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,",
                 ),
                 code.replace(", sharing,", ", arbitrary_sharing,"),
+                code.replace("from_ref(descriptor)", "from_ref(other_descriptor)"),
+                code.replace("from_ref(dacl)", "from_ref(other_acl)"),
+                code.replace("index, &mut entry", "0, &mut entry"),
+                code.replace("entry.cast::<ACE_HEADER>()", "entry.cast::<ACL>()"),
                 code.replace("ptr::null(), 0,", "ptr::null(), 2,"),
                 format!("mod nested {{ {code} }}"),
                 format!(

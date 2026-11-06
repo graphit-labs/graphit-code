@@ -324,9 +324,9 @@ Dependency profiles, assertions and overflow checks retain their existing
 settings; use the same Cargo commands.
 
 ```sh
-cargo xtask cargo test --locked --offline -j4 -p graphit-app --test project_hook_context
+cargo xtask cargo test --locked --offline -j4 -p graphit-app --test integration -- project_hook_context::
 cargo test --locked --offline -j4 -p graphit-runtime --test policy_instructions
-cargo xtask cargo clippy --locked --offline -j4 -p graphit-app --lib --test project_hook_context --no-deps -- -D warnings
+cargo xtask cargo clippy --locked --offline -j4 -p graphit-app --lib --test integration --no-deps -- -D warnings
 rustfmt --edition 2024 --check crates/graphit-app/src/project_hook_context.rs crates/graphit-app/tests/project_hook_context.rs crates/graphit-runtime/src/policy_instructions.rs crates/graphit-runtime/tests/policy_instructions.rs
 ```
 
@@ -397,6 +397,16 @@ before publication effects cancels and joins that request while Source keeps
 serving authenticated callers. A later foreground SIGTERM still requires
 exactly exit 130 after drain and credential withdrawal. A real producer or
 cleanup failure retains its own failing cause.
+
+The managed-role HTTP run worker also handles an Original already cancelled or
+expired before context creation, or rejected by a direct Original check during
+capture. It produces the existing bounded `RunOutcome` failure category and joins
+the owned worker without recording that request refusal as a Source service
+failure. Only errors returned by those Original checks receive this treatment;
+configuration, authorization and I/O failures retain their real causes, including
+independent Interrupted or TimedOut errors. The run never reports an answer or a
+closed run when no run was created. EOF and service stop retain cancellation,
+owned joins and residual cleanup.
 
 The installed `kiro-cli 2.28.0` validation of a profile published in a private
 PROJECT, using normal HOME, returned exit 1, `You are not logged in`. A V2

@@ -1,6 +1,5 @@
 //! Temporary installations, signed Broker and canonical native datasets for compiled journeys.
-#[path = "native_install_auth.rs"]
-pub mod auth;
+pub(crate) use crate::native_install_auth as auth;
 use arrow_array::{ArrayRef, RecordBatch, StringArray};
 use graphit_core::{
     artifact_store::{CapturedSourceReader, CopyPolicy, SourceReadLimits},

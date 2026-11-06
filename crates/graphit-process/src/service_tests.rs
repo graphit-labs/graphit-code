@@ -128,16 +128,7 @@ async fn late_observation_preserves_service_control_and_real_cleanup() {
             assert!(failure.remaining.is_none());
             (failure.cleanup, failure.status, failure.pipes)
         };
-        #[cfg(unix)]
         assert_eq!(cleanup, Cleanup::Complete);
-        #[cfg(windows)]
-        assert_eq!(
-            cleanup,
-            Cleanup::Unconfirmed(UnconfirmedCleanup::TreeUnknownWindows {
-                leader: LeaderCleanup::Reaped,
-                control: ControlFailures::default(),
-            })
-        );
         assert_eq!(status.unwrap().code(), Some(7));
         if mode == "cancelled" {
             // Cancelling the Host service can close its I/O driver before the

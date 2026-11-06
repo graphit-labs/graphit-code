@@ -575,10 +575,10 @@ recovery key/cause; bootstrap errors preserve their actual observations.
 Run the affected Main suite with these repository-relative commands:
 
 ```text
-cargo test --locked --offline -p graphit-data -j1 --lib knowledge_index
-cargo test --locked --offline -p graphit-data -j1 --test wiki_corpus
-cargo test --locked --offline -p graphit-data -j1 --doc knowledge_document_projection
-cargo clippy --locked --offline -p graphit-data -j1 --all-targets -- -D warnings
+cargo xtask cargo test --locked --offline -p graphit-data --lib -- knowledge_index
+cargo xtask cargo test --locked --offline -p graphit-data --test integration -- wiki_corpus::
+cargo xtask cargo test --locked --offline -p graphit-data --doc -- knowledge_document_projection
+cargo xtask cargo clippy --locked --offline -p graphit-data --all-targets -- -D warnings
 cargo fmt -p graphit-data --check
 ```
 
@@ -651,10 +651,10 @@ head set. It supplies logical project/version/slug links and invents no
 Knowledge author. FULL16 readers remain available for M1b. This API does not
 qualify Now CLI, Broker ACL/transports, Task leases, Memory heads or USER.
 
-Focused invocation for the current Main composition:
-`cargo test --locked --offline -p graphit-data --test wiki_corpus` and
-`cargo test --locked --offline -p graphit-data --lib knowledge_index::`.
-Doctests and strict Clippy must use the same Main composition. Qualification
+Focused invocations from the current checkout:
+`cargo xtask cargo test --locked --offline -p graphit-data --test integration -- wiki_corpus::` and
+`cargo xtask cargo test --locked --offline -p graphit-data --lib -- knowledge_index::`.
+Doctests and strict Clippy use the same checkout configuration. Qualification
 artifacts belong to `.build/rust-records-data/knowledge-heads-source/`;
 Linux execution alone does not qualify other platforms. The existing
 Foundation6/Branch8 producer receipt is reused without rerunning those suites.

@@ -124,8 +124,9 @@ model artifact and does not introduce another native bridge or a new installer.
 The affected executable checks use:
 
 ```sh
-cargo xtask cargo test --locked --offline -p graphit-app --bin graphit --test models_cli --test help_cli --test version_cli --test package
-cargo xtask cargo clippy --locked --offline -p graphit-app --bin graphit --test models_cli --test help_cli --test version_cli --test package -- -D warnings
+cargo xtask cargo test --locked --offline -p graphit-app --bin graphit
+cargo xtask cargo test --locked --offline -p graphit-app --test integration -- models_cli:: help_cli:: version_cli:: package::
+cargo xtask cargo clippy --locked --offline -p graphit-app --bin graphit --test integration -- -D warnings
 ```
 
 The previously qualified executable suite passed all 25 tests on Linux (11 binary units,
@@ -155,10 +156,10 @@ client connected, so a failed zero-send regression cannot strand the server
 join. Request checks still reject Authorization and Cookie headers.
 
 ```sh
-cargo xtask cargo test --locked --offline --release -p graphit-app --test model_provision
+cargo xtask cargo test --locked --offline --release -p graphit-app --test integration -- model_provision::
 GRAPHIT_BGE_RERANK_TEST_FILE=prepared/bge-reranker-v2-m3-F16.gguf \
-  cargo test --locked --offline --release -p graphit-app --test model_provision -- \
-  --ignored --exact actual_pinned_rerank_installs_reuses_and_selects_its_canonical_slot
+  cargo xtask cargo test --locked --offline --release -p graphit-app --test integration -- \
+  --ignored --exact model_provision::actual_pinned_rerank_installs_reuses_and_selects_its_canonical_slot
 ```
 
 Public immutable Hugging Face metadata, the initial GET redirect and the CDN

@@ -1,6 +1,5 @@
 //! Real CLI physical fixtures; these files are not semantic native datasets.
-#[path = "support/finite_cli.rs"]
-mod finite_cli;
+use crate::finite_cli;
 use finite_cli::FiniteOutput;
 use std::{
     fs,

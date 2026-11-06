@@ -93,18 +93,20 @@ the process. Set `RUST_TEST_THREADS` to choose a different test concurrency for 
 local run. `CARGO_BUILD_JOBS` controls compilation separately.
 
 App subprocess fixtures are Rust targets in this workspace. Before App tests,
-`cargo xtask cargo test ...` prepares all `*-fixture` App binaries with
-`cargo test --no-run` and the same selected packages, test targets, profile and
-features. The fixture targets have `test = false` and `harness = false`: explicit
+`cargo xtask cargo test ...` prepares all `*-fixture` App binaries and the normal
+CLI. Selected integration tests use `cargo test --no-run` with the same selected
+packages, test targets, profile and features. Library/bin-only selections instead
+use `cargo build` with explicit binary targets and the same compilation options;
+they do not link the integration test executable to obtain the CLI.
+The fixture targets have `test = false` and `harness = false`: explicit
 preparation emits their real `main`, while the standard test run does not execute
-them as tests. This also avoids compiling a second dependency feature set just
-for the peers. The runner takes executable
+them as tests. The runner takes executable
 paths from Cargo's `compiler-artifact` messages and passes them to tests as
 `GRAPHIT_TEST_<TARGET_NAME>` (uppercase, hyphens replaced by underscores), for
 example `GRAPHIT_TEST_APP_DREAM_FIXTURE`. Cargo reuses unchanged artifacts.
 It also exports `GRAPHIT_TEST_GRAPHIT` from the normal CLI artifact, never its
-unit-test harness. Lib-only preparation includes the existing Browser startup
-integration target in `--no-run` so Cargo emits that CLI even in a clean checkout.
+unit-test harness. The required binaries come from Cargo metadata: `graphit`
+and the App targets whose names end in `-fixture`.
 The CLI's own unit tests keep their normal harness.
 Tests never search `target/debug`, compile themselves or require Python or an
 agent vendor executable to emulate a peer. Use the xtask entrypoint for these
@@ -173,7 +175,7 @@ Set `GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN` and use this command to run only th
 Hub FILE group.
 
 ```sh
-cargo xtask cargo test --locked --offline -p graphit-app --test source_executable native_publication::file_installation -- --ignored
+cargo xtask cargo test --locked --offline -p graphit-app --test integration source_executable::native_publication::file_installation -- --ignored
 ```
 
 The PostgreSQL Now qualification uses the locked Broker control fixture and
@@ -184,7 +186,7 @@ Broker package directory reported by Cargo, then select the qualification target
 export GRAPHIT_BROKER_CONTROL_SOURCE="$(cargo metadata --locked --offline --format-version 1 |
   python3 -c 'import json, pathlib, sys; print(next(pathlib.Path(p["manifest_path"]).parent for p in json.load(sys.stdin)["packages"] if p["name"] == "broker-control"))')"
 cargo xtask cargo test --locked --offline -p graphit-daemon --features postgres-qualification --test now_publisher --test now_subscription -- --ignored
-cargo xtask cargo test --locked --offline -p graphit-app --features postgres-qualification --test foreground_now native_foreground_now_two_projects_and_owned_shutdown -- --exact --ignored
+cargo xtask cargo test --locked --offline -p graphit-app --features postgres-qualification --test integration foreground_now::native_foreground_now_two_projects_and_owned_shutdown -- --exact --ignored
 ```
 
 The combined Foreground Now and Memory cases also use the verified model and
@@ -197,8 +199,8 @@ Linux desktop checks additionally use a private D-Bus instance. Run these
 checks explicitly on a host with `dbus-daemon` and `dbus-run-session`.
 
 ```sh
-cargo xtask cargo test --locked --offline -p graphit-app --test daemon_launcher native_private_bus_without_a_manager_is_unavailable -- --ignored --exact
-cargo xtask cargo test --locked --offline -p graphit-app --test foreground_tasks tray:: -- --ignored
+cargo xtask cargo test --locked --offline -p graphit-app --test integration daemon_launcher::native_private_bus_without_a_manager_is_unavailable -- --ignored --exact
+cargo xtask cargo test --locked --offline -p graphit-app --test integration foreground_tasks::tray:: -- --ignored
 ```
 
 The artifact relocation test across filesystems uses `/dev/shm`, `unshare`,
@@ -234,13 +236,13 @@ with their own fixtures.
 GRAPHIT_TASK_BROWSER_UI_DIR="$PWD/ui" cargo xtask cargo test --locked --offline -p graphit-app --lib task_browser_ui_reads_authorized_native_records -- --ignored
 ```
 
-For an interactive browser inspection, run one ignored `hosting` test at a
-time. Point `GRAPHIT_UI_BROWSER_PROBE_FILE` to a new file in a private temporary
-directory. The fixture writes its origin and selection there. The observer
+For an interactive browser inspection, give each invocation its own
+`GRAPHIT_UI_BROWSER_PROBE_FILE` path in a private temporary directory.
+The fixture writes its origin and selection there. The observer
 signals completion with a sibling `.done` file.
 
 ```sh
-GRAPHIT_UI_BROWSER_PROBE_FILE="$probe" cargo xtask cargo test --locked --offline -p graphit-app --test foreground_tasks hosting::hosted_record_references_signed_oauth_and_browser_probe -- --exact --ignored
+GRAPHIT_UI_BROWSER_PROBE_FILE="$probe" cargo xtask cargo test --locked --offline -p graphit-app --test integration foreground_tasks::hosting::hosted_record_references_signed_oauth_and_browser_probe -- --exact --ignored
 ```
 
 ## Validate hook execution
@@ -255,7 +257,13 @@ defines the production shell/context and Task/Memory contract.
 
 ## Validate selected behavior
 
-Use `cargo xtask test PACKAGE/TARGET ...` to run only selected registered suites in the current workspace, reusing the normal Cargo cache. Empty, unknown or repeated selectors fail before executing tests. Selectors follow catalog order. Only selecting `graphit-app/git_hooks_executable` runs its real Git fixtures; other selectors retain their own scope.
+Use `cargo xtask test PACKAGE/SUITE ...` to run only selected registered suites in the current workspace, reusing the normal Cargo cache. Empty, unknown or repeated selectors fail before executing tests. Selectors follow catalog order. Only selecting `graphit-app/git_hooks_executable` runs its real Git fixtures; other selectors retain their own scope.
+
+App, Data and AI external suites share one `integration` target per crate.
+Their semantic selector labels stay unchanged; the runner adds the selected
+module's `module::` filter instead of executing every module in that target.
+Other crates retain their existing targets, and library selectors retain their
+explicit `--lib` filters.
 
 For example:
 
@@ -292,7 +300,7 @@ The Knowledge selectors validate Markdown export plans and lint of a published s
 
 The App selectors exercise the compiled CLI: model arguments and installation
 paths, help before setup, compiled version, and native package commands. They
-select the four named integration targets through the same runner.
+select the four named modules within `integration` through the same runner.
 
 `cargo xtask test graphit-app/source_executable`
 

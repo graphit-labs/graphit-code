@@ -1,3 +1,5 @@
+#![deny(unsafe_code)]
+#![forbid(unsafe_op_in_unsafe_fn)]
 //! Subprocess supervision through an installed host and its shared driver runtime.
 //! Operations borrow the caller's original Core context. Services use that context for
 //! startup, then follow host and local cancellation without retaining its deadline.
@@ -14,6 +16,9 @@ extern crate self as graphit_process;
 #[cfg(test)]
 #[path = "../tests/support/host_fixture.rs"]
 mod host_fixture;
+
+#[cfg(windows)]
+mod windows_job;
 
 #[cfg(target_os = "linux")]
 mod detached;

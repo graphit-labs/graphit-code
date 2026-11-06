@@ -1,6 +1,5 @@
 //! Actual installation SDK integration. Empty canonical Icebug is not Parquet row proof.
-#[path = "support/native_install_auth.rs"]
-mod auth;
+use crate::native_install_auth as auth;
 use arrow_array::{ArrayRef, RecordBatch, StringArray};
 use graphit_app::native_install::{
     self, FailureCategory, InstallExecution, InstallRequest, InstallResources, PayloadEffect,

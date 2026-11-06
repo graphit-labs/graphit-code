@@ -1,15 +1,9 @@
 #![cfg(target_os = "linux")]
 //! Cursor one-shot through the real CLI/SDK, authorized corpus and native Process.
-#[path = "support/agent_fixture.rs"]
-mod agent_fixture;
-use graphit_app::{
-    native_install_http::NativeInstallPolicy,
-    source_server::{SourcePolicy, SourceServer},
-};
-#[path = "support/knowledge_cli_daemon.rs"]
-mod cli_daemon;
-#[path = "support/knowledge_ask_server.rs"]
-mod fixture_support;
+use crate::agent_fixture;
+use crate::knowledge_ask_server as fixture_support;
+use crate::knowledge_cli_daemon as cli_daemon;
+use graphit_app::source_server::SourceServer;
 use graphit_auth::{
     Permission, ProjectCapture, ProjectRecordAuthority, ProjectWriteOperation, ScopeCapture,
     ScopeInput,

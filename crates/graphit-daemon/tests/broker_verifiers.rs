@@ -573,7 +573,9 @@ fn current_authority_original_and_explicit_network_policy_are_checked_before_use
         Err(BrokerVerifierCacheError::Broker(_))
     ));
     let cache = cache(true);
-    assert!(cache.get(&mut selection).is_ok());
+    let verifier = cache
+        .get(&mut selection)
+        .expect("live Original admits the verifier");
     cancel.cancel();
     assert!(matches!(
         cache.get(&mut selection),
@@ -598,19 +600,48 @@ fn current_authority_original_and_explicit_network_policy_are_checked_before_use
             .is_err()
     );
 
-    let short = request(&cancel, Duration::from_millis(200));
     let key = f.key(&ctx);
-    let caller = f.auth.issuer().authenticate_runtime(&key, &short).unwrap();
-    let mut selection = f
+    let caller = f.auth.issuer().authenticate_runtime(&key, &ctx).unwrap();
+    let mut live = f
         .auth
         .issuer()
         .capture_presence_read_service(&caller, "a")
         .unwrap();
-    assert!(cache.get(&mut selection).is_ok());
-    std::thread::sleep(Duration::from_millis(210));
+    assert!(Arc::ptr_eq(
+        &verifier,
+        &cache
+            .get(&mut live)
+            .expect("a fresh live Original reuses the verifier")
+    ));
+
+    // The positive cache proof is independent of the expiry budget. This
+    // Original is used only to prove revalidation after its real deadline.
+    let short = request(&cancel, Duration::from_millis(200));
+    let short_caller = f.auth.issuer().authenticate_runtime(&key, &short).unwrap();
+    let mut selection = f
+        .auth
+        .issuer()
+        .capture_presence_read_service(&short_caller, "a")
+        .unwrap();
+    std::thread::sleep(
+        short
+            .deadline()
+            .unwrap()
+            .saturating_duration_since(Instant::now()),
+    );
+    assert_eq!(
+        short.check().unwrap_err().kind(),
+        std::io::ErrorKind::TimedOut
+    );
     assert!(matches!(
         cache.get(&mut selection),
         Err(BrokerVerifierCacheError::Service(_))
+    ));
+    assert!(Arc::ptr_eq(
+        &verifier,
+        &cache
+            .get(&mut live)
+            .expect("expiry rejects only the expired Original")
     ));
 }
 

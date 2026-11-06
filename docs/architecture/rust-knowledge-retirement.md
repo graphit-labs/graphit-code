@@ -164,7 +164,7 @@ causa SDK diante de cancelamento posterior.
 Para a fixture reconciliada, executar somente:
 
 ```text
-cargo test --offline -p graphit-data --test knowledge_retirement index_retirement_
+cargo xtask cargo test --locked --offline -p graphit-data --test integration -- knowledge_retirement::index_retirement_
 ```
 
 A execução atual deve ser registrada com seus próprios resultados. Evidências

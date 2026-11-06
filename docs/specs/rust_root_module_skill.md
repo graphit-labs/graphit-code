@@ -204,7 +204,8 @@ contains 84824 bytes, no error lines and the dev-profile finish at 43.74 s.
 No stdout artifact is asserted. The coordinator's invocation was:
 
 ```text
-cargo xtask cargo clippy --locked --offline -p graphit-auth -p graphit-app -p graphit-data -p graphit-core -p graphit-fs --lib --test managed_roles -- -D warnings
+cargo xtask cargo clippy --locked --offline -p graphit-auth -p graphit-app -p graphit-data -p graphit-core -p graphit-fs --lib -- -D warnings
+cargo xtask cargo clippy --locked --offline -p graphit-app --test integration -- -D warnings
 ```
 
 This qualifies those affected packages/targets with warnings denied, not the

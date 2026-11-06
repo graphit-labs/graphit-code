@@ -4,6 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+autotests = false
 
 [[bin]]
 name = "graphit"
@@ -31,8 +32,8 @@ harness = false
 bench = false
 
 [[test]]
-name = "foreground_now"
-required-features = ["postgres-qualification"]
+name = "integration"
+path = "tests/integration.rs"
 
 [features]
 cuda = ["graphit-ai/cuda"]

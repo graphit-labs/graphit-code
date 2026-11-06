@@ -1,7 +1,6 @@
 #![cfg(target_os = "linux")]
 //! Actual PROJECT/FULL16 and native Process/Codex; no vendor authentication claim.
-#[path = "support/agent_fixture.rs"]
-mod native_agent_fixture;
+use crate::agent_fixture as native_agent_fixture;
 use graphit_ai::{
     cli_codex::{CodexReceipt, CodexSink, CodexStreamLimits, run_codex},
     cli_codex_wire::{CodexEventView, CodexWireLimits},

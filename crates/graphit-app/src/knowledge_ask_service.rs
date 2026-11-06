@@ -1769,18 +1769,31 @@ pub(crate) mod tests {
         assert_writer_held(&scope);
         let retained = entry.remaining().unwrap();
         let mut process = retained.lock().await;
-        assert!(matches!(
-            process.repair(Instant::now()).await,
-            RepairObservation::Pending { .. }
-        ));
+        // The real Host can finish cleanup after returning Remaining and before
+        // this observer runs. Retention follows the observation, not that race.
+        let observed = match process.repair(Instant::now()).await {
+            RepairObservation::Pending { .. } => {
+                assert_writer_held(&scope);
+                assert!(!entry.released());
+                assert!(Arc::ptr_eq(&entry.remaining().unwrap(), &retained));
+                process
+                    .repair(Instant::now() + Duration::from_secs(5))
+                    .await
+            }
+            observed => observed,
+        };
+        assert!(
+            matches!(
+                observed,
+                RepairObservation::Observed {
+                    cleanup: Cleanup::Complete,
+                    status: Some(_),
+                }
+            ),
+            "the same native owner must report its actual cleanup and exit: {observed:?}"
+        );
         assert_writer_held(&scope);
         assert!(!entry.released());
-        assert!(matches!(
-            process
-                .repair(Instant::now() + Duration::from_secs(5))
-                .await,
-            RepairObservation::Observed { .. }
-        ));
         entry.observed_terminal();
         drop(process);
         assert!(entry.released());

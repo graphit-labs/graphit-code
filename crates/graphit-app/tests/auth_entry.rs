@@ -11,8 +11,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[path = "support/broker_oauth.rs"]
-mod broker_oauth;
+use crate::broker_oauth;
 
 #[derive(Parser)]
 struct Arguments {

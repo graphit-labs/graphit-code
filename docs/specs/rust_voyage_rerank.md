@@ -62,12 +62,14 @@ The adapter preserves document identity and all returned scores, but does not pr
 
 `crates/graphit-ai/tests/voyage_reranking.rs` uses actual loopback TCP requests on the existing `BoundedClient` and shared fixture. Its cases cover exact POST/Bearer/fields, per-call credentials, 1,000/1,001 documents with a larger configured batch and smaller configured chunks, input-order remapping, empty/preflight zero HTTP, strict response rejection, UTF-8/JSON boundaries, real 401/429/503 and transport errors, cancellation and the original cross-batch deadline, late failure stopping further requests, signed zeros and the existing ranking consumer.
 
-Run affected suites after coordinator exports are integrated:
+Run the affected modules with the canonical workspace configuration:
 
 ```text
-cargo test --locked -p graphit-ai --test voyage_reranking --test cohere_reranking --test native_rerank
+cargo xtask cargo test --locked -p graphit-ai --test integration voyage_reranking::
+cargo xtask cargo test --locked -p graphit-ai --test integration cohere_reranking::
+cargo xtask cargo test --locked -p graphit-ai --test integration native_rerank::
 cargo fmt --package graphit-ai -- --check
-cargo clippy --locked -p graphit-ai --lib --test voyage_reranking --test cohere_reranking --test native_rerank -- -D warnings
+cargo xtask cargo clippy --locked -p graphit-ai --lib --test integration -- -D warnings
 ```
 
 Linux Main qualification on 2026-10-10 used the warmed SDK target with jobs=2, incremental=false and locked/offline dependencies: Voyage 10/10 PASS, Cohere 8/8 functional PASS with its existing optional measurement ignored, native rerank 2/2 PASS, and Jina 10/10 PASS after the shared Data extension. Build duration was 4.64 s; respective harness durations were 1.29, 1.35, 0.05 and 1.30 s, with 8.685 s observed wall time for the combined invocation. Package fmt and affected library/test Clippy with warnings denied passed; Clippy took 2.37 s (2.452 s observed wall time). These are build/test timings, not a provider benchmark.

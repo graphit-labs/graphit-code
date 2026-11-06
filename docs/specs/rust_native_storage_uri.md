@@ -64,7 +64,7 @@ must use the actual namespace and their own native admission and SDK contracts.
 
 ## Affected verification
 
-`cargo test --locked --offline -p graphit-data --test native_storage_uri` exercises
+`cargo xtask cargo test --locked --offline -p graphit-data --test integration -- native_storage_uri::` exercises
 scope isolation, literal identity separation, SDK URI roundtrips, path/authority
 rejection and exact 1024/1025-byte keys including a multibyte provider prefix.
 The three focused tests passed on Linux using the existing `object_store` URL

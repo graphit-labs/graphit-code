@@ -1,7 +1,6 @@
 #![cfg(target_os = "linux")]
 
-#[path = "support/runtime_peer.rs"]
-mod runtime_peer;
+use crate::runtime_peer;
 
 use graphit_app::service_entry::{ServiceCommand, ServiceResult, execute};
 use graphit_core::{file_io::SnapshotContext, file_lock::Cancellation};
@@ -883,7 +882,7 @@ async fn compiled_direct_control_journey(
     assert_eq!(status["pid"], pid);
     if available {
         // Native manager observation remains independent of authenticated CLI status.
-        let verifier = crate::host().await;
+        let verifier = self::host().await;
         let service = daemon_launcher::compose_service(
             &verifier,
             &paths,

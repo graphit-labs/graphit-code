@@ -1,7 +1,5 @@
 //! Real admissions, physical pins and Markdown FTS; no heads-as-search substitute.
-#[allow(dead_code)]
-#[path = "support/knowledge_reference_fixture.rs"]
-mod support;
+use crate::knowledge_reference_fixture as support;
 use graphit_auth::{ProjectReadModule, ProjectRecordAuthority, ProjectWriteOperation};
 use graphit_core::file_lock::Cancellation;
 use graphit_data::{knowledge_document_projection as h, knowledge_index::*, knowledge_search::*};

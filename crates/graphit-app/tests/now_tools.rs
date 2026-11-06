@@ -1,12 +1,7 @@
 #![cfg(target_os = "linux")]
 //! New App surfaces over real Source authentication; subscriber internals have their own receipt.
-use graphit_app::{
-    mcp_source::SourceProxy,
-    native_install_http::NativeInstallPolicy,
-    source_server::{SourcePolicy, SourceServer},
-};
-#[path = "support/knowledge_ask_server.rs"]
-mod support;
+use crate::knowledge_ask_server as support;
+use graphit_app::{mcp_source::SourceProxy, source_server::SourceServer};
 use graphit_auth::{ExternalEffect, Permission};
 use graphit_core::{
     brand::Brand, config::ConfigSnapshot, file_lock::Cancellation, module_settings::Module,
@@ -23,8 +18,7 @@ use rmcp::{
 use serde_json::{Value, json};
 use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
-#[path = "support/now_fixture.rs"]
-mod wire;
+use crate::now_fixture as wire;
 use wire::{ProtocolServer, content, original, remote_fixture};
 
 async fn serve(

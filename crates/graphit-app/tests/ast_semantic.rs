@@ -12,8 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[path = "../../graphit-daemon/tests/support/model_fixture.rs"]
-pub mod fixture;
+pub(crate) use crate::model_fixture as fixture;
 
 fn original() -> Arc<SnapshotContext> {
     Arc::new(SnapshotContext::new(

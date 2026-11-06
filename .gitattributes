@@ -18,3 +18,7 @@ crates/graphit-app/assets/ui/index.html linguist-generated=true -whitespace
 
 # The qualified SDK projection is hashed identically on every checkout.
 crates/graphit-fs/src/macos_private_sdk.rs text eol=lf
+
+# Compiled instructions and byte-for-byte role snapshots use LF on every host.
+templates/agent-instructions/** text eol=lf
+crates/graphit-runtime/tests/fixtures/agent-instructions/*.md text eol=lf

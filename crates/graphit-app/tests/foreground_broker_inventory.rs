@@ -1,7 +1,6 @@
 //! Real Linux startup composition; public Broker journeys require its native fixture.
 #![cfg(target_os = "linux")]
-#[path = "support/finite_cli.rs"]
-mod finite_cli;
+use crate::finite_cli;
 use finite_cli::FiniteOutput;
 use graphit_app::foreground_source::{ForegroundFailure, ForegroundSource};
 use graphit_auth::{

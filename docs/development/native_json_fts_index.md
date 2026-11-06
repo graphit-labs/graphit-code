@@ -161,15 +161,13 @@ Esse seam impede que um consumer trate ausência ou inutilidade do índice como 
 
 Os [fixtures de inspeção](../../crates/graphit-data/tests/lance_fts_index_state.rs) usam datasets SDK temporários reais. A terceira execução focal (`../../.build/rust-records-memory/search-contract/index-state/test-third.log`; historical local artifact unavailable) concluiu **exit 0, 6 PASS/0 falhas**, runtime 0,04 s e compilação de 1 min 24 s; os tempos não são benchmark. Ela incluiu as seis fixtures atuais, sem quarto replay: BTree real na mesma coluna Utf8 retornou Missing; publicação JSON de corpus vazio teve seleção SDK Ready. A construção ListElement sobre Utf8 foi rejeitada pelo SDK antes da publicação, sem efeito e sem fabricar metadados ListElement. A validação de entrada também rejeita List<Utf8> por tipo; essa forma não foi fixture executada. A coluna UInt64 e a coluna ausente retornaram `JsonIndexColumn` nas fixtures. Erros físicos nos stores TempDir próprios conservaram as causas. Seleções defensivas None/vazias e combinações de granularidade não são declaradas exercitadas.
 
-A primeira compilação terminou exit 101 por E0599/import de trait e uso child deprecated. A segunda execução teve **1 PASS/3 FAIL** por comparação que não normalizava o formato de postings em ambos os lados; o diagnóstico isolado teve **1 FAIL** e confirmou os demais parâmetros. A normalização de ambos pelo setter público passou na terceira execução. Uma quarta tentativa iniciou prematuramente em fila no lock próprio e foi encerrada exit 143, com log preservado; nenhum processo alheio foi alterado. Não houve replay Branch/index-store/SDK/workspace: o comportamento desses helpers não mudou. A primeira execução strict própria, `cargo clippy --offline --locked -p graphit-data --lib --test lance_fts_index_state --no-deps -- -D warnings` no target/janela combinados, concluiu **exit 0**, conforme `.build/rust-records-memory/search-contract/index-state/clippy-first.log`. Build de 6 min 48 s inclui fila e não é benchmark. O receipt `.build/rust-records-memory/search-contract/index-state/validation.json` acompanha logs, resultados, hashes e limites dessa qualificação. O inspector tem sua própria evidência Source6/strict0; não a herda dos receipts `a666`/`4f78`. Outros sistemas operacionais e cobertura Memory continuam sem prova; o estado lifecycle é consultado na Task.
+A primeira compilação terminou exit 101 por E0599/import de trait e uso child deprecated. A segunda execução teve **1 PASS/3 FAIL** por comparação que não normalizava o formato de postings em ambos os lados; o diagnóstico isolado teve **1 FAIL** e confirmou os demais parâmetros. A normalização de ambos pelo setter público passou na terceira execução. Uma quarta tentativa iniciou prematuramente em fila no lock próprio e foi encerrada exit 143, com log preservado; nenhum processo alheio foi alterado. Não houve replay Branch/index-store/SDK/workspace: o comportamento desses helpers não mudou. A primeira execução strict própria do módulo `lance_fts_index_state`, no target/janela então combinados, concluiu **exit 0**, conforme `.build/rust-records-memory/search-contract/index-state/clippy-first.log`. Build de 6 min 48 s inclui fila e não é benchmark. O receipt `.build/rust-records-memory/search-contract/index-state/validation.json` acompanha logs, resultados, hashes e limites dessa qualificação. O inspector tem sua própria evidência Source6/strict0; não a herda dos receipts `a666`/`4f78`. Outros sistemas operacionais e cobertura Memory continuam sem prova; o estado lifecycle é consultado na Task.
 
-Comandos scoped da folha, após composição/janela Root, sem replay dos testes SDK ou publisher inalterados:
+Comandos focais, usando a configuração canônica do checkout:
 
 ```sh
-cargo test --offline --locked -p graphit-data --test lance_fts_index_state \
-  --target-dir .build/rust-records-data/knowledge-index-source/target -j1
-cargo clippy --offline --locked -p graphit-data --lib --test lance_fts_index_state \
-  --target-dir .build/rust-records-data/knowledge-index-source/target -j1 --no-deps -- -D warnings
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- lance_fts_index_state::
+cargo xtask cargo clippy --offline --locked -p graphit-data --lib --test integration --no-deps -- -D warnings
 ```
 
 ## Leituras e qualificação afetada
@@ -195,18 +193,13 @@ Acceptance: P1–P4 `chk-361ea2fe8aaa`; P5–P6 `chk-6223a912d60b`; P4/P7 `chk-6
 
 ## Comandos e qualificação Linux
 
-Após composição Root, executar serialmente do root do projeto com target quente e `-j1`. Configurar `CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0`, `CARGO_INCREMENTAL=0` nos comandos Cargo:
+Na raiz do checkout, com a configuração canônica do projeto:
 
 ```sh
-cargo test --offline --locked -p graphit-data --test lance_fts_index_store \
-  --target-dir .build/rust-records-data/knowledge-index-source/target -j1
-cargo test --offline --locked -p graphit-data --test lance_branch_store \
-  --target-dir .build/rust-records-data/knowledge-index-source/target -j1
-cargo test --offline --locked -p graphit-data --doc \
-  --target-dir .build/rust-records-data/knowledge-index-source/target -j1
-cargo clippy --offline --locked -p graphit-data \
-  --test lance_fts_index_store --test lance_branch_store \
-  --target-dir .build/rust-records-data/knowledge-index-source/target -j1 -- -D warnings
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- lance_fts_index_store::
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- lance_branch_store::
+cargo xtask cargo test --offline --locked -p graphit-data --doc
+cargo xtask cargo clippy --offline --locked -p graphit-data --test integration -- -D warnings
 rustfmt --edition 2024 --check \
   crates/graphit-data/src/lance_branch_store/fts.rs \
   crates/graphit-data/src/lance_branch_store.rs \

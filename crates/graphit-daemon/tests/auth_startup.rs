@@ -531,12 +531,21 @@ fn trusted_sibling_projects_admit_runtime_local_records_and_managed_runs() {
         &ctx,
     )
     .unwrap();
-    let mut expected = vec![fixture.paths.root(), paths[0].root(), paths[1].root()];
+    let mut expected = [fixture.paths.root(), paths[0].root(), paths[1].root()]
+        .into_iter()
+        .map(std::fs::canonicalize)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
     expected.sort();
-    assert_eq!(
-        auth.installation().live.allowed_roots().collect::<Vec<_>>(),
-        expected
-    );
+    let mut admitted = auth
+        .installation()
+        .live
+        .allowed_roots()
+        .map(std::fs::canonicalize)
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    admitted.sort();
+    assert_eq!(admitted, expected);
     publish_local(&auth, &fixture.paths, &ctx);
     let raw = key(&auth, &ctx);
     let runtime = auth.issuer().authenticate_runtime(&raw, &ctx).unwrap();

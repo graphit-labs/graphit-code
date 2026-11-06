@@ -1,8 +1,7 @@
 //! Actual compiled CLI, Role factory/issuer and PROJECT Memory over controlled ACP.
 //! This does not qualify installed Kiro or model perception.
 #![cfg(unix)]
-#[path = "support/runtime_peer.rs"]
-mod runtime_peer;
+use crate::runtime_peer;
 use graphit_app::managed_role_run::RunOutcome;
 use graphit_core::{
     brand::Brand,
@@ -336,7 +335,11 @@ async fn role_hook_v3_run_worker_eof_stop_and_deadline_while_core_writer_is_held
             assert!(!temp.path().join("peer-stage.json").exists());
             // The native failure was delivered as a complete outcome. It is not
             // an undelivered HTTP job failure and does not poison service shutdown.
-            assert_eq!(daemon.stop().await?, 130);
+            let exit = daemon.stop().await?;
+            let diagnostic = fs::read_to_string(&lifecycle_log)?
+                .replace(std::str::from_utf8(&key)?, "<credential>")
+                .replace(temp.path().to_str().unwrap(), "<fixture>");
+            assert_eq!(exit, 130, "deadline daemon: {diagnostic}");
         } else if mode == "eof" {
             drop(response);
             let ready = client
@@ -346,7 +349,11 @@ async fn role_hook_v3_run_worker_eof_stop_and_deadline_while_core_writer_is_held
                 .await?;
             assert_eq!(ready.status(), reqwest::StatusCode::METHOD_NOT_ALLOWED);
             assert!(installation.root().join("daemon/mcp.key").exists());
-            assert_eq!(daemon.stop().await?, 130);
+            let exit = daemon.stop().await?;
+            let diagnostic = fs::read_to_string(&lifecycle_log)?
+                .replace(std::str::from_utf8(&key)?, "<credential>")
+                .replace(temp.path().to_str().unwrap(), "<fixture>");
+            assert_eq!(exit, 130, "EOF daemon: {diagnostic}");
         } else {
             let stop = daemon.stop();
             let body = async {

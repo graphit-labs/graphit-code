@@ -131,6 +131,12 @@ deadlines interrupt native execution. Query limits bound the response, rather
 than the corpus. The composing caller executes blocking native work inside its
 live Tokio runtime and retains PROJECT admission.
 
+The graph server binds its configured installation root to the captured
+installation's native canonical root. Native aliases for the same directory
+are accepted; a distinct root is rejected before serving graph operations.
+This path comparison does not replace the retained authorization and physical
+binding checks on each operation.
+
 The owner holds its read guard until query completion and destruction of the
 native captured IO. Export, candidate validation and compiler payload visits
 hold the same guard. A FILE writer and shard collection therefore wait until

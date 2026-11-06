@@ -1,3 +1,6 @@
+use crate::direct_rerank_auth as auth;
+use crate::rerank_http as tcp;
+use auth::{AuthFixture, EMBEDDING_KEY, EmbeddingConfig, MCP_KEY, RERANK_KEY, request};
 use graphit_ai::{
     context::ContextError,
     direct_embedding::{self, DirectEmbeddingError, DirectEmbeddingInput},
@@ -16,13 +19,8 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::sync::Semaphore;
-#[path = "support/direct_rerank_auth.rs"]
-mod auth;
-#[path = "support/rerank_http.rs"]
-mod tcp;
-use auth::{AuthFixture, EMBEDDING_KEY, EmbeddingConfig, MCP_KEY, RERANK_KEY, request};
 use tcp::{Reply, fixture, fixture_with_barriers, reply};
+use tokio::sync::Semaphore;
 
 fn client(origin: &str) -> BoundedClient {
     BoundedClient::new(

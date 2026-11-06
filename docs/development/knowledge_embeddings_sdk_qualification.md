@@ -77,13 +77,11 @@ O probe não entrega domínio/API/ABI de embeddings Knowledge, matching ConfigId
 
 ## Execução Linux e receipt consolidado
 
-Do root do projeto, usar uma execução Cargo por vez na fila normal, target quente e `-j1`; configurar `CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0` e `CARGO_INCREMENTAL=0`:
+Na raiz do checkout, com a configuração canônica do projeto:
 
 ```sh
-cargo test --offline --locked -p graphit-data --test knowledge_embeddings_sdk \
-  --target-dir .build/rust-records-data/knowledge-index-source/target -j1 -- --show-output
-cargo clippy --offline --locked -p graphit-data --test knowledge_embeddings_sdk \
-  --target-dir .build/rust-records-data/knowledge-index-source/target -j1 -- -D warnings
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- knowledge_embeddings_sdk:: --show-output
+cargo xtask cargo clippy --offline --locked -p graphit-data --test integration -- -D warnings
 rustfmt --edition 2024 --check crates/graphit-data/tests/knowledge_embeddings_sdk.rs
 ```
 

@@ -1,15 +1,9 @@
 #![cfg(target_os = "linux")]
 //! Kimi native REST/WS Ask through the real Graphit CLI, HTTP and STDIO ingress.
-#[path = "support/agent_fixture.rs"]
-mod agent_fixture;
-use graphit_app::{
-    native_install_http::NativeInstallPolicy,
-    source_server::{SourcePolicy, SourceServer},
-};
-#[path = "support/knowledge_cli_daemon.rs"]
-mod cli_daemon;
-#[path = "support/knowledge_ask_server.rs"]
-mod fixture_support;
+use crate::agent_fixture;
+use crate::knowledge_ask_server as fixture_support;
+use crate::knowledge_cli_daemon as cli_daemon;
+use graphit_app::source_server::SourceServer;
 use graphit_auth::{
     Permission, ProjectCapture, ProjectRecordAuthority, ProjectWriteOperation, ScopeCapture,
     ScopeInput,
@@ -392,8 +386,7 @@ impl SdkHarness {
     }
 }
 
-#[path = "../../graphit-ai/tests/support/kimi_peer.rs"]
-mod peer;
+use crate::kimi_peer as peer;
 #[test]
 #[ignore = "subprocess entry point launched by the default Kimi Ask tests"]
 fn native_kimi_peer() {
@@ -404,7 +397,7 @@ fn native_peer(f: &fixture_support::Fixture) {
     agent_fixture::install(
         &program,
         json!({
-            "kind":"kimi","program":std::env::current_exe().unwrap(),"test":"native_kimi_peer"
+            "kind":"kimi","program":std::env::current_exe().unwrap(),"test":"knowledge_kimi_ask::native_kimi_peer"
         }),
     );
 }

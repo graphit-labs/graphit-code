@@ -97,13 +97,13 @@ When a model is explicitly requested, the loaded model must match it, followed b
 
 ## Qualification
 
-Focused existing commands remain:
+Focused commands select the relevant modules:
 
 ```text
-cargo test -p graphit-ai --test cli_opencode --locked --offline -j4
-cargo test -p graphit-ai --test knowledge_conversation opencode:: --locked --offline -j4
-cargo xtask cargo test -p graphit-app --test knowledge_opencode_ask --locked --offline -j4
-cargo xtask cargo test -p graphit-app --test knowledge_conversation opencode:: --locked --offline -j4
+cargo xtask cargo test -p graphit-ai --test integration cli_opencode:: --locked --offline
+cargo xtask cargo test -p graphit-ai --test integration knowledge_conversation::opencode:: --locked --offline
+cargo xtask cargo test -p graphit-app --test integration knowledge_opencode_ask:: --locked --offline
+cargo xtask cargo test -p graphit-app --test integration knowledge_conversation::opencode:: --locked --offline
 ```
 
 Installation, native configuration and plugin rendering belong to the shared Hub OpenCode 2 integration. The existing Xtask/workspace guard handles failures; unrelated providers are not replayed for this change.

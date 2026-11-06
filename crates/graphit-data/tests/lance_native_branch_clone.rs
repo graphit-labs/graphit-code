@@ -359,9 +359,12 @@ async fn data_clones_sdk_captured_absolute_bases_from_canonical_parent() -> Test
         .await?
         .materialize()
         .await?;
-    let sdk = Dataset::open(uri).await?.checkout_branch("dev").await?;
+    let snapshot = pin.module_snapshot();
+    let ctx = original();
+    let metadata = snapshot.native_metadata(&ctx).await?;
     assert!(
-        sdk.manifest()
+        metadata
+            .manifest()
             .base_paths
             .values()
             .all(|base| Path::new(&base.path).is_absolute() || url::Url::parse(&base.path).is_ok())

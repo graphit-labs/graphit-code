@@ -469,7 +469,9 @@ impl GraphServer {
                 "invalid graph query options",
             ));
         }
-        if policy.installation.root() != auth.installation().live.owner_root() {
+        if std::fs::canonicalize(policy.installation.root())?
+            != auth.installation().live.owner_root()
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "graph installation mismatch",
@@ -680,6 +682,60 @@ impl GraphServer {
 #[cfg(test)]
 #[path = "../tests/support/graph_server.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+mod installation_binding_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn installation_binding_accepts_native_alias_and_rejects_distinct_root() {
+        let fixture = crate::source_server::test_fixture::fixture(
+            &[graphit_auth::Permission::Read(
+                graphit_core::module_settings::Module::Ast,
+            )],
+            graphit_core::brand::Brand::default(),
+            graphit_hub::NativeBinding::KiroV3,
+        );
+        let server = fixture.server.graph_server();
+        let mut policy = server.0.policy.clone();
+        let root = policy.installation.root().to_owned();
+        let child = root.join("binding-alias");
+        std::fs::create_dir(&child).unwrap();
+        let alias = child.join("..");
+        assert_ne!(
+            alias.as_path(),
+            server.0.auth.installation().live.owner_root()
+        );
+        policy.installation = graphit_core::project_paths::InstallationPaths::resolve(
+            policy.installation.brand().clone(),
+            &root,
+            policy.installation.home_directory(),
+            Some(&alias),
+        )
+        .unwrap();
+        GraphServer::new(
+            Arc::clone(&server.0.auth),
+            policy.clone(),
+            CancellationToken::new(),
+        )
+        .unwrap();
+
+        let other = tempfile::tempdir().unwrap();
+        policy.installation = graphit_core::project_paths::InstallationPaths::resolve(
+            policy.installation.brand().clone(),
+            &root,
+            policy.installation.home_directory(),
+            Some(other.path()),
+        )
+        .unwrap();
+        let error = GraphServer::new(Arc::clone(&server.0.auth), policy, CancellationToken::new())
+            .err()
+            .unwrap();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert_eq!(error.to_string(), "graph installation mismatch");
+    }
+}
+
 struct CancelOnDrop(Cancellation);
 impl Drop for CancelOnDrop {
     fn drop(&mut self) {

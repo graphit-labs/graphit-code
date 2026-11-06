@@ -94,7 +94,7 @@ Known-file grep with surrounding evidence — `{{ mcp_tool_ast_source }}`:
 {"project_dir":"/work/app","path":"src/orders.go","pattern":"return err","before":3,"after":4,"line_numbers":true}
 ```
 
-Literal `pattern` is a case-insensitive substring. `regex: true` uses Go regular expressions (add `(?i)` if needed); this is not shell grep syntax. Match output includes original file line numbers and merges overlapping context. It searches only the selected file/span, not the repository.
+Literal `pattern` is a case-insensitive substring. `regex: true` uses the Rust `regex` crate's syntax (add `(?i)` if needed); this is not shell grep syntax. Match output includes original file line numbers and merges overlapping context. It searches only the selected file/span, not the repository.
 
 For the same source call, replace the pattern/context fields with ONE of these selectors:
 

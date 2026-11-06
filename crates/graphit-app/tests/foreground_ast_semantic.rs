@@ -48,9 +48,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[allow(dead_code)]
-#[path = "../../graphit-daemon/tests/support/model_fixture.rs"]
-mod model_fixture;
+use crate::model_fixture;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
 

@@ -1,5 +1,5 @@
-#[path = "support/cli_control.rs"]
-mod control;
+use crate::cli_control as control;
+use crate::kimi_cleanup as cleanup;
 use graphit_ai::cli_kimi_print::{
     KimiPrintEvent, KimiPrintEventData, KimiPrintFailure, KimiPrintLimits, KimiPrintReason,
     KimiPrintReceipt, KimiPrintSink, run_kimi_print,
@@ -23,8 +23,6 @@ use std::{
 use tempfile::TempDir;
 use tokio::net::TcpStream;
 use tokio::sync::Notify;
-#[path = "support/kimi_cleanup.rs"]
-mod cleanup;
 
 #[tokio::test]
 async fn invalid_print_policy_and_cancelled_original_never_spawn() {

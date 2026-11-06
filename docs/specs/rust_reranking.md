@@ -96,15 +96,16 @@ first-stage ordering as a successfully reranked result.
 ## Verification and integration boundaries
 
 Sources: `crates/graphit-ai/src/context.rs` and `src/ranking.rs`. The focused suite
-is `cargo test --locked -p graphit-ai --test ranking`. It exercises permutations,
+is `cargo xtask cargo test --locked -p graphit-ai --test integration ranking::`. It exercises permutations,
 signed-zero and duplicate-index ties, cosine extremes, limits, invalid vectors,
 shared cancellation, original deadlines and interruption during vector work.
-`cargo clippy --locked -p graphit-ai --all-targets -- -D warnings` checks affected
-Rust targets. Compilation and measurements use the coordinated workspace window.
+`cargo xtask cargo clippy --locked -p graphit-ai --test integration --no-deps -- -D warnings`
+checks the integration target. See [AI integration tests](../development/ai-tests.md)
+for module filters and platform boundaries.
 
 An explicit ignored fixture measures 128 cosine-plus-order operations over 64
-documents of 256 dimensions: `cargo test --locked -p graphit-ai --test ranking
-measure_ranking_fixture -- --ignored --nocapture`. This measures the pure library,
+documents of 256 dimensions: `cargo xtask cargo test --locked -p graphit-ai --test integration
+ranking::measure_ranking_fixture -- --ignored --exact --nocapture`. This measures the pure library,
 not an authenticated provider, a search integration, GPU inference or a gain over
 another implementation. Process CPU/RSS readings include the fixture harness.
 

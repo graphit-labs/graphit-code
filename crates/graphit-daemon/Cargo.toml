@@ -49,6 +49,7 @@ tarpc = { version = "=0.38.0", default-features = false, features = ["serde-tran
 bincode = "=1.3.3"
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 winsplit = "=0.1.0"
 broker-presence.workspace = true
 broker-control.workspace = true

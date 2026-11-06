@@ -167,9 +167,9 @@ confirmados sob cancelamento/deadline. Os units privados chamam o mesmo produtor
 com observação de fases, sem substituir SDK, grants ou writer.
 
 ```text
-cargo test --offline --locked -p graphit-data --test knowledge_first_publication -j1
-cargo test --offline --locked -p graphit-knowledge --test authored_first_publication -j1
-cargo test --offline --locked -p graphit-data --lib knowledge_first_publication:: -j1
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- knowledge_first_publication::
+cargo xtask cargo test --offline --locked -p graphit-knowledge --test authored_first_publication
+cargo xtask cargo test --offline --locked -p graphit-data --lib -- knowledge_first_publication::
 ```
 
 Os dois targets --test não executam os units privados. Receipt local:

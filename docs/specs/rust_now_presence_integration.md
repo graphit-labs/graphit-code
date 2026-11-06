@@ -57,7 +57,7 @@ graphit-app/now_presence_integration. Run the independent case directly from
 the repository root:
 
 ~~~text
-cargo xtask cargo test --locked --offline -j4 -p graphit-app --test now_presence_integration compiled_two_runtime_projects_versions_native_heads_and_owned_shutdown -- --exact --test-threads=1
+cargo xtask cargo test --locked --offline -j4 -p graphit-app --test integration -- now_presence_integration::compiled_two_runtime_projects_versions_native_heads_and_owned_shutdown --exact --test-threads=1
 ~~~
 
 The independent Linux case passed: one test, no ignored cases, 16.68 seconds
@@ -101,8 +101,8 @@ the actual fixture executable through GRAPHIT_BROKER_NATIVE_INVENTORY_FIXTURE_BI
 or GRAPHIT_BROKER_INVENTORY_FIXTURE_BIN, respectively, and run:
 
 ~~~text
-cargo xtask cargo test --locked --offline -j4 -p graphit-app --test now_presence_integration compiled_native_two_runtime_now_registration_reconnect_and_join -- --ignored --exact --test-threads=1
-cargo xtask cargo test --locked --offline -j4 -p graphit-app --test now_presence_integration compiled_local_two_runtime_now_registration_reconnect_and_join -- --ignored --exact --test-threads=1
+cargo xtask cargo test --locked --offline -j4 -p graphit-app --test integration -- now_presence_integration::compiled_native_two_runtime_now_registration_reconnect_and_join --ignored --exact --test-threads=1
+cargo xtask cargo test --locked --offline -j4 -p graphit-app --test integration -- now_presence_integration::compiled_local_two_runtime_now_registration_reconnect_and_join --ignored --exact --test-threads=1
 ~~~
 
 The public Start.realtime request supplies heartbeat_timeout_ms=60000,

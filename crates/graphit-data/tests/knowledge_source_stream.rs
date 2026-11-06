@@ -1,7 +1,5 @@
 //! Ordinary FULL18 streams under real PROJECT grants, Source and SDK effects.
-#[allow(dead_code)] // Shared fixture also supports read-query targets.
-#[path = "support/knowledge_reference_fixture.rs"]
-mod support;
+use crate::knowledge_reference_fixture as support;
 use arrow_array::{Array, RecordBatch, StringArray, UInt8Array};
 use futures::{StreamExt, TryStreamExt, stream};
 use graphit_auth::{ProjectReadModule, ProjectRecordAuthority, ProjectWriteOperation};

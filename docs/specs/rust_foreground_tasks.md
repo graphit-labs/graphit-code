@@ -359,8 +359,8 @@ Os novos testes focados estão em `src/foreground_tasks/tests.rs` e `tests/foreg
 
 ```text
 cargo xtask cargo test --offline --locked -p graphit-app --lib foreground_tasks::tests -j1
-cargo xtask cargo test --offline --locked -p graphit-app --test foreground_tasks -j1
-cargo xtask cargo clippy --offline --locked -p graphit-app --lib --test foreground_tasks -j1 --no-deps -- -D warnings
+cargo xtask cargo test --offline --locked -p graphit-app --test integration -j1 -- foreground_tasks::
+cargo xtask cargo clippy --offline --locked -p graphit-app --lib --test integration -j1 --no-deps -- -D warnings
 ```
 
 As regressões SDK focais de B2 (rotating refresh, EOF com Original finito e drain) e Source (cancelamento, sibling e interrupção/reentrada do waiter) passaram, uma por filtro. O clippy estrito de lib/integração também passou. O waiter interrompido foi exercitado no componente Source; isso não é prova de cancelamento arbitrário do host consumidor. Prova Linux não certifica Windows/macOS, frontend React, nove hosts ou validação ponta a ponta. Veja também [sessões browser](rust_browser_auth.md), [Task nativo](rust_task_mcp.md), [Gantt](rust_task_gantt.md) e [Foreground](rust_source_foreground.md).

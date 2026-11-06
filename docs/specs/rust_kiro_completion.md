@@ -282,7 +282,7 @@ answer. `Refusal`, `MaxTokens`, `MaxTurnRequests` and `Cancelled` remain explici
 native stop reasons with diagnostic candidate text and no finalized answer.
 An `EndTurn` without text fails `MissingText` while preserving that response.
 
-Run the affected suite with `cargo test --locked --offline -j 1 -p graphit-ai --test cli_kiro`. SDK fixtures cover New/Load routing, optional Select configuration, native confirmation and owned cleanup without requiring an installed vendor program or account.
+Run the affected suite with `cargo xtask cargo test --locked --offline -p graphit-ai --test integration cli_kiro::`. SDK fixtures cover New/Load routing, optional Select configuration, native confirmation and owned cleanup without requiring an installed vendor program or account.
 
 The actual Role HTTP caller has separate [held-writer lifecycle evidence](managed_role_context.md#validation-and-sources)
 for EOF, stop and deadline. That proof preserves the distinction between an

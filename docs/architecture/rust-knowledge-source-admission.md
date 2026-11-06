@@ -223,8 +223,8 @@ execução atual não os reaplica. Use `CARGO_INCREMENTAL=0` e o SDK configurado
 na janela warm compartilhada autorizada:
 
 ```text
-cargo xtask cargo test --offline --locked -p graphit-app --test knowledge_source -j1 --target-dir .build/rust-records-data/knowledge-index-source/target
-cargo xtask cargo clippy --offline --locked -p graphit-app --lib --test knowledge_source -j1 --no-deps --target-dir .build/rust-records-data/knowledge-index-source/target -- -D warnings
+cargo xtask cargo test --offline --locked -p graphit-app --test integration -j1 --target-dir .build/rust-records-data/knowledge-index-source/target -- knowledge_source::
+cargo xtask cargo clippy --offline --locked -p graphit-app --lib --test integration -j1 --no-deps --target-dir .build/rust-records-data/knowledge-index-source/target -- -D warnings
 rustfmt --edition 2024 --check crates/graphit-app/src/knowledge_source.rs crates/graphit-app/tests/knowledge_source.rs
 ```
 

@@ -24,9 +24,7 @@ use std::{
 };
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-#[allow(dead_code)]
-#[path = "support/native_install_auth.rs"]
-mod memory_index_auth;
+use crate::native_install_auth as memory_index_auth;
 
 fn json_arguments(
     mut arguments: serde_json::Map<String, serde_json::Value>,

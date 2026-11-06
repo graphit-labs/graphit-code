@@ -93,6 +93,7 @@ Cargo-built binary with `std::process::Command` and `TempDir` fixtures:
 Run the affected checks with:
 
 ```sh
-cargo xtask cargo test --locked -p graphit-app --bin graphit --test version_cli
-cargo xtask cargo clippy --locked -p graphit-app --bin graphit --test version_cli -- -D warnings
+cargo xtask cargo test --locked -p graphit-app --bin graphit
+cargo xtask cargo test --locked -p graphit-app --test integration -- version_cli::
+cargo xtask cargo clippy --locked -p graphit-app --bin graphit --test integration -- -D warnings
 ```

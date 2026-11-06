@@ -407,16 +407,7 @@ async fn create_and_cold_resume_confirm_exact_native_result_and_clean_process() 
     );
     let process = receipt.process().unwrap().as_ref().unwrap();
     assert!(process.status.success());
-    #[cfg(unix)]
     assert_eq!(process.cleanup, Cleanup::Complete);
-    #[cfg(windows)]
-    assert_eq!(
-        process.cleanup,
-        Cleanup::Unconfirmed(graphit_process::UnconfirmedCleanup::TreeUnknownWindows {
-            leader: graphit_process::LeaderCleanup::Reaped,
-            control: graphit_process::ControlFailures::default(),
-        })
-    );
     assert_eq!(process.pipes.stdout, PipeEnd::Eof);
     assert_eq!(process.pipes.stderr, PipeEnd::Eof);
     finish(h, &mut result).await;

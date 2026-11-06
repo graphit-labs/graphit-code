@@ -285,9 +285,12 @@ removed, rolled back or automatically replayed. An existing/racing destination
 is preserved and returns AlreadyExists.
 
 Historical installer evidence recorded before the 2026-10-27 layout revision:
-the focused integration suite is `cargo test --locked --offline -j1 -p graphit-app --test native_install`. Its canonical empty Icebug and empty Knowledge dataset
+the recorded integration command was `cargo test --locked --offline -j1 -p graphit-app --test native_install`. Its canonical empty Icebug and empty Knowledge dataset
 exercise real SDK admission; SourceLance contains actual stored text. This does
 not qualify nonempty Parquet rows, production Broker JWTs or installed hosts.
+
+The current installer module is selected with
+`cargo xtask cargo test --locked --offline -p graphit-app --test integration -- native_install::`.
 
 ## Install and read an exact context
 
@@ -343,8 +346,10 @@ failure, inspect the exact registry/destination rather than automatically replay
 or deleting the published payload.
 
 Historical executable evidence recorded before the 2026-10-27 layout revision;
-these results were not repeated to qualify the new corpus layout. The target is
+these results were not repeated to qualify the new corpus layout. The recorded command was
 `cargo test --locked --offline -j1 -p graphit-app --test native_install_executable`.
+The current module is selected with
+`cargo xtask cargo test --locked --offline -p graphit-app --test integration -- native_install_executable::`.
 Its Linux fixture uses compiled daemon/CLI/MCP and signed fixture Native JWTs with
 canonical empty Icebug/Knowledge and stored Source text. It starts the daemon
 without an active profile and publishes Native through the actual AuthStore after

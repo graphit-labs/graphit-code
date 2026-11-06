@@ -1,5 +1,4 @@
-#[path = "support/cli_control.rs"]
-mod control;
+use crate::cli_control as control;
 use graphit_ai::{
     cli_codex::{
         CodexClassification, CodexFailure, CodexReason, CodexReceipt, CodexSink, CodexStreamLimits,
@@ -1069,16 +1068,7 @@ async fn original_stops_pending_eof_callback(cancel: bool) {
         (process.pipes.stdout, process.pipes.stderr),
         (PipeEnd::Eof, PipeEnd::Eof)
     );
-    #[cfg(unix)]
     assert_eq!(process.cleanup, Cleanup::Complete);
-    #[cfg(windows)]
-    assert_eq!(
-        process.cleanup,
-        Cleanup::Unconfirmed(graphit_process::UnconfirmedCleanup::TreeUnknownWindows {
-            leader: graphit_process::LeaderCleanup::Reaped,
-            control: graphit_process::ControlFailures::default(),
-        })
-    );
     assert_eq!(run.totals().observed_input_tokens, 8);
     assert_eq!(run.totals().observed_cached_input_tokens, 2);
     assert_eq!(run.totals().observed_output_tokens, 3);

@@ -278,7 +278,7 @@ Tests use private installations, service names, locks, paths and listeners.
 They never restart the personal daemon. The focused entry command is:
 
 ```text
-cargo xtask cargo test --locked --offline -p graphit-app --test daemon_service_entry
+cargo xtask cargo test --locked --offline -p graphit-app --test integration -- daemon_service_entry::
 ```
 
 Its Linux fixture uses the real systemctl utility with a private nonexistent

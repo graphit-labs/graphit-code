@@ -152,9 +152,9 @@ cancelamento/revogação/deadline/substituição de captura. O adapter público
 Knowledge é seguido pela republicação pública de um FILE capturado/compilado.
 
 ```text
-cargo test --offline --locked -p graphit-data --test knowledge_branch_materialization -j1
-cargo test --offline --locked -p graphit-knowledge --test branch_materialization -j1
-cargo test --offline --locked -p graphit-data --lib knowledge_branch_materialization:: -j1
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- knowledge_branch_materialization::
+cargo xtask cargo test --offline --locked -p graphit-knowledge --test branch_materialization
+cargo xtask cargo test --offline --locked -p graphit-data --lib -- knowledge_branch_materialization::
 ```
 
 Os targets --test não executam os units privados; o --lib focal é obrigatório.

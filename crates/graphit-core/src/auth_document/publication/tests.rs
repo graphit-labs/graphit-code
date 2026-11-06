@@ -106,6 +106,8 @@ fn first_publication_overwrite_unchanged_and_exact_io_are_real() {
 
     let result = store.publish(store.read(&ctx).unwrap(), b"second", &ctx);
     assert_eq!(result.effect(), AuthPublicationEffect::Applied);
+    assert_eq!(result.failure(), None);
+    assert_eq!(result.cleanup_failure(), None);
     assert_eq!(fs::read(fixture.root.join("auth.json")).unwrap(), b"second");
     assert_eq!(AUTH_PRIVATE_NAMES, ["auth.json", STAGE, LOCK]);
 }

@@ -116,7 +116,7 @@ file links in the six maintained rerank contracts also passed.
 
 ## Affected verification
 
-The existing affected invocation is:
+The historical affected invocation was:
 
 ```text
 cargo test --locked -p graphit-ai --test native_rerank --test cohere_reranking -- --test-threads=2
@@ -126,6 +126,8 @@ This historical recorded run passed 2 native and 8 Cohere cases, with one operat
 
 Decisions 566/570 in `ses-c98a` retired reservations, custody/floor promises, hash freezing and per-leaf artificial guards. Historical guard records remain provenance, not prerequisites or current execution contracts. Functional bounds, authorization, cancellation and errors remain required.
 
-The current guarded pipeline and Auth consumer qualification are maintained in [Direct native reranking](rust_direct_native_rerank.md).
+Current commands use the [AI integration target](../development/ai-tests.md)
+with `native_rerank::` or `cohere_reranking::` filters. The guarded pipeline and
+Auth consumer qualification are maintained in [Direct native reranking](rust_direct_native_rerank.md).
 
 Related references: [Cohere adapter](rust_cohere_rerank.md), [native score validation](rust_native_reranking.md).

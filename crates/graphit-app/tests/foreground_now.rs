@@ -1022,12 +1022,7 @@ async fn assert_local_source_operational(
     assert_eq!(status["state"], "running");
 }
 
-#[path = "../../graphit-daemon/tests/support/model_fixture.rs"]
-#[expect(
-    dead_code,
-    reason = "Shared native model support also serves other qualified model journeys"
-)]
-mod model_fixture;
+use crate::model_fixture;
 
 async fn register_native(
     endpoint: (&str, &str),

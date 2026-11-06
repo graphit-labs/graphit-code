@@ -163,7 +163,7 @@ Os testes padrão de `daemon_service_entry` para falha do manager resolvem `syst
 
 Após a inclusão de global_dir/WorkingDirectory, `cargo test --locked --offline -p graphit-daemon --lib services::` passou em Linux com sete testes e um ignorado. O Clippy afetado `cargo clippy --locked --offline -p graphit-daemon --lib --tests --no-deps -- -D warnings` também passou. A cobertura inclui os documentos, round-trip Windows independente, rejeição de global_dir relativo/NUL, locks, restauração do registro quando o manager falha e cancelamento antes da publicação. A fixture positiva systemd é opt-in porque exige um manager do usuário ativo: `cargo test --locked --offline -p graphit-daemon --lib native_systemd_execstart -- --ignored`. O caso ignorado não é prova de startup positivo. Windows/macOS ainda precisam de execução nativa; XML/plist/build não demonstram esses fluxos. A folha tsk-0529 mantém singleton/PID/discovery, fallback detached, jobs/listeners/children e replacement reais; tsk-cab0 depende dela.
 
-O teste focal do entry é `cargo test --locked --offline -p graphit-app --test daemon_service_entry`. Os dois casos do manager privado passaram, sem ignorados. O novo caso `compiled_foreground_singleton_discovery_sigterm_and_stale_restart` também passou (0,14 s): usa o executável Rust real, singleton/PID/discovery, recusa double-start, reinicia após publisher morto e verifica SIGTERM/exit130/join/remoção do record/liberação do lock. O Clippy isolado da fixture passou. Essa prova precede a nova composição managed/global-dir e não qualifica detached, stop remoto, manager positivo ou plataformas sem host. Os testes/Clippy de global-dir acima precedem a correção de WorkingDirectory; sua revalidação está discriminada abaixo.
+Antes da consolidação dos testes, o recibo focal do entry usou `cargo test --locked --offline -p graphit-app --test daemon_service_entry`. Os dois casos do manager privado passaram, sem ignorados. O novo caso `compiled_foreground_singleton_discovery_sigterm_and_stale_restart` também passou (0,14 s): usa o executável Rust real, singleton/PID/discovery, recusa double-start, reinicia após publisher morto e verifica SIGTERM/exit130/join/remoção do record/liberação do lock. O Clippy isolado da fixture passou. Essa prova precede a nova composição managed/global-dir e não qualifica detached, stop remoto, manager positivo ou plataformas sem host. Os testes/Clippy de global-dir acima precedem a correção de WorkingDirectory; sua revalidação está discriminada abaixo.
 
 Implementação: `crates/graphit-daemon/src/services.rs`, `crates/graphit-daemon/src/control.rs` e `crates/graphit-app/src/service_entry.rs`. Operação: [Daemon Operations](../guides/daemon_operations.md).
 
@@ -197,10 +197,10 @@ PID autenticado, Start reutiliza Running, Stop remove discovery e libera o
 singleton. Após habilitar login da unidade única, Start com registro existente
 preserva bytes/mtime e estado do login; Stop/Uninstall removem o registro.
 Somente o caso com manager foi repetido; a prova sem manager foi conservada.
-O comando focal é
-`cargo test --locked --offline -p graphit-app --test daemon_service_entry compiled_direct_commands -- --include-ignored`.
+Na estrutura atual, o comando focal correspondente é
+`cargo xtask cargo test --locked --offline -p graphit-app --test integration -- daemon_service_entry::compiled_direct_commands --include-ignored`.
 
-O Clippy final dos targets afetados passou: SDK
+O Clippy dos targets afetados passou antes da consolidação: SDK
 `cargo clippy --locked --offline -p graphit-daemon --lib --tests --no-deps -- -D warnings`
 (16,91 s) e Main
 `cargo clippy --locked --offline -p graphit-app --test daemon_service_entry --no-deps -- -D warnings`

@@ -12,13 +12,15 @@ use std::{
     ptr,
 };
 use windows_permissions::{
-    LocalBox, SecurityDescriptor,
+    Acl, LocalBox, SecurityDescriptor,
     constants::{AccessRights, AceFlags, AceType, SeObjectType, SecurityInformation},
-    wrappers::{ConvertSecurityDescriptorToStringSecurityDescriptor, GetSecurityInfo},
+    wrappers::{ConvertSecurityDescriptorToStringSecurityDescriptor, GetSecurityInfo, IsValidAcl},
 };
 use windows_sys::Win32::{
     Foundation::{GENERIC_READ, GENERIC_WRITE, INVALID_HANDLE_VALUE},
-    Security::SECURITY_ATTRIBUTES,
+    Security::{
+        ACE_HEADER, GetAce, GetSecurityDescriptorControl, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES,
+    },
     Storage::FileSystem::{
         CREATE_NEW, CreateDirectoryW, CreateFileW, FILE_ATTRIBUTE_NORMAL,
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
@@ -215,7 +217,11 @@ fn owner_dacl(descriptor: &SecurityDescriptor) -> io::Result<OsString> {
 }
 
 pub(super) fn verify(file: &File, directory: bool) -> io::Result<()> {
-    let actual = owner_dacl(private_object_descriptor(file, directory)?.as_ref())?;
+    let descriptor = private_object_descriptor(file, directory)?;
+    if !directory {
+        return verify_private_file_descriptor(&descriptor);
+    }
+    let actual = owner_dacl(&descriptor)?;
     if actual == owner_dacl(private_descriptor()?.as_ref())?
         || (directory && actual == owner_dacl(private_descriptor_with_flags("OI")?.as_ref())?)
     {
@@ -223,6 +229,70 @@ pub(super) fn verify(file: &File, directory: bool) -> io::Result<()> {
     } else {
         Err(io::ErrorKind::PermissionDenied.into())
     }
+}
+
+fn verify_private_file_descriptor(actual: &SecurityDescriptor) -> io::Result<()> {
+    let expected = private_descriptor()?;
+    let owner = expected.owner().ok_or(io::ErrorKind::InvalidData)?;
+    if actual.owner() != Some(owner) || descriptor_control(actual)? & SE_DACL_PROTECTED == 0 {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    let dacl = actual
+        .dacl()
+        .filter(|dacl| IsValidAcl(dacl) && dacl.len() != 0)
+        .ok_or(io::ErrorKind::PermissionDenied)?;
+    // ReplaceFileW merges DACLs. Equivalent explicit owner ACEs and inheritance
+    // bookkeeping need not have the creation descriptor's exact SDDL spelling.
+    // Keep the access policy: a protected, nonempty DACL granting only this owner
+    // full file access, with no inherited, conditional, denied or foreign ACE.
+    for index in 0..dacl.len() {
+        let header = descriptor_ace_header(dacl, index)?;
+        if header.AceType != AceType::ACCESS_ALLOWED_ACE_TYPE as u8 || header.AceFlags != 0 {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
+        let ace = dacl.get_ace(index).ok_or(io::ErrorKind::PermissionDenied)?;
+        if ace.mask() != AccessRights::FileAllAccess || ace.sid() != Some(owner) {
+            return Err(io::ErrorKind::PermissionDenied.into());
+        }
+    }
+    Ok(())
+}
+
+#[allow(unsafe_code)]
+fn descriptor_control(descriptor: &SecurityDescriptor) -> io::Result<u16> {
+    let mut control = 0;
+    let mut revision = 0;
+    // SAFETY: the SDK-owned descriptor remains alive and valid for this read-only
+    // call; both output pointers reference initialized, correctly sized locals.
+    let result = unsafe {
+        GetSecurityDescriptorControl(
+            std::ptr::from_ref(descriptor).cast_mut().cast(),
+            &mut control,
+            &mut revision,
+        )
+    };
+    if result == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(control)
+}
+
+#[allow(unsafe_code)]
+fn descriptor_ace_header(dacl: &Acl, index: u32) -> io::Result<ACE_HEADER> {
+    let mut entry = ptr::null_mut();
+    // SAFETY: the ACL is borrowed from a live SDK-owned valid descriptor; GetAce
+    // validates the index and returns a pointer into that same retained ACL.
+    let result = unsafe { GetAce(std::ptr::from_ref(dacl).cast(), index, &mut entry) };
+    if result == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if entry.is_null() {
+        return Err(io::ErrorKind::InvalidData.into());
+    }
+    // SAFETY: successful GetAce supplies a complete aligned SDK ACE_HEADER.
+    // Copy only that header while the descriptor remains borrowed. Inspect raw
+    // type/flags before using SDK helpers that normalize unknown flag bits.
+    Ok(unsafe { std::ptr::read(entry.cast::<ACE_HEADER>()) })
 }
 
 pub(super) fn verify_database_directory(file: &File) -> io::Result<()> {
@@ -355,6 +425,99 @@ fn replace_file(stage: &WidePath, destination: &WidePath) -> io::Result<()> {
 mod tests {
     use super::*;
     use std::os::windows::ffi::OsStringExt;
+
+    #[test]
+    fn private_file_acl_checks_access_instead_of_sddl_serialization() -> io::Result<()> {
+        let private = private_descriptor()?;
+        let owner = owner_dacl(&private)?;
+        let owner = owner.to_str().ok_or(io::ErrorKind::InvalidData)?;
+        let (owner, _) = owner.split_once("D:").ok_or(io::ErrorKind::InvalidData)?;
+        let user = owner.strip_prefix("O:").ok_or(io::ErrorKind::InvalidData)?;
+        for acl in [
+            format!("{owner}D:PAI(A;;FA;;;{user})"),
+            format!("{owner}D:PAI(A;;FA;;;{user})(A;;FA;;;{user})"),
+        ] {
+            let descriptor: LocalBox<SecurityDescriptor> = acl.parse()?;
+            assert!(verify_private_file_descriptor(&descriptor).is_ok());
+        }
+        for acl in [
+            format!("{owner}D:(A;;FA;;;{user})"),
+            format!("{owner}D:P"),
+            format!("{owner}D:P(A;;FA;;;{user})(A;;FR;;;WD)"),
+            format!("{owner}D:P(A;;FR;;;{user})"),
+            format!("{owner}D:P(A;ID;FA;;;{user})"),
+            format!("{owner}D:P(A;OI;FA;;;{user})"),
+            format!("{owner}D:P(A;CR;FA;;;{user})"),
+            format!("{owner}D:P(D;;FR;;;WD)(A;;FA;;;{user})"),
+            format!("O:WDD:P(A;;FA;;;{user})"),
+        ] {
+            let descriptor: LocalBox<SecurityDescriptor> = acl.parse()?;
+            assert!(matches!(
+                verify_private_file_descriptor(&descriptor),
+                Err(error) if error.kind() == io::ErrorKind::PermissionDenied
+            ));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn private_replacement_preserves_readers_and_protected_parent() -> io::Result<()> {
+        use std::io::{Read, Write};
+        use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE;
+        let temp = tempfile::tempdir()?;
+        let root = temp.path().join("private");
+        drop(new_directory(&root, false)?);
+        let _parent = crate::read_directory::open_root_readonly(&root, &mut || Ok(()))?;
+        let destination = root.join("auth.json");
+        let stage = root.join("stage");
+        {
+            let mut file = new_file(&destination)?;
+            file.write_all(b"old")?;
+            file.sync_all()?;
+        }
+        let mut retained = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(&destination)?;
+        {
+            let mut file = new_file(&stage)?;
+            file.write_all(b"new")?;
+            file.sync_all()?;
+        }
+        let replacement = replace_existing_file(&stage, &destination);
+        let native_failure = replacement
+            .as_ref()
+            .err()
+            .map(|error| (error.kind(), error.raw_os_error()));
+        assert!(replacement.is_ok(), "replace {native_failure:?}");
+        let current = OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(&destination)?;
+        let descriptor = private_object_descriptor(&current, false)?;
+        let control = descriptor_control(&descriptor)?;
+        let owner_matches = descriptor.owner() == private_descriptor()?.owner();
+        let ace_count = descriptor.dacl().map(Acl::len);
+        let verification = verify(&current, false);
+        let policy_failure = verification
+            .as_ref()
+            .err()
+            .map(|error| (error.kind(), error.raw_os_error()));
+        assert!(
+            verification.is_ok(),
+            "private verification {policy_failure:?}; control={control:#x}, owner_matches={owner_matches}, ace_count={ace_count:?}"
+        );
+        assert_eq!(std::fs::read(&destination)?, b"new");
+        let mut old = Vec::new();
+        retained.read_to_end(&mut old)?;
+        assert_eq!(old, b"old");
+        assert!(!stage.exists());
+        assert!(std::fs::rename(&root, temp.path().join("moved")).is_err());
+        Ok(())
+    }
+
     #[test]
     fn database_sidecars_inherit_only_the_current_users_access() -> io::Result<()> {
         let temp = tempfile::tempdir()?;

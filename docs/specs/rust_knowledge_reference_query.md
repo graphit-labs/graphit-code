@@ -267,10 +267,10 @@ Essas falhas não contam como aprovação e reruns não aumentam fixtures distin
 Comandos focais:
 
 ```text
-cargo test --offline --locked -p graphit-data --test knowledge_reference_query -j1
-cargo test --offline --locked -p graphit-knowledge --test native_reference_query -j1
-cargo clippy --offline --locked -p graphit-data --lib --test knowledge_reference_query -j1 --no-deps -- -D warnings
-cargo clippy --offline --locked -p graphit-knowledge --lib --test native_reference_query -j1 --no-deps -- -D warnings
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- knowledge_reference_query::
+cargo xtask cargo test --offline --locked -p graphit-knowledge --test native_reference_query
+cargo xtask cargo clippy --offline --locked -p graphit-data --lib --test integration --no-deps -- -D warnings
+cargo xtask cargo clippy --offline --locked -p graphit-knowledge --lib --test native_reference_query --no-deps -- -D warnings
 ```
 
 Esta folha não qualifica consulta ROOT/USER/importada, OwnRead de destinos,

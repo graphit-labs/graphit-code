@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
+autotests = false
 
 [features]
 cuda = ["llama-cpp-sys-2/cuda-no-vmm", "llama-cpp-sys-2/dynamic-link"]
@@ -38,6 +39,10 @@ cxx-build = "=1.0.205"
 [dev-dependencies]
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "tokio", "json", "ws"] }
 graphit-hub = { path = "../graphit-hub" }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
 
 [[bin]]
 name = "ai-cli-plain-fixture"

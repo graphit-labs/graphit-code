@@ -1,6 +1,5 @@
 use super::*;
-#[path = "../../../graphit-ai/tests/support/kimi_peer.rs"]
-mod peer;
+use crate::kimi_peer as peer;
 #[test]
 #[ignore = "subprocess entry point launched by the default Kimi Conversation tests"]
 fn native_kimi_conversation_peer() {
@@ -13,7 +12,7 @@ impl Fixture {
             &program,
             json!({
                 "kind":"kimi","program":std::env::current_exe().unwrap(),
-                "test":"kimi::native_kimi_conversation_peer"
+                "test":"knowledge_conversation::kimi::native_kimi_conversation_peer"
             }),
         );
         if !self.temp.path().join("kimi-mode").exists() {

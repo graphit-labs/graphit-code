@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 //! Real existing foreground issuer/listener and actual administrative CLI transport.
 use clap::Parser;
 use graphit_app::{
@@ -388,8 +387,7 @@ async fn absent_discovery_and_cancelled_original_do_not_replace_active_owner() {
     f.stop(stop, job).await;
 }
 
-#[path = "support/broker_oauth.rs"]
-mod broker_oauth;
+use crate::broker_oauth;
 use broker_oauth::{Broker, loopback_client};
 use std::sync::atomic::Ordering;
 

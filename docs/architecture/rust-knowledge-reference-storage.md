@@ -207,9 +207,9 @@ e duas linhas Removed válidas com o mesmo slug impedem entrega em page, heads e
 index.
 
 ```text
-cargo test --offline --locked -p graphit-data --lib knowledge_index -j1
-cargo test --offline --locked -p graphit-data --test knowledge_index_page -j1
-cargo test --offline --locked -p graphit-data --test knowledge_module_snapshot -j1
+cargo xtask cargo test --offline --locked -p graphit-data --lib -- knowledge_index
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- knowledge_index_page::
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- knowledge_module_snapshot::
 ```
 
 O `receipt` `.build/rust-knowledge-reference-storage/validation.json` conserva

@@ -384,3 +384,108 @@ pub fn content() -> ContentLimits {
         max_collection_entries: 64,
     }
 }
+
+impl Fixture {
+    pub async fn publish_named(
+        &self,
+        project: usize,
+        rows: &[(&str, Option<&str>)],
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let corpus = self.corpus(project);
+        let branch = self.projects[project].2.lance_branch();
+        assert!(!branch.is_empty());
+        let columns: Vec<ArrayRef> = vec![
+            Arc::new(StringArray::from(
+                rows.iter().map(|r| r.0).collect::<Vec<_>>(),
+            )),
+            Arc::new(StringArray::from(
+                rows.iter().map(|r| r.1).collect::<Vec<_>>(),
+            )),
+        ];
+        let batch = RecordBatch::try_new(source_schema(), columns)?;
+        let store = graphit_data::lance_branch_store::LanceBranchStore::open(
+            corpus.to_str().unwrap(),
+            source_schema(),
+            None,
+        )
+        .await?;
+        store
+            .capture_target(Some(&branch))
+            .await?
+            .materialize()
+            .await?
+            .prepare_merge(vec![batch], vec!["path".into()])
+            .await?
+            .commit()
+            .await?;
+        Ok(())
+    }
+
+    pub async fn advertised(
+        &self,
+    ) -> (Endpoint, graphit_daemon::source_discovery::DiscoveryRecord) {
+        let endpoint = self.start().await;
+        let record = endpoint.discovery.clone();
+        (endpoint, record)
+    }
+
+    pub async fn advertised_current(
+        &self,
+        current: usize,
+    ) -> (Endpoint, graphit_daemon::source_discovery::DiscoveryRecord) {
+        let cancel = Cancellation::default();
+        let original = request(&cancel);
+        let listener = tcp_listener::reserve(
+            Options {
+                address: std::net::Ipv4Addr::LOCALHOST.into(),
+                ports: PortSelection::Ephemeral,
+                timeout: Duration::from_secs(5),
+            },
+            &cancel,
+        )
+        .unwrap();
+        let address = listener.address();
+        let stop = CancellationToken::new();
+        let handler = SourceServer::new(
+            Arc::clone(&self.auth),
+            Arc::clone(&self.projects),
+            current,
+            self.source_policy(Duration::from_secs(30)),
+            stop.clone(),
+        )
+        .unwrap();
+        let record = graphit_daemon::source_discovery::publish_discovery(
+            &self.auth,
+            &listener,
+            key_limits(),
+            original.snapshot(),
+        )
+        .unwrap();
+        let task = tokio::spawn(async move { SourceServer::serve(&handler, listener).await });
+        (
+            Endpoint {
+                auth: Arc::clone(&self.auth),
+                discovery: record.clone(),
+                stop,
+                task,
+                address,
+            },
+            record,
+        )
+    }
+
+    pub fn retract(&self, record: &graphit_daemon::source_discovery::DiscoveryRecord) {
+        let cancel = Cancellation::default();
+        let original = request(&cancel);
+        assert!(
+            graphit_daemon::source_discovery::remove_discovery(
+                &self.auth,
+                record,
+                key_limits(),
+                original.snapshot(),
+            )
+            .unwrap()
+        );
+        assert!(self.auth.runtime().check(original.snapshot()).is_ok());
+    }
+}

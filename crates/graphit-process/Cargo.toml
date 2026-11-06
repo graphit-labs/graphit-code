@@ -18,6 +18,10 @@ secrecy.workspace = true
 tokio = { workspace = true, features = ["signal", "net"] }
 graphit-core = { path = "../graphit-core", features = ["async-cancel"] }
 
+[target.'cfg(windows)'.dependencies]
+win32job = "=2.0.3"
+windows-sys = { workspace = true, features = ["Win32_System_JobObjects"] }
+
 [target.'cfg(unix)'.dependencies]
 nix = { version = "=0.31.3", default-features = false, features = ["signal"] }
 
@@ -27,5 +31,10 @@ tempfile.workspace = true
 [build-dependencies]
 cc = "=1.6.0"
 
-[lints]
-workspace = true
+# One exact accounting query is checked by xtask's AST allowlist.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "forbid"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

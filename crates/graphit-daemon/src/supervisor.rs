@@ -538,6 +538,12 @@ mod tests {
         }
     }
 
+    // ProjectWatcher and captured contexts expose canonical checkout paths.
+    // Keep low-level SDK representation tests on their original raw paths.
+    fn canonical_tempdir() -> TempDir {
+        TempDir::new_in(fs::canonicalize(std::env::temp_dir()).unwrap()).unwrap()
+    }
+
     fn config(root: &Path) -> WatchConfig {
         WatchConfig {
             root: root.to_owned(),
@@ -551,7 +557,7 @@ mod tests {
 
     #[tokio::test]
     async fn native_delta_cancels_background_without_interrupting_parse_or_overlapping_producers() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let changed = dir.path().join("changed.rs");
         let (entered_tx, mut entered) = mpsc::channel(8);
         let (cancelled_tx, cancelled) = oneshot::channel();
@@ -1084,7 +1090,7 @@ mod tests {
 
     #[tokio::test]
     async fn continuous_rescan_hints_preserve_filesystem_delivery() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let path = dir.path().join("changed.rs");
         let expected = path.clone();
         let handle = Arc::new(std::sync::OnceLock::<ProjectRescanHandle>::new());
@@ -1193,6 +1199,9 @@ mod tests {
     async fn parked_checkout_does_not_interrupt_another_checkout_and_resumes_with_rescan() {
         let a = TempDir::new().unwrap();
         let b = TempDir::new().unwrap();
+        let b_root = fs::canonicalize(b.path()).unwrap();
+        let b_context = context(&b_root, "feature");
+        let b_key = b_context.key();
         let (tx, mut batches) = mpsc::channel(16);
         let mut a_owner = ProjectSupervisor::start(
             context(a.path(), "main"),
@@ -1202,34 +1211,49 @@ mod tests {
         .await
         .unwrap();
         assert!(!a_owner.is_finished());
-        let b_owner = ProjectSupervisor::start(
-            context(b.path(), "feature"),
-            config(b.path()),
-            move |ctx, batch, _| {
-                let tx = tx.clone();
-                async move {
-                    tx.send((ctx, batch)).await.map_err(io::Error::other)?;
-                    Ok(())
-                }
-            },
-        )
+        let b_owner = ProjectSupervisor::start(b_context, config(&b_root), move |ctx, batch, _| {
+            let tx = tx.clone();
+            async move {
+                let contents = match fs::read(ctx.root().join("live.rs")) {
+                    Ok(contents) => Some(contents),
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error),
+                };
+                tx.send((ctx, batch, contents))
+                    .await
+                    .map_err(io::Error::other)?;
+                Ok(())
+            }
+        })
         .await
         .unwrap();
-        let (captured, first) = timeout(Duration::from_secs(8), batches.recv())
+        let (captured, first, contents) = timeout(Duration::from_secs(8), batches.recv())
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(captured.version.version(), "feature");
+        assert_eq!(captured.key(), b_key);
         assert!(first.rescan);
+        assert!(contents.is_none());
         let parked = a_owner.park().await.unwrap();
-        let file = b.path().join("live.rs");
+        let file = b_root.join("live.rs");
         fs::write(&file, "fn live() {}").unwrap();
-        let (captured, next) = timeout(Duration::from_secs(8), batches.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(captured.root(), b.path());
-        assert!(next.rescan || next.paths.contains(&file));
+        timeout(Duration::from_secs(8), async {
+            loop {
+                let (captured, batch, contents) = batches.recv().await.unwrap();
+                assert_eq!(captured.key(), b_key);
+                assert!(batch.error.is_none(), "{:?}", batch.error);
+                assert!(batch.paths.iter().all(|path| path.starts_with(&b_root)));
+                // Pending setup events need not describe this write. A native
+                // rescan is sufficient only after this producer observes it.
+                if (batch.rescan || batch.paths.contains(&file))
+                    && contents.as_deref() == Some(b"fn live() {}".as_slice())
+                {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("the live checkout must reconcile its own file after its sibling parks");
         let (tx, resumed) = oneshot::channel();
         let mut signal = Some(tx);
         a_owner = ProjectSupervisor::start(parked, config(a.path()), move |_, batch, _| {
@@ -1428,33 +1452,51 @@ mod tests {
     #[tokio::test]
     async fn deletion_reaches_producer_with_captured_version() {
         let dir = TempDir::new().unwrap();
-        let file = dir.path().join("removed.rs");
+        let root = fs::canonicalize(dir.path()).unwrap();
+        let captured = context(&root, "captured");
+        let key = captured.key();
+        let file = root.join("removed.rs");
         fs::write(&file, "fn removed() {}").unwrap();
         let (tx, mut jobs) = mpsc::channel(16);
-        let owner = ProjectSupervisor::start(
-            context(dir.path(), "captured"),
-            config(dir.path()),
-            move |ctx, batch, _| {
-                let tx = tx.clone();
-                async move {
-                    tx.send((ctx, batch)).await.map_err(io::Error::other)?;
-                    Ok(())
-                }
-            },
-        )
+        let owner = ProjectSupervisor::start(captured, config(&root), move |ctx, batch, _| {
+            let tx = tx.clone();
+            async move {
+                let removed = match fs::symlink_metadata(ctx.root().join("removed.rs")) {
+                    Ok(_) => false,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => true,
+                    Err(error) => return Err(error),
+                };
+                tx.send((ctx, batch, removed))
+                    .await
+                    .map_err(io::Error::other)?;
+                Ok(())
+            }
+        })
         .await
         .unwrap();
-        timeout(Duration::from_secs(8), jobs.recv())
+        let (initial, first, removed) = timeout(Duration::from_secs(8), jobs.recv())
             .await
             .unwrap()
             .unwrap();
+        assert_eq!(initial.key(), key);
+        assert!(first.rescan);
+        assert!(!removed);
         fs::remove_file(&file).unwrap();
-        let (child, batch) = timeout(Duration::from_secs(8), jobs.recv())
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(child.version.version(), "captured");
-        assert!(batch.paths.contains(&file));
+        timeout(Duration::from_secs(8), async {
+            loop {
+                let (child, batch, removed) = jobs.recv().await.unwrap();
+                assert_eq!(child.key(), key);
+                assert!(batch.error.is_none(), "{:?}", batch.error);
+                assert!(batch.paths.iter().all(|path| path.starts_with(&root)));
+                if removed && (batch.rescan || batch.paths.contains(&file)) {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect(
+            "the captured producer must reconcile the removal, including after a native rescan",
+        );
         owner.stop().await.unwrap();
     }
 
@@ -1807,8 +1849,8 @@ mod tests {
 
     #[tokio::test]
     async fn stop_checkout_cancels_all_versions_before_join_and_preserves_siblings() {
-        let a = TempDir::new().unwrap();
-        let b = TempDir::new().unwrap();
+        let a = canonical_tempdir();
+        let b = canonical_tempdir();
         let id = context(a.path(), "main").id;
         let (cancelled, mut observed) = mpsc::unbounded_channel();
         let mut releases = Vec::new();
@@ -1876,7 +1918,7 @@ mod tests {
 
     #[tokio::test]
     async fn stop_checkout_preserves_cleanup_cause_and_joins_other_matching_owners() {
-        let a = TempDir::new().unwrap();
+        let a = canonical_tempdir();
         let id = context(a.path(), "main").id;
         let mut registry = ProjectSupervisors::default();
         let (done, mut completed) = mpsc::unbounded_channel();
@@ -1935,8 +1977,8 @@ mod tests {
             GroupStop::ReconcileRemoved,
             GroupStop::ReconcileParked,
         ] {
-            let root = TempDir::new().unwrap();
-            let sibling = TempDir::new().unwrap();
+            let root = canonical_tempdir();
+            let sibling = canonical_tempdir();
             fs::write(root.path().join("owned.txt"), b"owned resource").unwrap();
             fs::write(sibling.path().join("observed.txt"), b"initial").unwrap();
             let mut registry = ProjectSupervisors::default();
@@ -2133,7 +2175,7 @@ mod tests {
 
     #[tokio::test]
     async fn reactivation_joins_cancelled_predecessor_before_starting_replacement() {
-        let root = TempDir::new().unwrap();
+        let root = canonical_tempdir();
         fs::write(root.path().join("owned.txt"), b"owned resource").unwrap();
         let ctx = context(root.path(), "main");
         let key = ctx.key();

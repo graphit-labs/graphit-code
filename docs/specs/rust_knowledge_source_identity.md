@@ -65,8 +65,8 @@ A classe reservada é membership de dados. O consumidor ainda precisa de captura
 Comandos focais:
 
 ```text
-cargo test --offline --locked -p graphit-data --test knowledge_source_identity
-cargo clippy --offline --locked -p graphit-data --lib --test knowledge_source_identity --no-deps -- -D warnings
+cargo xtask cargo test --offline --locked -p graphit-data --test integration -- knowledge_source_identity::
+cargo xtask cargo clippy --offline --locked -p graphit-data --lib --test integration --no-deps -- -D warnings
 ```
 
 Os contratos de corpus e referências continuam em [Knowledge semântico Data](../architecture/rust-knowledge-semantic-data.md) e [consulta de referências](rust_knowledge_reference_query.md).

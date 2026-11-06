@@ -140,8 +140,9 @@ an accelerator.
 
 Run the package with
 `cargo xtask cargo test --locked --offline -p graphit-ai --all-targets`.
-The App protocol targets are `knowledge_{agent}_ask` and
-`knowledge_conversation`; use the same Xtask Cargo wrapper for those targets.
+The App protocol modules `knowledge_{agent}_ask` and
+`knowledge_conversation` share the `integration` target. Use the same Xtask Cargo
+wrapper with the corresponding `module::` filter for these journeys.
 Their controlled wire peers use the Cargo-emitted `app-agent-fixture` binary
 and raw-frame JSON scenarios, including intentionally malformed frames.
 They do not execute Python source or shell launchers. Kiro, OpenCode and
@@ -172,8 +173,11 @@ Real GGUF tests remain `--ignored --exact` qualifications. Embeddings require
 `GRAPHIT_EMBEDDINGGEMMA2_MODEL`; BGE requires
 `GRAPHIT_BGE_RERANKER_V2_M3_MODEL`, and reference comparisons additionally
 require their declared captured reference. CPU and CUDA qualifications are
-distinct. Select each native-root qualification in its own process because the
-SDK root has a single process lifetime. An ignored throughput measurement only
+distinct. A qualification that initializes `NativeSdkRoot` must respect its
+single initialization per process and keep it alive until its workers join;
+the current guard rejects reinitialization even after drop. This is a backend
+lifetime boundary, not a requirement to serialize independent invocations or
+ordinary parallel tests. An ignored throughput measurement only
 measures its local harness, not a provider or a production SLA.
 
 Strict lint uses the same wrapper and locked offline dependencies:
@@ -222,7 +226,7 @@ which would deliver the body and yield `Context(Deadline)` in the adapter.
 The scheduling margin adds no elapsed-time SLA.
 
 Run the direct integration suite with
-`cargo xtask cargo test --locked --offline -p graphit-ai --test direct_embeddings`.
+`cargo xtask cargo test --locked --offline -p graphit-ai --test integration direct_embeddings::`.
 It uses real loopback TCP and the real bounded client: exact request,
 credential, model and extension rules, shuffled indices, batch splitting,
 zero effects, malformed shapes and f32 overflow, real status/transport failures,

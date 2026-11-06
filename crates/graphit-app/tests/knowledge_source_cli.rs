@@ -1,15 +1,8 @@
 #![cfg(target_os = "linux")]
 //! Compiled CLI to real Source/Auth/Lance, without an embedding provider.
-use graphit_app::{
-    foreground_source::ForegroundSource,
-    native_install_http::NativeInstallPolicy,
-    source_server::{SourcePolicy, SourceServer},
-};
-#[allow(dead_code)]
-#[path = "support/knowledge_cli_daemon.rs"]
-mod cli_daemon;
-#[path = "support/knowledge_ask_server.rs"]
-mod fixture_support;
+use crate::knowledge_ask_server as fixture_support;
+use crate::knowledge_cli_daemon as cli_daemon;
+use graphit_app::foreground_source::ForegroundSource;
 use graphit_auth::{
     Permission, ProjectCapture, ProjectRecordAuthority, ProjectWriteOperation, ScopeCapture,
     ScopeInput,

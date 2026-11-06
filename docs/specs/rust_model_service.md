@@ -342,6 +342,15 @@ model identity/weights and the Broker JWT validity (600 seconds) are unchanged.
 There is no retry, reservation, polling or new scheduler, and no corpus-wide TTL;
 the client still receives an explicit deadline.
 
+The private operation gate and its timer use the same Tokio monotonic clock.
+The connection and post-send cancellation/deadline regression pauses that clock
+after real service admission, observes entry into connect or the first RPC byte,
+then
+cancels the Original or advances to the captured operation deadline. The
+fixture requires no clock advance before that barrier and observes RPC EOF
+afterward; pre-send expiry does not prove post-send cancellation. Tokio
+`test-util` is a Daemon dev dependency, with no public clock configuration.
+
 Rerank, refresh and authenticated shutdown retain their finite-original contract.
 They call Core `SnapshotContext::required_deadline` before runtime-secret access
 or polling any connection future. A service context with no deadline fails these
@@ -648,7 +657,7 @@ requalificados depois da correção do lifetime de lease no delivery.
 ## Portable vector identity update (154e)
 
 The producer and consumers use the split described above. Deterministic affected
-tests are `graphit-app --test ast_semantic` (verified captures in distinct roots,
+tests are `graphit-app --test integration -- ast_semantic::` (verified captures in distinct roots,
 relocated library/scheduling, recipe/tokenizer changes and integrity rejection)
 and Daemon `model_service::config::backend_identity_tests` plus the existing
 `equivalent_owners_lazy_distinct_and_retired_arc_lifetime` test (same vectors,

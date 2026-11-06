@@ -304,8 +304,8 @@ Main, all CLI protocols, Windows or macOS.
 The affected commands are:
 
 ```text
-cargo xtask cargo test --locked --offline -p graphit-app --test knowledge_conversation
-cargo xtask cargo clippy --locked --offline --no-deps -p graphit-app --lib --test knowledge_conversation -- -D warnings
+cargo xtask cargo test --locked --offline -p graphit-app --test integration -- knowledge_conversation::
+cargo xtask cargo clippy --locked --offline --no-deps -p graphit-app --lib --test integration -- -D warnings
 ```
 
 The historical Codex Incoming fixture set covers Foreground opt-in/reopen/caller isolation,

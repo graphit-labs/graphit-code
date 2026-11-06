@@ -4,8 +4,7 @@ use std::collections::BTreeMap;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use zbus::zvariant::{OwnedValue, Value as BusValue};
 
-#[path = "../support/broker_oauth.rs"]
-mod oauth;
+use crate::broker_oauth as oauth;
 
 struct Watcher {
     registered: Arc<Mutex<Vec<String>>>,
@@ -182,7 +181,7 @@ async fn status(fixture: &Prepared) -> graphit_app::daemon_control::Reply {
 #[ignore = "native desktop qualification requires dbus-run-session and dbus-daemon"]
 async fn late_watcher_registers_the_existing_tray_and_signal_preserves_the_headless_daemon() {
     if !private_bus(
-        "tray::late_watcher_registers_the_existing_tray_and_signal_preserves_the_headless_daemon",
+        "foreground_tasks::tray::late_watcher_registers_the_existing_tray_and_signal_preserves_the_headless_daemon",
     )
     .await
     {
@@ -389,7 +388,7 @@ async fn runtime_command(fixture: &Prepared, arguments: &[&str]) -> std::process
 #[ignore = "native desktop qualification requires dbus-run-session and dbus-daemon"]
 async fn native_menu_login_quit_failure_recovery_and_signal_join_use_real_consumers() {
     if !private_bus(
-        "tray::native_menu_login_quit_failure_recovery_and_signal_join_use_real_consumers",
+        "foreground_tasks::tray::native_menu_login_quit_failure_recovery_and_signal_join_use_real_consumers",
     )
     .await
     {

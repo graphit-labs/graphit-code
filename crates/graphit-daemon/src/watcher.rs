@@ -211,7 +211,9 @@ impl Watcher for CheckoutWatcher {
                 self.backend
                     .remove_native(&mut native, path, RecursiveMode::Recursive)
             } else {
-                native.watch(path, aggregate)
+                native
+                    .watch(path, aggregate)
+                    .map_err(|error| registration_error(path, error))
             };
         if let Err(error) = result {
             let mut paths = lock(&self.subscription.paths);
@@ -940,6 +942,22 @@ impl Drop for ProjectWatcher {
     }
 }
 
+fn registration_error(path: &Path, error: notify::Error) -> notify::Error {
+    // This is the pinned Windows backend's metadata-registration error.
+    // Confirm disappearance and leave every other Generic/typed cause intact.
+    if matches!(&error.kind, notify::ErrorKind::Generic(message)
+        if message == "Input watch path is neither a file nor a directory.")
+        && matches!(fs::metadata(path), Err(ref cause) if cause.kind() == io::ErrorKind::NotFound)
+    {
+        notify::Error {
+            paths: error.paths.clone(),
+            kind: notify::ErrorKind::Io(io::Error::new(io::ErrorKind::NotFound, error)),
+        }
+    } else {
+        error
+    }
+}
+
 fn native_error(error: notify::Error) -> io::Error {
     let kind = match &error.kind {
         notify::ErrorKind::Io(error) => error.kind(),
@@ -991,6 +1009,63 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
     use tokio::time::timeout;
+
+    // ProjectWatcher and captured contexts expose canonical checkout paths.
+    // Keep low-level SDK representation tests on their original raw paths.
+    fn canonical_tempdir() -> TempDir {
+        TempDir::new_in(fs::canonicalize(std::env::temp_dir()).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn missing_registration_classification_preserves_native_cause_and_other_failures() {
+        let dir = TempDir::new().unwrap();
+        let missing = dir.path().join("removed-before-registration");
+        let native = notify::Error::generic("Input watch path is neither a file nor a directory.")
+            .add_path(missing.clone());
+        let classified = registration_error(&missing, native);
+        assert_eq!(classified.paths.as_slice(), std::slice::from_ref(&missing));
+        let notify::ErrorKind::Io(error) = classified.kind else {
+            panic!("missing registration must retain its IO category");
+        };
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
+        let original = error
+            .get_ref()
+            .unwrap()
+            .downcast_ref::<notify::Error>()
+            .unwrap();
+        assert!(
+            matches!(&original.kind, notify::ErrorKind::Generic(message) if message == "Input watch path is neither a file nor a directory.")
+        );
+        assert_eq!(original.paths.as_slice(), std::slice::from_ref(&missing));
+
+        for path in [dir.path(), missing.as_path()] {
+            assert!(matches!(
+                registration_error(path, notify::Error::generic("unrelated native failure")).kind,
+                notify::ErrorKind::Generic(message) if message == "unrelated native failure"
+            ));
+        }
+        assert!(matches!(
+            registration_error(
+                dir.path(),
+                notify::Error::generic("Input watch path is neither a file nor a directory.")
+            )
+            .kind,
+            notify::ErrorKind::Generic(_)
+        ));
+        assert!(matches!(
+            registration_error(
+                &missing,
+                notify::Error::new(notify::ErrorKind::MaxFilesWatch)
+            )
+            .kind,
+            notify::ErrorKind::MaxFilesWatch
+        ));
+        for kind in [io::ErrorKind::StorageFull, io::ErrorKind::PermissionDenied] {
+            let native = notify::Error::io(io::Error::from(kind));
+            assert!(matches!(registration_error(&missing, native).kind,
+                notify::ErrorKind::Io(error) if error.kind() == kind));
+        }
+    }
 
     fn config(root: &Path) -> WatchConfig {
         WatchConfig {
@@ -1135,7 +1210,7 @@ mod tests {
 
     #[tokio::test]
     async fn shared_checkout_reconfigure_and_stop_preserve_sibling_scopes_and_events() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let private = dir.path().join("private");
         fs::create_dir(&private).unwrap();
         let mut first = ProjectWatcher::start(config(dir.path())).unwrap();
@@ -1328,7 +1403,7 @@ mod tests {
 
     #[tokio::test]
     async fn native_new_directory_removal_and_context_cleanup() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let mut watcher = ProjectWatcher::start(config(dir.path())).unwrap();
         let child = dir.path().join("nested");
         fs::create_dir(&child).unwrap();
@@ -1346,7 +1421,7 @@ mod tests {
 
     #[tokio::test]
     async fn native_rename_moves_directory_scope_and_watches_new_children() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let old = dir.path().join("old");
         let new = dir.path().join("new");
         fs::create_dir(&old).unwrap();
@@ -1362,7 +1437,7 @@ mod tests {
 
     #[tokio::test]
     async fn union_scopes_keep_wiki_only_directories_and_skip_shared_exclusions() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         fs::create_dir(dir.path().join("wiki")).unwrap();
         fs::create_dir(dir.path().join("target")).unwrap();
         let mut cfg = config(dir.path());
@@ -1386,7 +1461,7 @@ mod tests {
 
     #[tokio::test]
     async fn edited_subdirectory_ignore_reloads_both_scopes() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let child = dir.path().join("sub");
         fs::create_dir(&child).unwrap();
         fs::write(child.join(".gitignore"), "*.rs\n").unwrap();
@@ -1404,7 +1479,7 @@ mod tests {
 
     #[tokio::test]
     async fn native_file_deletion_still_reaches_producer() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let file = dir.path().join("source.rs");
         fs::write(&file, "fn removed() {}").unwrap();
         let mut watcher = ProjectWatcher::start(config(dir.path())).unwrap();
@@ -1416,7 +1491,7 @@ mod tests {
     #[test]
     fn native_write_close_remains_a_source_change_after_sdk_debouncing() {
         use notify_debouncer_full::{DebouncedEvent, notify::Event};
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let file = dir.path().join("source.rs");
         fs::write(&file, "written").unwrap();
         let watcher = ProjectWatcher::start(config(dir.path())).unwrap();
@@ -1433,7 +1508,7 @@ mod tests {
 
     #[tokio::test]
     async fn continuous_native_changes_make_progress_before_writer_stops() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let file = dir.path().join("source.rs");
         fs::write(&file, "first").unwrap();
         let mut watcher = ProjectWatcher::start(config(dir.path())).unwrap();
@@ -1627,7 +1702,7 @@ mod tests {
 
     #[tokio::test]
     async fn native_file_rename_reports_both_participants_without_file_id_inventory() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let old = dir.path().join("old.rs");
         let new = dir.path().join("new.rs");
         fs::write(&old, "fn renamed() {}").unwrap();
@@ -1962,7 +2037,7 @@ mod tests {
 
     #[tokio::test]
     async fn explicit_project_controls_cross_protected_ignore_and_trigger_rescan() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         std::fs::create_dir_all(dir.path().join(".graphit/ast/queries")).unwrap();
         let mut cfg = config(dir.path());
         cfg.ast.defaults = vec![".graphit/".into()];
@@ -2114,7 +2189,7 @@ mod tests {
 
     #[tokio::test]
     async fn controlled_retarget_rebuilds_ignored_ancestors_and_rejects_foreign_root() {
-        let dir = TempDir::new().unwrap();
+        let dir = canonical_tempdir();
         let old = PathBuf::from(".graphit/old");
         let new = PathBuf::from("target/private/queries");
         fs::create_dir_all(dir.path().join(&old)).unwrap();
@@ -2147,7 +2222,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(batch.rescan && batch.error.is_none());
-        let foreign = TempDir::new().unwrap();
+        let foreign = canonical_tempdir();
         let mut invalid = cfg.clone();
         invalid.root = foreign.path().to_owned();
         assert_eq!(

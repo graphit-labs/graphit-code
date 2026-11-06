@@ -1,9 +1,8 @@
+use crate::source_client as support;
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
-#[path = "support/source_client.rs"]
-mod support;
 use graphit_app::ast_source::{SourceArguments, run_source, runtime_headers, source_exit_code};
 use graphit_core::file_lock::Cancellation;
+use std::path::PathBuf;
 use std::{
     ffi::OsString,
     io,

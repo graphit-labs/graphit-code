@@ -74,6 +74,26 @@ impl Shared {
 }
 #[derive(Clone)]
 pub struct ManagedRolesHttp(Arc<Shared>);
+
+#[derive(Debug)]
+pub(crate) enum ContextError {
+    Request(RequestError),
+    Original(io::Error),
+    Io(io::Error),
+}
+impl From<io::Error> for ContextError {
+    fn from(error: io::Error) -> Self {
+        Self::Io(error)
+    }
+}
+impl From<ContextError> for io::Error {
+    fn from(error: ContextError) -> Self {
+        match error {
+            ContextError::Request(error) => io::Error::other(error),
+            ContextError::Original(error) | ContextError::Io(error) => error,
+        }
+    }
+}
 impl ManagedRolesHttp {
     pub fn new(
         auth: Arc<DaemonAuth>,
@@ -343,11 +363,14 @@ impl ManagedRolesHttp {
         &self,
         original: &RequestContext<'_>,
         docs_project: Option<&std::path::Path>,
-    ) -> io::Result<(
-        Arc<crate::live_project_selections::LiveProjectSnapshot>,
-        Vec<ModuleSettings>,
-        Option<String>,
-    )> {
+    ) -> Result<
+        (
+            Arc<crate::live_project_selections::LiveProjectSnapshot>,
+            Vec<ModuleSettings>,
+            Option<String>,
+        ),
+        ContextError,
+    > {
         let snapshot = self.0.live_projects.snapshot()?;
         let (modules, docs_dir) = Self::modules(&self.0, &snapshot, original, docs_project)?;
         Ok((snapshot, modules, docs_dir))
@@ -357,20 +380,20 @@ impl ManagedRolesHttp {
         snapshot: &crate::live_project_selections::LiveProjectSnapshot,
         original: &RequestContext<'_>,
         docs_project: Option<&std::path::Path>,
-    ) -> io::Result<(Vec<ModuleSettings>, Option<String>)> {
+    ) -> Result<(Vec<ModuleSettings>, Option<String>), ContextError> {
         let base = &state
             .context
             .as_ref()
             .ok_or_else(|| io::Error::other("Role context unavailable"))?
             .0;
-        original.snapshot().check()?;
+        check_context(original)?;
         let global = ConfigStore::global(&state.policy.installation)?.load()?;
         let mut docs_dir = None;
         let modules = snapshot
             .projects
             .iter()
             .map(|(paths, _, _)| {
-                original.snapshot().check()?;
+                check_context(original)?;
                 let layers = [
                     ConfigSource::Command,
                     ConfigSource::Environment,
@@ -388,10 +411,10 @@ impl ManagedRolesHttp {
                         original,
                     )?);
                 }
-                original.snapshot().check()?;
+                check_context(original)?;
                 Ok(modules)
             })
-            .collect::<io::Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>, ContextError>>()?;
         Ok((modules, docs_dir))
     }
     pub fn router(&self) -> Router {
@@ -788,43 +811,56 @@ async fn run(State(server): State<ManagedRolesHttp>, headers: HeaderMap, body: B
         let worker_cancel = cancel.clone();
         let runtime = tokio::runtime::Handle::current();
         let work = tokio::task::spawn_blocking(move || {
-            let original = RequestContext::new(worker.policy.content, &worker_cancel, deadline)
-                .map_err(io::Error::other)?;
-            let (snapshot, modules, _) = ManagedRolesHttp(Arc::clone(&worker)).capture_context(&original, None)?;
-            let current = snapshot.current.ok_or(io::ErrorKind::NotFound)?;
-            let selected = super::select_project(&snapshot.projects, current, &request.install)?;
-            let index = snapshot.projects.iter().position(|candidate| std::ptr::eq(candidate, selected))
-                .ok_or(io::ErrorKind::NotFound)?;
-            let projects = [selected.clone()];
-            let selected_modules = [modules[index]];
-            drop(snapshot);
-            drop(modules);
-            let execution = runtime.block_on(crate::managed_role_run::execute_run(InstallResources {
-                auth: &worker.auth, global_paths: worker.global_paths.as_ref(), projects: &projects, current: 0, policy: &worker.policy,
-                modules: &selected_modules,
-                memory_read: worker.context.as_ref().expect("capture checked before job").1,
-            }, &credential, &request, &original));
-            let encoded = serde_json::to_vec(&execution.outcome).map_err(io::Error::other);
-            if execution.residual.is_some() {
-                worker.retained_runs.blocking_lock().push(RetainedRun { credential, execution });
-            }
-            let encoded = encoded?;
-            if encoded.len() > worker.policy.content.max_output_bytes { return Err(io::ErrorKind::FileTooLarge.into()); }
-            Ok::<_, io::Error>(encoded)
+            let result = (|| {
+                let original = RequestContext::new(worker.policy.content, &worker_cancel, deadline)
+                    .map_err(ContextError::Request)?;
+                let (snapshot, modules, _) =
+                    ManagedRolesHttp(Arc::clone(&worker)).capture_context(&original, None)?;
+                (|| -> io::Result<Vec<u8>> {
+                    let current = snapshot.current.ok_or(io::ErrorKind::NotFound)?;
+                    let selected =
+                        super::select_project(&snapshot.projects, current, &request.install)?;
+                    let index = snapshot
+                        .projects
+                        .iter()
+                        .position(|candidate| std::ptr::eq(candidate, selected))
+                        .ok_or(io::ErrorKind::NotFound)?;
+                    let projects = [selected.clone()];
+                    let selected_modules = [modules[index]];
+                    drop(snapshot);
+                    drop(modules);
+                    let execution = runtime.block_on(crate::managed_role_run::execute_run(
+                        InstallResources {
+                            auth: &worker.auth,
+                            global_paths: worker.global_paths.as_ref(),
+                            projects: &projects,
+                            current: 0,
+                            policy: &worker.policy,
+                            modules: &selected_modules,
+                            memory_read: worker
+                                .context
+                                .as_ref()
+                                .expect("capture checked before job")
+                                .1,
+                        },
+                        &credential,
+                        &request,
+                        &original,
+                    ));
+                    let encoded = serde_json::to_vec(&execution.outcome).map_err(io::Error::other);
+                    if execution.residual.is_some() {
+                        worker.retained_runs.blocking_lock().push(RetainedRun {
+                            credential,
+                            execution,
+                        });
+                    }
+                    encoded
+                })()
+                .map_err(ContextError::Io)
+            })();
+            finish_run_work(result, worker.policy.content.max_output_bytes)
         });
-        tokio::pin!(work);
-        let mut recipient_open = true;
-        let mut service_running = true;
-        let encoded = loop {
-            tokio::select! {
-                result = &mut work => break result.map_err(io::Error::other)??,
-                () = send.closed(), if recipient_open => { cancel.cancel(); recipient_open=false; }
-                () = state.stop.cancelled(), if service_running => { cancel.cancel(); service_running=false; }
-            }
-        };
-        // The recipient may have cancelled while the owned worker was draining.
-        let _ = send.send(Ok(Bytes::from(encoded))).await;
-        Ok(())
+        finish_run_job(work, cancel, state.stop.clone(), send).await
     });
     drop(jobs);
     guard.0.take();
@@ -836,6 +872,69 @@ async fn run(State(server): State<ManagedRolesHttp>, headers: HeaderMap, body: B
         Body::from_stream(ReceiverStream::new(receive)),
     )
         .into_response()
+}
+
+fn check_context(original: &RequestContext<'_>) -> Result<(), ContextError> {
+    original.snapshot().check().map_err(ContextError::Original)
+}
+
+fn finish_run_work(
+    result: Result<Vec<u8>, ContextError>,
+    max_output_bytes: usize,
+) -> io::Result<Vec<u8>> {
+    let encoded = match result {
+        Ok(encoded) => encoded,
+        Err(error) => {
+            // Only the Original producer identifies a request refused before a run exists.
+            let kind = match error {
+                ContextError::Request(RequestError::Content(ContentError::Cancelled)) => {
+                    io::ErrorKind::Interrupted
+                }
+                ContextError::Request(RequestError::Content(ContentError::TimedOut)) => {
+                    io::ErrorKind::TimedOut
+                }
+                ContextError::Original(ref cause)
+                    if matches!(
+                        cause.kind(),
+                        io::ErrorKind::Interrupted | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    cause.kind()
+                }
+                error => return Err(error.into()),
+            };
+            serde_json::to_vec(&crate::managed_role_run::RunOutcome {
+                failure: Some(format!("managed role operation failed: {kind:?}")),
+                ..Default::default()
+            })
+            .map_err(io::Error::other)?
+        }
+    };
+    if encoded.len() > max_output_bytes {
+        return Err(io::ErrorKind::FileTooLarge.into());
+    }
+    Ok(encoded)
+}
+
+async fn finish_run_job(
+    work: tokio::task::JoinHandle<io::Result<Vec<u8>>>,
+    cancel: Cancellation,
+    stop: CancellationToken,
+    send: mpsc::Sender<Result<Bytes, io::Error>>,
+) -> io::Result<()> {
+    tokio::pin!(work);
+    let mut recipient_open = true;
+    let mut service_running = true;
+    let encoded = loop {
+        tokio::select! {
+            result = &mut work => break result.map_err(io::Error::other)??,
+            () = send.closed(), if recipient_open => { cancel.cancel(); recipient_open=false; }
+            () = stop.cancelled(), if service_running => { cancel.cancel(); service_running=false; }
+        }
+    };
+    // The recipient may have cancelled while the owned worker was draining.
+    let _ = send.send(Ok(Bytes::from(encoded))).await;
+    Ok(())
 }
 
 #[cfg(test)]

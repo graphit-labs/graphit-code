@@ -130,16 +130,7 @@ fn assert_finished(process: ChildProcessResult) {
 }
 
 fn assert_native_cleanup(cleanup: Cleanup) {
-    #[cfg(unix)]
     assert_eq!(cleanup, Cleanup::Complete);
-    #[cfg(windows)]
-    assert_eq!(
-        cleanup,
-        Cleanup::Unconfirmed(graphit_process::UnconfirmedCleanup::TreeUnknownWindows {
-            leader: graphit_process::LeaderCleanup::Reaped,
-            control: graphit_process::ControlFailures::default(),
-        })
-    );
 }
 
 #[tokio::test]

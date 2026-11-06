@@ -46,6 +46,9 @@ revision in the lockfile when it needs the explicit Broker/S3 qualification
 fixture. See [Rust checks and Git hooks](rust-fast-guard.md) for the distinction
 between local protocol checks and native qualification.
 
+[AI integration tests](ai-tests.md) describes the single external AI target,
+module filters, subprocess entry points and retained platform conditions.
+
 The Task browser uses the three versioned files in
 [the shipped UI directory](../../crates/graphit-app/assets/ui/index.html). After
 changing React source, install its locked dependencies and regenerate them:

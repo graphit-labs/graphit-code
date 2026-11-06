@@ -1,6 +1,5 @@
 //! Real first creation: sparse metadata, exact maps, independent grants and native effects.
-#[path = "support/knowledge_reference_fixture.rs"]
-mod support;
+use crate::knowledge_reference_fixture as support;
 use arrow_array::{
     Array, FixedSizeBinaryArray, ListArray, RecordBatch, StringArray, StructArray, UInt8Array,
 };

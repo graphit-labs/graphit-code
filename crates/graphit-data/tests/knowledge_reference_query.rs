@@ -1,6 +1,5 @@
 //! Actual Native admissions, physical schema18 publication and SDK query pins.
-#[path = "support/knowledge_reference_fixture.rs"]
-mod support;
+use crate::knowledge_reference_fixture as support;
 use futures::TryStreamExt;
 use graphit_auth::{ProjectReadModule, ProjectRecordAuthority, ProjectWriteOperation};
 use graphit_core::{file_lock::Cancellation, project_identity::ProjectId};

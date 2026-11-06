@@ -1,5 +1,4 @@
-#[path = "support/cli_control.rs"]
-mod control;
+use crate::cli_control as control;
 use graphit_ai::cli_plain::{
     PlainFailure, PlainLimit, PlainLimits, PlainReason, PlainReceipt, TextChunk, TextSink,
     run_plain,
@@ -334,16 +333,7 @@ impl TextSink for Collector<'_> {
 }
 
 fn assert_owned_cleanup(cleanup: Cleanup) {
-    #[cfg(unix)]
     assert_eq!(cleanup, Cleanup::Complete);
-    #[cfg(windows)]
-    assert_eq!(
-        cleanup,
-        Cleanup::Unconfirmed(graphit_process::UnconfirmedCleanup::TreeUnknownWindows {
-            leader: graphit_process::LeaderCleanup::Reaped,
-            control: graphit_process::ControlFailures::default(),
-        })
-    );
 }
 
 fn finished(receipt: &PlainReceipt) -> &Outcome {

@@ -100,9 +100,9 @@ Os dois casos adicionais de `prepare_overwrite` cobrem troca de metadata com lar
 Qualificação privada original em Linux: seis testes de integração, um exemplo rustdoc compilado, Clippy estrito e fmt passaram. Os comandos focais Main desta promoção, a partir da raiz do projeto, são:
 
 ~~~text
-cargo test --locked --offline -p graphit-data --test lance_module_store --test lance_branch_store
-cargo test --locked --offline -p graphit-data --doc lance_
-cargo clippy --locked --offline -p graphit-data --lib --test lance_module_store --test lance_branch_store -- -D warnings
+cargo xtask cargo test --locked --offline -p graphit-data --test integration -- lance_module_store:: lance_branch_store::
+cargo xtask cargo test --locked --offline -p graphit-data --doc -- lance_
+cargo xtask cargo clippy --locked --offline -p graphit-data --lib --test integration -- -D warnings
 ~~~
 
 A promoção de Source não qualifica o consumidor Knowledge, Task ou Memory. Windows/macOS e consumer journeys precisam de suas execuções próprias. Main Cargo/Lock foram integrados pelo coordenador em `tsk-8dc3`. A tentativa de Clippy Data com `--all-targets` falhou nos imports do teste `wiki_corpus`, cuja entrega Knowledge ainda aguardava seus exports e dependências; esse resultado amplo não passou. Os targets desta promoção passaram com o SDK e cache Main atuais, conforme recibos de `tsk-8a17`.
@@ -141,8 +141,8 @@ metadata, chave serializada/reabertura/Applied, corpus estrangeiro, criação
 vazia, schema incompatível antes do corpus e Create duplicado sem overwrite.
 A falha duplicada registra a fase efetivamente observada; não simula erro de
 commit desconhecido ou falha de validação após commit. Os comandos focais são
-`cargo test --locked -p graphit-data --test lance_module_creation` e
-`cargo clippy --locked -p graphit-data --lib --test lance_module_creation -- -D warnings`.
+`cargo xtask cargo test --offline --locked -p graphit-data --test integration -- lance_module_creation::` e
+`cargo xtask cargo clippy --offline --locked -p graphit-data --lib --test integration -- -D warnings`.
 Resultados e limitações desta interface pertencem à qualificação em
 `.build/ast-native-nn-main-creation-key/`. Ela não qualifica bootstrap NativeNN,
 Auth do caller, ModelService, integração Main ou extração de todas as linguagens.

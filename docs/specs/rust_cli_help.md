@@ -45,8 +45,9 @@ its obsolete parsing unit and fixed-size help rendering plan were retired.
 The affected Linux executable checks are:
 
 ```sh
-cargo xtask cargo test --locked --offline -p graphit-app --bin graphit --test version_cli --test help_cli --test package
-cargo xtask cargo clippy --locked --offline -p graphit-app --bin graphit --test version_cli --test help_cli --test package -- -D warnings
+cargo xtask cargo test --locked --offline -p graphit-app --bin graphit
+cargo xtask cargo test --locked --offline -p graphit-app --test integration -- version_cli:: help_cli:: package::
+cargo xtask cargo clippy --locked --offline -p graphit-app --bin graphit --test integration -- -D warnings
 ```
 
 The actual Linux run passed 21 tests: eleven metadata/writer units, three

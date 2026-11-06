@@ -102,9 +102,9 @@ specified in [Native AST and Knowledge packages](../development/native-packages.
 Focused checks are:
 
 ```text
-cargo xtask cargo test --locked --offline -p graphit-app --test native_install_http
+cargo xtask cargo test --locked --offline -p graphit-app --test integration -- native_install_http::
 cargo xtask cargo test --locked --offline -p graphit-app --lib native_install_http::tests
-cargo xtask cargo test --locked --offline -p graphit-app --test native_install
+cargo xtask cargo test --locked --offline -p graphit-app --test integration -- native_install::
 ```
 
 The HTTP fixtures use a real loopback listener, real Runtime issuer, temporary Auth

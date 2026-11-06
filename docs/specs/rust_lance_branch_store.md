@@ -104,9 +104,9 @@ Pinned direct dependencies are lance/lance-table/lance-core/lance-io 14.0.2, Arr
 Portable qualification commands:
 
 ```text
-cargo test --locked --offline -p graphit-data --test lance_module_store --test lance_branch_store
-cargo test --locked --offline -p graphit-data --doc lance_
-cargo clippy --locked --offline -p graphit-data --lib --test lance_module_store --test lance_branch_store -- -D warnings
+cargo xtask cargo test --locked --offline -p graphit-data --test integration -- lance_module_store:: lance_branch_store::
+cargo xtask cargo test --locked --offline -p graphit-data --doc -- lance_
+cargo xtask cargo clippy --locked --offline -p graphit-data --lib --test integration -- -D warnings
 ```
 
 The original private qualification (`tsk-8a70`) executed eight SDK fixtures and one compile-only no_run Rustdoc, strict Clippy and fmt. Main qualification for this promotion passed the eight SDK fixtures, its compile-only Rustdoc, formatting of the promoted Rust paths and strict Clippy of the affected targets. Logs are recorded separately. Linux filesystem and memory fixtures are the executed targets; cloud selectors, Windows and macOS require their own execution before those platforms can be claimed. Root integrated the global manifests/lock in `tsk-8dc3` and coordinates the SDK cache. Data `--all-targets` Clippy failed in the separate `wiki_corpus` test while Knowledge exports and Auth/Hub dependencies were still pending; this broad check did not pass. These modules confer no consumer authorization.
@@ -182,8 +182,8 @@ zero linhas explícitas, schemas, NULL e duplicação de chave, falha tardia sem
 publicação, pins retidos, CAS stale e recuperação. Comandos focais:
 
 ~~~text
-cargo test --locked --offline -p graphit-data --test lance_source_stream
-cargo clippy --locked --offline -p graphit-data --lib --test lance_source_stream --no-deps -- -D warnings
+cargo xtask cargo test --locked --offline -p graphit-data --test integration -- lance_source_stream::
+cargo xtask cargo clippy --locked --offline -p graphit-data --lib --test integration --no-deps -- -D warnings
 ~~~
 
 A integração do produtor por FILE com o supervisor Ast pertence ao consumidor

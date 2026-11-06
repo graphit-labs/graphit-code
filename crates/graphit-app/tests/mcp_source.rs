@@ -1,5 +1,4 @@
-#[path = "support/source_client.rs"]
-mod support;
+use crate::source_client as support;
 use graphit_app::mcp_source::SourceProxy;
 use graphit_core::file_lock::Cancellation;
 use rmcp::{
@@ -497,17 +496,18 @@ async fn role_context_denies_root_before_credential_access() -> TestResult {
         )))
     };
     for (key, value) in cases {
+        let stdout = tempfile::NamedTempFile::new()?;
         let stderr = tempfile::NamedTempFile::new()?;
         let mut command = tokio::process::Command::new(std::env::current_exe()?);
         command
             .args([
                 "--exact",
-                "role_context_denies_root_before_credential_access",
+                "mcp_source::role_context_denies_root_before_credential_access",
                 "--nocapture",
             ])
             .env(PROBE, "1")
             .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
+            .stdout(std::process::Stdio::from(stdout.reopen()?))
             .stderr(std::process::Stdio::from(stderr.reopen()?))
             .kill_on_drop(true);
         for input in keys {
@@ -526,6 +526,11 @@ async fn role_context_denies_root_before_credential_access() -> TestResult {
             status.success(),
             "isolated denial probe failed: {}",
             std::fs::read_to_string(stderr.path())?
+        );
+        assert!(
+            std::fs::read_to_string(stdout.path())?
+                .contains("test result: ok. 1 passed; 0 failed;"),
+            "isolated denial probe did not run its one selected test"
         );
     }
     Ok(())

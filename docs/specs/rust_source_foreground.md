@@ -761,7 +761,7 @@ Com o binário público fornecido pelo input call-local
 `GRAPHIT_BROKER_NATIVE_INVENTORY_FIXTURE_BIN`, executar após compilar o App:
 
 ```text
-cargo xtask cargo test --locked --offline -j1 -p graphit-app --test foreground_broker_inventory native_foreground_publishes_and_retains_owner_after_acl_denial -- --ignored --exact --test-threads=1
+cargo xtask cargo test --locked --offline -j1 -p graphit-app --test integration -- foreground_broker_inventory::native_foreground_publishes_and_retains_owner_after_acl_denial --ignored --exact --test-threads=1
 ```
 
 Os testes Local anteriores e assertions armazenadas não comprovam JWT Native válido.
@@ -906,7 +906,7 @@ HTTP locais desabilitam proxy ambiente e limitam o tempo de requisição. A espe
 pela publicação consulta tabelas e FILEs esperados com prazo finito.
 
 ```text
-cargo xtask cargo test --locked --offline -p graphit-app --test source_server --test foreground_source --test foreground_ast_semantic
+cargo xtask cargo test --locked --offline -p graphit-app --test integration -- source_server:: foreground_source:: foreground_ast_semantic::
 ```
 
 Os cenários de branches usam Git 2.54+ do toolchain, repositório temporário sem

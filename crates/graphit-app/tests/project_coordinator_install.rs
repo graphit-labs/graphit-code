@@ -1,8 +1,7 @@
 //! Real Auth/Core/Hub publication and compiled CLI journeys. ACP peers test transport,
 //! not installed Kiro model perception.
 #![cfg(unix)]
-#[path = "support/runtime_peer.rs"]
-mod runtime_peer;
+use crate::runtime_peer;
 use graphit_app::{
     managed_roles::InstallResources,
     project_coordinator_install::{self, CoordinatorOutcome, CoordinatorRequest},
@@ -57,6 +56,54 @@ fn assert_portable_artifact(text: &str, project: &Path, installation: &Installat
             "local path in artifact"
         );
     }
+}
+
+fn daemon_stderr_markers(path: &Path) -> Result<Vec<&'static str>, io::ErrorKind> {
+    let log = fs::read(path).map_err(|error| error.kind())?;
+    // Emit only closed diagnostic labels, never the child's payloads or paths.
+    Ok([
+        ("has overflowed its stack", "Rust stack overflow"),
+        ("stack overflow", "stack overflow"),
+        ("fatal runtime error:", "Rust fatal runtime error"),
+        ("panicked at", "Rust panic"),
+        ("libc++abi:", "C++ ABI diagnostic"),
+        ("terminate called", "C++ termination"),
+        ("malloc:", "allocator diagnostic"),
+        ("Assertion failed:", "native assertion"),
+    ]
+    .into_iter()
+    .filter_map(|(marker, label)| {
+        log.windows(marker.len())
+            .any(|bytes| bytes == marker.as_bytes())
+            .then_some(label)
+    })
+    .collect())
+}
+
+#[test]
+fn daemon_stderr_diagnostic_retains_non_utf8_markers_without_private_text() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("daemon.log");
+    fs::write(
+        &path,
+        b"private-diagnostic-canary\xff\nthread 'private-name' has overflowed its stack\nfatal runtime error: stack overflow\n",
+    )
+    .unwrap();
+    let markers = daemon_stderr_markers(&path).unwrap();
+    assert_eq!(
+        markers,
+        [
+            "Rust stack overflow",
+            "stack overflow",
+            "Rust fatal runtime error"
+        ]
+    );
+    let diagnostic = format!("{markers:?}");
+    assert!(!diagnostic.contains("private-diagnostic-canary"));
+    assert!(!diagnostic.contains("private-name"));
+    assert!(!diagnostic.contains(temp.path().to_str().unwrap()));
+    fs::remove_file(&path).unwrap();
+    assert_eq!(daemon_stderr_markers(&path), Err(io::ErrorKind::NotFound));
 }
 
 fn content_limits() -> ContentLimits {
@@ -902,12 +949,13 @@ async fn coordinator_compiled_cli_publishes_root_mcp_and_delivers_current_projec
             let result = tokio::task::spawn_blocking(move || remove.output()).await??;
             assert!(
                 result.status.success(),
-                "remove {binding:?} (daemon exit {:?}, Source terminal {:?}): {}",
+                "remove {binding:?} (daemon exit {:?}, Source terminal {:?}, stderr markers {:?}): {}",
                 daemon.0.try_wait(),
                 fs::read_to_string(&log).ok().and_then(|log| log
                     .lines()
                     .find(|line| line.starts_with("Graphit Source terminal: selected_branch="))
                     .map(str::to_owned)),
+                daemon_stderr_markers(&log),
                 String::from_utf8_lossy(&result.stderr)
             );
             let removed: CoordinatorOutcome = serde_json::from_slice(&result.stdout)?;

@@ -364,9 +364,10 @@ mod tests {
 
     #[test]
     fn graph_wire_keeps_project_native_paths_context_and_closed_parameter_shapes() {
+        let project = tempfile::tempdir().unwrap();
         let mut command = Command::Query(Query {
             selection: Selection {
-                project_dir: Some(PathBuf::from("/project")),
+                project_dir: Some(project.path().to_path_buf()),
                 project_version: Some("feature/graph".into()),
                 context: None,
             },
@@ -380,7 +381,7 @@ mod tests {
             serde_json::from_value::<NativePath>(args["project_dir"].clone())
                 .unwrap()
                 .as_path(),
-            std::path::Path::new("/project")
+            project.path()
         );
         assert_eq!(args["project_version"], "feature/graph");
         assert_eq!(args["parameters"]["path"], "main.rs");

@@ -51,4 +51,8 @@ The final affected Main suite passed all 16 cases, including service sealing and
 cargo --config build.incremental=false test --locked --offline -p graphit-ai --test cli_plain --target-dir .build/rust-ai/local-runtime/target -j 2 -- --test-threads=2
 ~~~
 
+That invocation belongs to the historical qualification above. Current runs use
+`cargo xtask cargo test --locked --offline -p graphit-ai --test integration cli_plain::`;
+see [AI integration tests](../development/ai-tests.md) for composition and filters.
+
 Related producer reference: [Rust incremental Process contract](../specs/rust_process_incremental.md).

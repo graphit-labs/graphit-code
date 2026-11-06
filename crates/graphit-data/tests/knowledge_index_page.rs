@@ -1,6 +1,5 @@
 //! Selected LOCAL reads with actual authenticated PROJECT admissions and SDK corpora.
-#[path = "support/knowledge_manifest_fixture.rs"]
-mod manifest;
+use crate::knowledge_manifest_fixture as manifest;
 
 use futures::TryStreamExt;
 use graphit_auth::*;

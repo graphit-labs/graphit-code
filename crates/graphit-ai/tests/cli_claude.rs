@@ -1,5 +1,4 @@
-#[path = "support/cli_control.rs"]
-mod control;
+use crate::cli_control as control;
 use graphit_ai::{cli_claude::*, cli_claude_wire::*};
 use graphit_core::{file_io::SnapshotContext, file_lock::Cancellation};
 use graphit_process::{

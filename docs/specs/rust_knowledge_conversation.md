@@ -188,13 +188,14 @@ it does not claim erasure outside the Graphit-owned active copy.
 
 ## Qualification
 
-The dedicated executable fixture uses real Core USER captures, native kernel
+The conversation module in the [AI integration target](../development/ai-tests.md)
+uses real Core USER captures, native kernel
 locks, generated payload publication, private files and cold reopen. It does
 not use vendor authentication or live inference. Run:
 
 ```text
-cargo test --locked --offline -p graphit-ai --test knowledge_conversation
-cargo clippy --locked --offline --no-deps -p graphit-ai --lib --test knowledge_conversation -- -D warnings
+cargo xtask cargo test --locked --offline -p graphit-ai --test integration knowledge_conversation::
+cargo xtask cargo clippy --locked --offline --no-deps -p graphit-ai --lib --test integration -- -D warnings
 ```
 
 In `tsk-5830`, the Linux fixture passed 10 tests with no failures or ignored

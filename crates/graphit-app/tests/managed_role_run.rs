@@ -1,7 +1,6 @@
 //! Actual executable → daemon → native process → run-owned stdio MCP → Role HTTP.
 #![cfg(unix)]
-#[path = "support/runtime_peer.rs"]
-mod runtime_peer;
+use crate::runtime_peer;
 use graphit_app::managed_role_run::RunOutcome;
 use graphit_core::{
     brand::Brand,

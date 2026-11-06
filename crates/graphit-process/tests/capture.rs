@@ -16,16 +16,7 @@ use tempfile::TempDir;
 use tokio::time::{Instant, sleep, timeout};
 
 fn assert_owned_cleanup(cleanup: Cleanup) {
-    #[cfg(unix)]
     assert_eq!(cleanup, Cleanup::Complete);
-    #[cfg(windows)]
-    assert_eq!(
-        cleanup,
-        Cleanup::Unconfirmed(graphit_process::UnconfirmedCleanup::TreeUnknownWindows {
-            leader: graphit_process::LeaderCleanup::Reaped,
-            control: graphit_process::ControlFailures::default(),
-        })
-    );
 }
 
 #[tokio::test(flavor = "current_thread")]

@@ -201,11 +201,13 @@ impl LanceBranchStore {
         params: Option<ObjectStoreParams>,
     ) -> Result<Self, BranchError> {
         safe_selector(uri)?;
+        let physical_uri = crate::lance_module_store::sdk_uri(uri)?;
         tracing::debug!("commit_handler_start");
-        let delegate = commit_handler_from_url(uri, &params).await;
+        let delegate = commit_handler_from_url(physical_uri.as_ref(), &params).await;
         tracing::debug!("commit_handler_end");
         let delegate = delegate?;
-        let mut builder = DatasetBuilder::from_uri(uri).with_commit_handler(Arc::clone(&delegate));
+        let mut builder = DatasetBuilder::from_uri(physical_uri.as_ref())
+            .with_commit_handler(Arc::clone(&delegate));
         if let Some(p) = params {
             builder = builder.with_store_params(p);
         }
@@ -298,11 +300,13 @@ impl BranchSnapshot {
         params: Option<ObjectStoreParams>,
     ) -> Result<Self, BranchError> {
         safe_selector(uri)?;
+        let physical_uri = crate::lance_module_store::sdk_uri(uri)?;
         tracing::debug!("commit_handler_start");
-        let delegate = commit_handler_from_url(uri, &params).await;
+        let delegate = commit_handler_from_url(physical_uri.as_ref(), &params).await;
         tracing::debug!("commit_handler_end");
         let delegate = delegate?;
-        let mut builder = DatasetBuilder::from_uri(uri).with_commit_handler(Arc::clone(&delegate));
+        let mut builder = DatasetBuilder::from_uri(physical_uri.as_ref())
+            .with_commit_handler(Arc::clone(&delegate));
         if let Some(params) = params {
             builder = builder.with_store_params(params);
         }
@@ -338,8 +342,9 @@ impl BranchSnapshot {
         if version == 0 {
             return Err(BranchError::InvalidVersion);
         }
-        let delegate = commit_handler_from_url(uri, &None).await?;
-        let dataset = DatasetBuilder::from_uri(uri)
+        let physical_uri = crate::lance_module_store::sdk_uri(uri)?;
+        let delegate = commit_handler_from_url(physical_uri.as_ref(), &None).await?;
+        let dataset = DatasetBuilder::from_uri(physical_uri.as_ref())
             .with_session(session)
             .with_version(version)
             .with_commit_handler(Arc::clone(&delegate))
@@ -366,7 +371,8 @@ impl BranchSnapshot {
     }
     /// Reopen the selected physical URI/version with a fresh SDK session.
     pub(crate) async fn reopen(&self) -> Result<Self, BranchError> {
-        let mut builder = DatasetBuilder::from_uri(self.dataset.uri())
+        let physical_uri = crate::lance_module_store::sdk_uri(self.dataset.uri())?;
+        let mut builder = DatasetBuilder::from_uri(physical_uri.as_ref())
             .with_version(self.version())
             .with_session(Arc::new(lance::session::Session::default()))
             .with_commit_handler(Arc::clone(&self.delegate));
@@ -501,7 +507,8 @@ impl BranchSnapshot {
     /// Replace an expired transport without changing the captured observation.
     /// The caller still authorizes the destination and owns cancellation/deadline.
     pub async fn with_store_params(&self, params: ObjectStoreParams) -> Result<Self, BranchError> {
-        let mut builder = DatasetBuilder::from_uri(&self.uri)
+        let physical_uri = crate::lance_module_store::sdk_uri(&self.uri)?;
+        let mut builder = DatasetBuilder::from_uri(physical_uri.as_ref())
             .with_commit_handler(Arc::clone(&self.delegate))
             .with_session(self.dataset.session())
             .with_store_params(params);
@@ -598,7 +605,8 @@ impl BranchSnapshot {
             return Err(BranchError::InvalidVersion);
         }
         let captured = async {
-            let mut builder = DatasetBuilder::from_uri(&self.uri)
+            let physical_uri = crate::lance_module_store::sdk_uri(&self.uri)?;
+            let mut builder = DatasetBuilder::from_uri(physical_uri.as_ref())
                 .with_commit_handler(Arc::clone(&self.delegate))
                 .with_session(Arc::new(lance::session::Session::default()))
                 .with_branch(branch, None);

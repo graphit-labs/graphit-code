@@ -477,7 +477,15 @@ fn actual_expiry_without_request_renewal_invalidates_every_getter() {
     let write = authority
         .admit_write(&grant, &ctx, ProjectWriteOperation::OwnTask)
         .unwrap();
+    clock.seconds.store(899, Ordering::SeqCst);
+    assert_eq!(read.recheck(), Ok(()));
     clock.seconds.store(900, Ordering::SeqCst);
+    ctx.check().unwrap();
+    parent.check().unwrap();
+    assert!(matches!(
+        authority.admit_read(&grant, &ctx, ProjectReadModule::Memory),
+        Err(AuthError::Expired)
+    ));
     assert_eq!(read.recheck(), Err(AuthError::Expired));
     assert_eq!(write.recheck(), Err(AuthError::Expired));
     read_denied(&read);

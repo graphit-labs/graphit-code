@@ -470,10 +470,10 @@ Comandos deste ingresso, no mesmo target compartilhado e com os três ajustes de
 
 ```sh
 cargo xtask cargo test --locked --offline -p graphit-app --lib knowledge_ask -j1 --target-dir .build/rust-records-data/knowledge-index-source/target
-cargo xtask cargo test --locked --offline -p graphit-app --test knowledge_ask_ingress -j1 --target-dir .build/rust-records-data/knowledge-index-source/target
+cargo xtask cargo test --locked --offline -p graphit-app --test integration -j1 --target-dir .build/rust-records-data/knowledge-index-source/target -- knowledge_ask_ingress::
 cargo xtask cargo test --locked --offline -p graphit-app --lib source_server::tests -j1 --target-dir .build/rust-records-data/knowledge-index-source/target
-cargo xtask cargo test --locked --offline -p graphit-app --test foreground_broker_inventory exact_absence_no_active_and_local_without_broker_use_real_local_startup -j1 --target-dir .build/rust-records-data/knowledge-index-source/target -- --exact
-cargo xtask cargo clippy --locked --offline -p graphit-app --lib --bin graphit --test knowledge_ask_ingress --test foreground_broker_inventory --no-deps -j1 --target-dir .build/rust-records-data/knowledge-index-source/target -- -D warnings
+cargo xtask cargo test --locked --offline -p graphit-app --test integration -j1 --target-dir .build/rust-records-data/knowledge-index-source/target -- --exact foreground_broker_inventory::exact_absence_no_active_and_local_without_broker_use_real_local_startup
+cargo xtask cargo clippy --locked --offline -p graphit-app --lib --bin graphit --test integration --no-deps -j1 --target-dir .build/rust-records-data/knowledge-index-source/target -- -D warnings
 ```
 
 A continuidade Task/Broker consome as provas do coordenador `tsk-0a1a` (COM17, quatro casos compiled foreground com NativeBroker signed TCP/PROJECT real) e `tsk-8d58` (COM20, NativeSource/Auth/install lifecycle), além da regressão foreground acima com ambiente capturado sem Codex. Os testes remotos de ForegroundInventory que exigem fixture pública/container permanecem escopo não qualificado de `tsk-e6e4`; ignored não é prova. O ingresso não confirma autenticação de fornecedor, modelo executado, stdio forwarding, RSS, Windows ou macOS.
@@ -487,9 +487,9 @@ Os casos cobrem ausência e corpus vazio, seleção, pergunta Unicode e bodies l
 Comandos focais, com `CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_PROFILE_TEST_DEBUG=0` e `CARGO_INCREMENTAL=0` na fila compartilhada normal:
 
 ```sh
-cargo xtask cargo test --offline --locked -p graphit-app --test knowledge_question -j1 --target-dir .build/rust-records-data/knowledge-index-source/target
+cargo xtask cargo test --offline --locked -p graphit-app --test integration -j1 --target-dir .build/rust-records-data/knowledge-index-source/target -- knowledge_question::
 cargo xtask cargo test --offline --locked -p graphit-app --lib knowledge_question::tests -j1 --target-dir .build/rust-records-data/knowledge-index-source/target
-cargo xtask cargo clippy --offline --locked -p graphit-app --lib --test knowledge_question -j1 --no-deps --target-dir .build/rust-records-data/knowledge-index-source/target -- -D warnings
+cargo xtask cargo clippy --offline --locked -p graphit-app --lib --test integration -j1 --no-deps --target-dir .build/rust-records-data/knowledge-index-source/target -- -D warnings
 ```
 
 Evidências históricas de `tsk-ca7a` ficam em `.build/knowledge-question/`. A integração final passou em três testes sem ignored (build 5,06 s, harness 7,25 s); duas regressões privadas passaram (build 14,05 s); Clippy conjunto passou com exit 0 em 7,78 s. Esses tempos observados não são garantia de desempenho. O primeiro attempt de integração falhou na compilação do helper de lifetimes da fixture e foi corrigido; seu log foi preservado. A revisão dessa composição não encontrou divergência material. A execução disponível é Linux; Windows e macOS não foram qualificados.

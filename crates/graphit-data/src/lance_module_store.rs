@@ -46,8 +46,37 @@ use lance_table::{
     io::{commit::ManifestLocation, manifest::read_manifest_indexes},
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, error::Error, fmt, io, path::Path, sync::Arc};
+use std::{borrow::Cow, collections::BTreeSet, error::Error, fmt, io, path::Path, sync::Arc};
 use tempfile::TempDir;
+
+/// Keep the caller's locator separate from the native path syntax the SDK uses
+/// in branch URIs and object-store paths. This does not establish authority.
+pub(crate) fn sdk_uri(uri: &str) -> Result<Cow<'_, str>, lance::Error> {
+    if cfg!(windows) && Path::new(uri).is_absolute() {
+        let directory = url::Url::from_directory_path(uri)
+            .map_err(|()| lance::Error::invalid_input("invalid local dataset directory"))?;
+        let path = object_store::path::Path::from_url_path(directory.path())
+            .map_err(|error| lance::Error::invalid_input_source(Box::new(error)))?;
+        let mut native = match directory.host_str() {
+            Some(host) => format!("//{host}/{path}"),
+            None => path.to_string(),
+        };
+        let mut components = Path::new(&native).components();
+        let drive_root = matches!(components.next(), Some(std::path::Component::Prefix(prefix))
+            if matches!(prefix.kind(), std::path::Prefix::Disk(_)))
+            && components.next().is_none();
+        if drive_root {
+            native.push('/');
+        }
+        if !Path::new(&native).is_absolute() {
+            return Err(lance::Error::invalid_input(
+                "invalid local dataset directory",
+            ));
+        }
+        return Ok(Cow::Owned(native));
+    }
+    Ok(Cow::Borrowed(uri))
+}
 
 /// Recovery data, scoped to the exact corpus locator used to open/create it.
 /// Deserializing a key grants no authority; resolve validates it before IO.
@@ -186,7 +215,8 @@ impl PreparedCreate {
 
     /// Consume the staged transaction once, preserving the SDK cause and key.
     pub async fn commit(self) -> Result<(LanceModuleStore, RecoveryKey), StoreError> {
-        let dataset = CommitBuilder::new(self.key.corpus_uri())
+        let physical_uri = sdk_uri(self.key.corpus_uri())?;
+        let dataset = CommitBuilder::new(physical_uri.as_ref())
             .with_max_retries(0)
             .with_skip_auto_cleanup(true)
             .execute(self.transaction)
@@ -216,7 +246,8 @@ impl LanceModuleStore {
         if stream.schema() != schema {
             return Err(StoreError::SchemaMismatch);
         }
-        let transaction = InsertBuilder::new(uri)
+        let physical_uri = sdk_uri(uri)?;
+        let transaction = InsertBuilder::new(physical_uri.as_ref())
             .with_params(&WriteParams {
                 mode: WriteMode::Create,
                 skip_auto_cleanup: true,
@@ -273,7 +304,8 @@ impl LanceModuleStore {
             skip_auto_cleanup: true,
             ..Default::default()
         };
-        let transaction = InsertBuilder::new(uri)
+        let physical_uri = sdk_uri(uri)?;
+        let transaction = InsertBuilder::new(physical_uri.as_ref())
             .with_params(&params)
             .execute_uncommitted(batches)
             .await?;
@@ -285,7 +317,10 @@ impl LanceModuleStore {
         })
     }
     pub async fn open(uri: &str, schema: Arc<Schema>) -> Result<Self, StoreError> {
-        let dataset = DatasetBuilder::from_uri(uri).load().await?;
+        let physical_uri = sdk_uri(uri)?;
+        let dataset = DatasetBuilder::from_uri(physical_uri.as_ref())
+            .load()
+            .await?;
         Self::from_dataset(uri, schema, dataset)
     }
     /// Opens an exact SDK version using the caller's configured store session.
@@ -298,7 +333,8 @@ impl LanceModuleStore {
         session: Arc<lance::session::Session>,
         dataset_version: u64,
     ) -> Result<(Self, lance_table::io::commit::ManifestLocation), StoreError> {
-        let dataset = DatasetBuilder::from_uri(uri)
+        let physical_uri = sdk_uri(uri)?;
+        let dataset = DatasetBuilder::from_uri(physical_uri.as_ref())
             .with_session(session)
             .with_version(dataset_version)
             .load()
@@ -567,7 +603,8 @@ impl ModuleSnapshot {
                 })?;
                 original.check()?;
                 let mut source = snapshot.dataset.as_ref().clone();
-                let result = source.deep_clone(target, snapshot.version(), Some(ObjectStoreParams::default())).await;
+                let physical_target = sdk_uri(target).map_err(io::Error::other)?;
+                let result = source.deep_clone(physical_target.as_ref(), snapshot.version(), Some(ObjectStoreParams::default())).await;
                 original.check()?;
                 let dataset = result.map_err(io::Error::other)?;
                 let output = ModuleSnapshot {
@@ -751,4 +788,104 @@ fn checked_batches(
         batches.push(RecordBatch::new_empty(Arc::clone(schema)));
     }
     Ok(batches)
+}
+
+#[cfg(test)]
+mod sdk_uri_tests {
+    use super::*;
+
+    #[test]
+    fn remote_file_and_relative_locators_stay_literal() {
+        for uri in [
+            "s3://bucket/data%20set?region=us-east-1",
+            "s3+ddb://bucket/table?ddbTableName=commits",
+            "file:///C:/source%20%F0%9F%A6%80.lance",
+            "file://server/share/source%25.lance",
+            "relative/source.lance",
+            "C:drive-relative.lance",
+        ] {
+            assert!(matches!(sdk_uri(uri).unwrap(), Cow::Borrowed(value) if value == uri));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_native_locator_stays_literal() {
+        let uri = "/tmp/source %20 🦀 ? # \\.lance";
+        assert!(matches!(sdk_uri(uri).unwrap(), Cow::Borrowed(value) if value == uri));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_native_arguments_preserve_drive_unc_and_literal_names() {
+        for (input, expected) in [
+            (r"C:\", "C:/"),
+            (r"C:\source %20 🦀.lance", "C:/source %20 🦀.lance"),
+            (r"\\?\C:\source %20 🦀.lance", "C:/source %20 🦀.lance"),
+            (r"\\?\C:\source.lance\tree\dev", "C:/source.lance/tree/dev"),
+            (
+                r"\\server\share\source %20 🦀.lance",
+                "//server/share/source %20 🦀.lance",
+            ),
+            (
+                r"\\?\UNC\server\share\source %20 🦀.lance",
+                "//server/share/source %20 🦀.lance",
+            ),
+        ] {
+            let physical = sdk_uri(input).unwrap();
+            assert_eq!(physical, expected);
+            assert!(Path::new(physical.as_ref()).is_absolute());
+            assert_eq!(sdk_uri(physical.as_ref()).unwrap(), physical);
+        }
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn windows_verbatim_input_keeps_recovery_locator_and_named_pin() {
+        use arrow_array::{RecordBatch, UInt64Array};
+        use arrow_schema::{DataType, Field, Schema};
+        let directory = tempfile::tempdir().unwrap();
+        let corpus = directory
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join("source %20 🦀.lance");
+        let uri = corpus.to_str().unwrap();
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::UInt64,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(UInt64Array::from(vec![1, 2]))],
+        )
+        .unwrap();
+        let (store, key) =
+            LanceModuleStore::create_with_recovery(uri, Arc::clone(&schema), vec![batch])
+                .await
+                .unwrap();
+        assert_eq!(key.corpus_uri(), uri);
+        assert_eq!(store.snapshot().corpus_uri(), uri);
+        let branches = crate::lance_branch_store::LanceBranchStore::open(uri, schema, None)
+            .await
+            .unwrap();
+        let pin = branches
+            .capture_target(Some("dev"))
+            .await
+            .unwrap()
+            .materialize()
+            .await
+            .unwrap();
+        assert_eq!(pin.module_snapshot().corpus_uri(), uri);
+        assert_eq!(pin.physical_branch(), Some("dev"));
+        let reopened = pin.reopen().await.unwrap();
+        assert_eq!(reopened.physical_branch(), Some("dev"));
+        assert_eq!(reopened.version(), pin.version());
+        assert_eq!(reopened.module_snapshot().corpus_uri(), uri);
+        assert_eq!(
+            store.resolve(&key).await.unwrap(),
+            Resolution::Applied { version: 1 }
+        );
+    }
 }

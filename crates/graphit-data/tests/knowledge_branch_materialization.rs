@@ -1,6 +1,5 @@
 //! Real native admissions, canonical18 EOF and observed branch-reference creation.
-#[path = "support/knowledge_reference_fixture.rs"]
-mod support;
+use crate::knowledge_reference_fixture as support;
 use arrow_array::{
     Array, RecordBatch, StringArray, StructArray, UInt8Array, builder::FixedSizeBinaryBuilder,
 };

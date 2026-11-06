@@ -1,5 +1,6 @@
 #![cfg(target_os = "linux")]
 //! Real trusted Foreground factory, signed Incoming MCP, FULL16 and Process fixtures.
+use crate::agent_fixture;
 use aws_lc_rs::{
     rand::SystemRandom,
     signature::{Ed25519KeyPair, KeyPair},
@@ -11,8 +12,6 @@ use axum::{
     routing::{get, post},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-#[path = "support/agent_fixture.rs"]
-mod agent_fixture;
 use graphit_ai::knowledge_conversation::ConversationLimits;
 use graphit_app::{
     foreground_source::ForegroundSource,

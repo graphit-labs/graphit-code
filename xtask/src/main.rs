@@ -17,6 +17,7 @@ enum FastTest {
     Integration {
         package: &'static str,
         target: &'static str,
+        filter: Option<&'static str>,
     },
     Library {
         package: &'static str,
@@ -50,8 +51,8 @@ impl FastTest {
                 "-p",
                 "graphit-app",
                 "--test",
-                "source_executable",
-                "native_publication::compiled_hub_publish_native_uses_broker_sts_and_preserves_versions",
+                "integration",
+                "source_executable::native_publication::compiled_hub_publish_native_uses_broker_sts_and_preserves_versions",
                 "--",
                 "--ignored",
                 "--exact",
@@ -63,15 +64,21 @@ impl FastTest {
                 "-p",
                 "graphit-app",
                 "--test",
-                "ast_generic_nn_executable",
-                "generic_main_native_nn",
+                "integration",
+                "ast_generic_nn_executable::generic_main_native_nn",
                 "--",
                 "--ignored",
                 "--exact",
                 "--test-threads=1",
             ],
-            Self::Integration { package, target } => {
-                vec!["test", "--locked", "-p", package, "--test", target]
+            Self::Integration {
+                package,
+                target,
+                filter,
+            } => {
+                let mut arguments = vec!["test", "--locked", "-p", package, "--test", target];
+                arguments.extend(filter);
+                arguments
             }
             Self::Library { package, filter }
             | Self::NamedLibrary {
@@ -87,7 +94,16 @@ impl FastTest {
             Self::NativeHubPublication => "graphit-app/native-hub-publication".into(),
             Self::RoleHubFile => "graphit-app/role-hub-file".into(),
             Self::AstGenericMainNativeNn => "graphit-app/ast-generic-main-native-nn".into(),
-            Self::Integration { package, target } => format!("{package}/{target}"),
+            Self::Integration {
+                package,
+                target,
+                filter,
+            } => {
+                let selector = filter
+                    .map(|value| value.trim_end_matches("::"))
+                    .unwrap_or(target);
+                format!("{package}/{selector}")
+            }
             Self::NamedLibrary {
                 package, selector, ..
             } => format!("{package}/{selector}"),
@@ -107,10 +123,12 @@ impl FastTest {
 const POSTGRESQL_SEMANTIC_TEST: FastTest = FastTest::Integration {
     package: "graphit-ast",
     target: "postgresql_semantic",
+    filter: None,
 };
 const SOURCE_PUBLICATION_ORDER_TEST: FastTest = FastTest::Integration {
     package: "graphit-core",
     target: "project_source_publication_order",
+    filter: None,
 };
 const GIT_INSPECTION_TEST: FastTest = FastTest::Library {
     package: "graphit-app",
@@ -118,15 +136,18 @@ const GIT_INSPECTION_TEST: FastTest = FastTest::Library {
 };
 const PROJECT_HOOK_INSTALL_TEST: FastTest = FastTest::Integration {
     package: "graphit-app",
-    target: "project_hook_install",
+    target: "integration",
+    filter: Some("project_hook_install::"),
 };
 const PROJECT_COORDINATOR_INSTALL_TEST: FastTest = FastTest::Integration {
     package: "graphit-app",
-    target: "project_coordinator_install",
+    target: "integration",
+    filter: Some("project_coordinator_install::"),
 };
 const MCP_SOURCE_TEST: FastTest = FastTest::Integration {
     package: "graphit-app",
-    target: "mcp_source",
+    target: "integration",
+    filter: Some("mcp_source::"),
 };
 const ROLE_LIVE_TEST: FastTest = FastTest::Library {
     package: "graphit-app",
@@ -134,7 +155,8 @@ const ROLE_LIVE_TEST: FastTest = FastTest::Library {
 };
 const ROLE_HOOK_EXECUTABLE_TEST: FastTest = FastTest::Integration {
     package: "graphit-app",
-    target: "role_hook_v3_executable",
+    target: "integration",
+    filter: Some("role_hook_v3_executable::"),
 };
 const ROLE_HOOK_TEST: FastTest = FastTest::Library {
     package: "graphit-app",
@@ -146,7 +168,8 @@ const MANAGED_LIVE_TEST: FastTest = FastTest::Library {
 };
 const SOURCE_STREAM_TEST: FastTest = FastTest::Integration {
     package: "graphit-data",
-    target: "lance_source_stream",
+    target: "integration",
+    filter: Some("lance_source_stream::"),
 };
 const KIMI_UNIT_TEST: FastTest = FastTest::NamedLibrary {
     package: "graphit-ai",
@@ -156,13 +179,15 @@ const KIMI_UNIT_TEST: FastTest = FastTest::NamedLibrary {
 
 const COPILOT_INTEGRATION_TEST: FastTest = FastTest::Integration {
     package: "graphit-ai",
-    target: "cli_copilot",
+    target: "integration",
+    filter: Some("cli_copilot::"),
 };
 
 const REGISTERED_TESTS: &[FastTest] = &[
     FastTest::Integration {
         package: "graphit-app",
-        target: "git_hooks_executable",
+        target: "integration",
+        filter: Some("git_hooks_executable::"),
     },
     FastTest::AstGenericMainNativeNn,
     FastTest::NativeHubPublication,
@@ -180,7 +205,8 @@ const REGISTERED_TESTS: &[FastTest] = &[
     SOURCE_STREAM_TEST,
     FastTest::Integration {
         package: "graphit-data",
-        target: "lance_module_creation",
+        target: "integration",
+        filter: Some("lance_module_creation::"),
     },
     FastTest::Library {
         package: "graphit-app",
@@ -192,35 +218,43 @@ const REGISTERED_TESTS: &[FastTest] = &[
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "now_executable",
+        target: "integration",
+        filter: Some("now_executable::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "now_presence_integration",
+        target: "integration",
+        filter: Some("now_presence_integration::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "managed_role_run",
+        target: "integration",
+        filter: Some("managed_role_run::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "source_executable",
+        target: "integration",
+        filter: Some("source_executable::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "models_cli",
+        target: "integration",
+        filter: Some("models_cli::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "help_cli",
+        target: "integration",
+        filter: Some("help_cli::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "version_cli",
+        target: "integration",
+        filter: Some("version_cli::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "package",
+        target: "integration",
+        filter: Some("package::"),
     },
     FastTest::Library {
         package: "graphit-auth",
@@ -229,14 +263,17 @@ const REGISTERED_TESTS: &[FastTest] = &[
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "compilation_fingerprint",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-ast",
         target: "source_ranges",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-records",
         target: "gates",
+        filter: None,
     },
     FastTest::Library {
         package: "graphit-ai",
@@ -244,69 +281,85 @@ const REGISTERED_TESTS: &[FastTest] = &[
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "cli_claude",
+        target: "integration",
+        filter: Some("cli_claude::"),
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "cli_qwen",
+        target: "integration",
+        filter: Some("cli_qwen::"),
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "cli_cursor",
+        target: "integration",
+        filter: Some("cli_cursor::"),
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "cli_antigravity",
+        target: "integration",
+        filter: Some("cli_antigravity::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "knowledge_antigravity_ask",
+        target: "integration",
+        filter: Some("knowledge_antigravity_ask::"),
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "cli_grok",
+        target: "integration",
+        filter: Some("cli_grok::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "knowledge_grok_ask",
+        target: "integration",
+        filter: Some("knowledge_grok_ask::"),
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "cli_opencode",
+        target: "integration",
+        filter: Some("cli_opencode::"),
     },
     KIMI_UNIT_TEST,
     COPILOT_INTEGRATION_TEST,
     FastTest::Integration {
         package: "graphit-app",
-        target: "knowledge_copilot_ask",
+        target: "integration",
+        filter: Some("knowledge_copilot_ask::"),
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "cli_kimi",
+        target: "integration",
+        filter: Some("cli_kimi::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "knowledge_opencode_ask",
+        target: "integration",
+        filter: Some("knowledge_opencode_ask::"),
     },
     FastTest::Integration {
         package: "graphit-app",
-        target: "knowledge_kimi_ask",
+        target: "integration",
+        filter: Some("knowledge_kimi_ask::"),
     },
     FastTest::Integration {
         package: "graphit-process",
         target: "detached",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "ranking",
+        target: "integration",
+        filter: Some("ranking::"),
     },
     FastTest::Integration {
         package: "graphit-runtime",
         target: "output",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "references",
+        filter: None,
     },
     FastTest::Library {
         package: "graphit-core",
@@ -314,19 +367,23 @@ const REGISTERED_TESTS: &[FastTest] = &[
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "direct_embeddings",
+        target: "integration",
+        filter: Some("direct_embeddings::"),
     },
     FastTest::Integration {
         package: "graphit-runtime",
         target: "roles",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "staleness",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-ast",
         target: "scalar_policy",
+        filter: None,
     },
     FastTest::Library {
         package: "graphit-auth",
@@ -335,34 +392,42 @@ const REGISTERED_TESTS: &[FastTest] = &[
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "settings",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "cohere_embeddings",
+        target: "integration",
+        filter: Some("cohere_embeddings::"),
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "voyage_embeddings",
+        target: "integration",
+        filter: Some("voyage_embeddings::"),
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "google_embeddings",
+        target: "integration",
+        filter: Some("google_embeddings::"),
     },
     FastTest::Integration {
         package: "graphit-process",
         target: "capture",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-process",
         target: "incremental",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "native_rerank",
+        target: "integration",
+        filter: Some("native_rerank::"),
     },
     FastTest::Integration {
         package: "graphit-ai",
-        target: "cohere_reranking",
+        target: "integration",
+        filter: Some("cohere_reranking::"),
     },
     FastTest::Library {
         package: "graphit-core",
@@ -391,26 +456,32 @@ const REGISTERED_TESTS: &[FastTest] = &[
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "publication_metadata",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "project_document",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-ast",
         target: "prepared_input",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "ignore_policy",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-ast",
         target: "profiles",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "preview",
+        filter: None,
     },
     FastTest::Library {
         package: "graphit-auth",
@@ -423,22 +494,27 @@ const REGISTERED_TESTS: &[FastTest] = &[
     FastTest::Integration {
         package: "graphit-ast",
         target: "catalog",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "document",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "markdown_export",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-knowledge",
         target: "published_lint",
+        filter: None,
     },
     FastTest::Integration {
         package: "graphit-ast",
         target: "symbols",
+        filter: None,
     },
     FastTest::Library {
         package: "graphit-daemon",
@@ -731,8 +807,8 @@ fn qualify(root: &Path) -> Result<(), String> {
             "-p",
             "graphit-app",
             "--test",
-            "source_executable",
-            "native_publication::file_installation",
+            "integration",
+            "source_executable::native_publication::file_installation",
             "--",
             "--ignored",
         ],

@@ -138,6 +138,10 @@ the exported module in `lib.rs`. `tests/direct_embedding_leases.rs` reuses the
 real public Auth fixture from `tests/support/direct_rerank_auth.rs` and Tokio TCP
 fixture from `tests/support/rerank_http.rs`.
 
+Current commands use the [AI integration target](../development/ai-tests.md)
+with the `direct_embedding_leases::` filter. Related SDK and rerank modules use
+their own filters in that same executable.
+
 The historical `tsk-174e` verification command was:
 
 ```text

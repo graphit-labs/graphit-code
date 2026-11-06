@@ -1,6 +1,5 @@
 //! Real PROJECT grants, whole physical images, literal references and SDK branches.
-#[path = "support/knowledge_reference_fixture.rs"]
-mod support;
+use crate::knowledge_reference_fixture as support;
 use arrow_array::{Array, FixedSizeBinaryArray, RecordBatch, StringArray, StructArray};
 use futures::TryStreamExt;
 use graphit_auth::{ProjectReadModule, ProjectRecordAuthority, ProjectWriteOperation};

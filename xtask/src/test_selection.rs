@@ -107,11 +107,32 @@ mod tests {
             2
         );
         for test in super::super::REGISTERED_TESTS {
-            if let super::super::FastTest::Integration { package, target } = test {
+            if let super::super::FastTest::Integration {
+                package, target, ..
+            } = test
+            {
+                let arguments = test.arguments();
                 assert_eq!(
-                    test.arguments(),
+                    &arguments[..6],
                     ["test", "--locked", "-p", package, "--test", target]
                 );
+                assert!(!arguments.contains(&"--lib"));
+                if matches!(*package, "graphit-app" | "graphit-data" | "graphit-ai") {
+                    assert_eq!(*target, "integration");
+                    assert_eq!(
+                        arguments.len(),
+                        7,
+                        "{} must select its own module",
+                        test.label()
+                    );
+                    let label = test.label();
+                    let module = label.split_once('/').unwrap().1;
+                    assert_eq!(arguments[6], format!("{module}::"));
+                    assert!(format!("{module}::journey").contains(arguments[6]));
+                    assert!(!format!("{module}_other::journey").contains(arguments[6]));
+                } else {
+                    assert_eq!(arguments.len(), 6);
+                }
             }
         }
         let kimi_unit = select_fast_tests(&["graphit-ai/cli_kimi_unit".into()]).unwrap();
@@ -131,11 +152,65 @@ mod tests {
         assert_eq!(kimi_integration.len(), 1);
         assert_eq!(
             kimi_integration[0].arguments(),
-            ["test", "--locked", "-p", "graphit-ai", "--test", "cli_kimi"]
+            [
+                "test",
+                "--locked",
+                "-p",
+                "graphit-ai",
+                "--test",
+                "integration",
+                "cli_kimi::"
+            ]
         );
         let selected = select_fast_tests(&["graphit-auth/records".into()]).unwrap();
         let filter = selected[0].arguments()[5];
         assert!("issuer::tests::records::valid_case".contains(filter));
         assert!(!"issuer::tests::records_deadline::".contains(filter));
+    }
+
+    #[test]
+    fn native_qualifications_keep_their_exact_integrated_paths_and_opt_in_flags() {
+        use super::super::FastTest;
+        for (test, filter) in [
+            (
+                FastTest::NativeHubPublication,
+                "source_executable::native_publication::compiled_hub_publish_native_uses_broker_sts_and_preserves_versions",
+            ),
+            (
+                FastTest::AstGenericMainNativeNn,
+                "ast_generic_nn_executable::generic_main_native_nn",
+            ),
+        ] {
+            let arguments = test.arguments();
+            assert_eq!(
+                &arguments[..7],
+                [
+                    "test",
+                    "--locked",
+                    "-p",
+                    "graphit-app",
+                    "--test",
+                    "integration",
+                    filter
+                ]
+            );
+            assert!(arguments.contains(&"--ignored"));
+            assert!(arguments.contains(&"--exact"));
+            assert!(!arguments.contains(&"--lib"));
+        }
+        let source = select_fast_tests(&["graphit-data/lance_source_stream".into()]).unwrap();
+        assert_eq!(source.len(), 1);
+        assert_eq!(
+            source[0].arguments(),
+            [
+                "test",
+                "--locked",
+                "-p",
+                "graphit-data",
+                "--test",
+                "integration",
+                "lance_source_stream::"
+            ]
+        );
     }
 }

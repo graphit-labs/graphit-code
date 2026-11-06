@@ -109,10 +109,17 @@ fn build_arguments(args: &[&str]) -> Vec<String> {
             result.push(arg.into());
         }
     }
-    // Compile the selected tests with their dev-dependency feature set. Building
-    // only peers would compile a second variant of the heavy native/Lance graph.
+    // Selected integration tests already need this compilation and emit the CLI.
     if !selected_targets {
         result.push("--tests".into());
+    }
+    // Library/bin-only selections need executables, not an unrelated test suite.
+    if !result.iter().any(|arg| {
+        matches!(arg.as_str(), "--tests" | "--all-targets" | "--test") || arg.starts_with("--test=")
+    }) {
+        result[0] = "build".into();
+        result.retain(|arg| !matches!(arg.as_str(), "--no-run" | "--lib"));
+        result.extend(["--bin".into(), "graphit".into()]);
     }
     if !result
         .iter()
@@ -159,14 +166,6 @@ pub(crate) fn prepare(root: &Path, args: &[&str], test: &mut Command) -> Result<
         .args(&arguments)
         .current_dir(root)
         .stdout(Stdio::piped());
-    // Cargo emits the normal CLI for integration tests. A lib-only selection
-    // otherwise emits no CLI, and --bin graphit would emit its test harness.
-    // Keep the existing Browser startup consumer in this no-run preparation.
-    if !arguments.iter().any(|arg| {
-        matches!(arg.as_str(), "--tests" | "--all-targets" | "--test") || arg.starts_with("--test=")
-    }) {
-        build.args(["--test", "browser_auth_start"]);
-    }
     // Keep native preparation, compiler and Cargo metadata environment identical.
     for (name, value) in test.get_envs() {
         if let Some(value) = value {
@@ -273,7 +272,8 @@ mod tests {
         for expected in ["--offline", "--profile=release", "-j4", "foo"] {
             assert!(args.iter().any(|a| a == expected));
         }
-        assert!(args.iter().any(|arg| arg == "--lib"));
+        assert_eq!(args[0], "build");
+        assert!(!args.iter().any(|arg| arg == "--lib"));
         assert!(args.windows(2).any(|a| a == ["-p", "graphit-app"]));
         for absent in ["filter", "--ignored"] {
             assert!(!args.iter().any(|a| a == absent));
@@ -285,11 +285,34 @@ mod tests {
         let args = build_arguments(&["test", "--workspace", "--offline"]);
         assert!(args.iter().any(|arg| arg == "--workspace"));
         assert!(args.iter().any(|arg| arg == "--tests"));
-        let args = build_arguments(&["test", "-p", "graphit-app", "--test", "source_executable"]);
-        assert!(
-            args.windows(2)
-                .any(|a| a == ["--test", "source_executable"])
-        );
+        let args = build_arguments(&[
+            "test",
+            "-p",
+            "graphit-app",
+            "--test",
+            "integration",
+            "source_executable::",
+        ]);
+        assert!(args.windows(2).any(|a| a == ["--test", "integration"]));
         assert!(!args.iter().any(|arg| arg == "--tests"));
+        assert!(!args.iter().any(|arg| arg == "source_executable::"));
+    }
+
+    #[test]
+    fn library_preparation_builds_the_normal_cli_without_linking_integration_tests() {
+        let args = build_arguments(&["test", "-p", "graphit-app", "--lib", "library_filter"]);
+        assert_eq!(args[0], "build");
+        assert!(args.windows(2).any(|args| args == ["--bin", "graphit"]));
+        assert!(!args.iter().any(|arg| arg == "library_filter"));
+        for absent in [
+            "--no-run",
+            "--lib",
+            "--test",
+            "--tests",
+            "--all-targets",
+            "integration",
+        ] {
+            assert!(!args.iter().any(|arg| arg == absent));
+        }
     }
 }

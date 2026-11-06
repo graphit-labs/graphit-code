@@ -1,6 +1,5 @@
 //! Actual loopback listener, Runtime issuer, signed Native JWT and owned corpus SDK.
-#[path = "support/native_install_auth.rs"]
-mod auth;
+use crate::native_install_auth as auth;
 use graphit_app::{
     native_install::{
         FailureCategory, InstallOutcome, InstallRequest, PayloadEffect, RegistryEffect,

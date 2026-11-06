@@ -1,15 +1,8 @@
 #![cfg(target_os = "linux")]
 //! Current compiled CLI and real Source/Auth/FULL16/Process; no vendor login claim.
-use graphit_app::{
-    native_install_http::NativeInstallPolicy,
-    source_server::{SourcePolicy, SourceServer},
-};
-#[path = "support/knowledge_cli_daemon.rs"]
-mod cli_daemon;
-#[path = "support/knowledge_ask_server.rs"]
-mod fixture_support;
-#[path = "support/agent_fixture.rs"]
-mod native_agent_fixture;
+use crate::agent_fixture as native_agent_fixture;
+use crate::knowledge_ask_server as fixture_support;
+use crate::knowledge_cli_daemon as cli_daemon;
 use graphit_auth::{
     Permission, ProjectCapture, ProjectRecordAuthority, ProjectWriteOperation, ScopeCapture,
     ScopeInput,

@@ -23,12 +23,7 @@ use std::time::Instant;
 )]
 #[path = "../../graphit-ai/tests/support/direct_rerank_auth.rs"]
 mod auth;
-#[allow(
-    dead_code,
-    reason = "shared TCP fixture includes optional response barriers"
-)]
-#[path = "../../graphit-ai/tests/support/rerank_http.rs"]
-mod wire;
+use crate::rerank_http as wire;
 
 fn network() -> Limits {
     Limits {

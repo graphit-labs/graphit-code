@@ -1,7 +1,6 @@
 #![cfg(target_os = "linux")]
 //! Compiled Runtime consumers. Broker journeys use its public native fixture.
-#[path = "support/finite_cli.rs"]
-mod finite_cli;
+use crate::finite_cli;
 use finite_cli::FiniteOutput;
 use graphit_app::foreground_source::ForegroundSource;
 use graphit_auth::{
