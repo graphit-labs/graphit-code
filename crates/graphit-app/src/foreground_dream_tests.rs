@@ -578,7 +578,12 @@ async fn wait_completed(owner: &mut ForegroundSource) -> Result {
     }
 }
 
-fn serve_source(owner: &mut ForegroundSource) -> Result<tokio::task::JoinHandle<io::Result<()>>> {
+fn serve_source(
+    owner: &mut ForegroundSource,
+) -> Result<(
+    std::net::SocketAddr,
+    tokio::task::JoinHandle<io::Result<()>>,
+)> {
     let server = owner
         .server
         .as_ref()
@@ -588,7 +593,55 @@ fn serve_source(owner: &mut ForegroundSource) -> Result<tokio::task::JoinHandle<
         .listener
         .take()
         .ok_or_else(|| io::Error::from(io::ErrorKind::NotConnected))?;
-    Ok(tokio::spawn(async move { server.serve(listener).await }))
+    let address = listener.address();
+    Ok((
+        address,
+        tokio::spawn(async move { server.serve(listener).await }),
+    ))
+}
+
+async fn stop_source(
+    installation: &InstallationPaths,
+    owner: ForegroundSource,
+    address: std::net::SocketAddr,
+    serving: tokio::task::JoinHandle<io::Result<()>>,
+    mode: &str,
+) -> Result {
+    let result = async {
+        {
+            let cancel = Cancellation::default();
+            let original = owner.policy.request_context(Instant::now(), &cancel)?;
+            let client = reqwest::Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()?;
+            let reply = crate::daemon_control::request(
+                installation,
+                address,
+                &client,
+                owner.native,
+                &original,
+                crate::daemon_control::Operation::Stop,
+                std::num::NonZeroU32::new(std::process::id()),
+            )
+            .await?;
+            assert_eq!(
+                reply.state,
+                crate::daemon_control::State::Stopping,
+                "{mode}"
+            );
+        }
+        // Iteration completion is not an HTTP-server join. Let its real Stop
+        // finish before the outer owner shuts down the same Source services.
+        serving.await??;
+        owner.shutdown().await?;
+        Ok(())
+    }
+    .await;
+    if let Err(error) = &result {
+        eprintln!("dream_fixture_shutdown mode={mode} error={error:?}");
+    }
+    result
 }
 
 async fn human_prompt(fixture: &Fixture, owner: &ForegroundSource) -> Result {
@@ -638,7 +691,7 @@ async fn foreground_dream_native_fold_delete_and_real_idle_activity() -> Result 
     let f = Fixture::new()?;
     f.prepare().await?;
     let mut owner = f.start("fold").await?;
-    let serving = serve_source(&mut owner)?;
+    let (address, serving) = serve_source(&mut owner)?;
     let activity = owner
         .dream_activity
         .read()
@@ -717,8 +770,7 @@ async fn foreground_dream_native_fold_delete_and_real_idle_activity() -> Result 
         fs::read_to_string(f.project.root().join(".codex/config.toml"))?,
         "[mcp_servers.\"literal.server α\"]\ncommand='unchanged'\n[mcp_servers.other]\nurl='https://fixture.invalid'\n"
     );
-    owner.shutdown().await?;
-    serving.await??;
+    stop_source(&f.installation, owner, address, serving, "fold").await?;
     Ok(())
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -877,7 +929,7 @@ async fn foreground_dream_retry_budget_and_activity_during_native_are_real() -> 
         f.retries = retries;
         f.prepare().await?;
         let mut owner = f.start(mode).await?;
-        let serving = serve_source(&mut owner)?;
+        let (address, serving) = serve_source(&mut owner)?;
         let before = read(&owner).await?;
         wait_attempt(&f, &mut owner, 1).await?;
         if matches!(mode, "slow_first" | "failed_old") {
@@ -902,8 +954,7 @@ async fn foreground_dream_retry_budget_and_activity_during_native_are_real() -> 
             expected
         );
         assert_eq!(read(&owner).await?, before);
-        owner.shutdown().await?;
-        serving.await??;
+        stop_source(&f.installation, owner, address, serving, mode).await?;
     }
     Ok(())
 }

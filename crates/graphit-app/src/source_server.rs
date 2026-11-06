@@ -1766,6 +1766,27 @@ mod tests {
         fixture_with_permissions(&[Permission::Read(Module::Ast)])
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_shutdown_joins_the_same_source_without_live_work() {
+        let (_directory, server, _credential) = fixture();
+        let jobs = server.0.jobs.lock().await;
+        let mut first = Box::pin(server.shutdown());
+        let mut second = Box::pin(server.shutdown());
+
+        // Both shutdowns have started while the real owned drain is held.
+        std::future::poll_fn(|context| {
+            assert!(std::future::Future::poll(first.as_mut(), context).is_pending());
+            assert!(std::future::Future::poll(second.as_mut(), context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+        drop(jobs);
+
+        let (first, second) = tokio::join!(first, second);
+        first.expect("first shutdown joins the source");
+        second.expect("concurrent shutdown observes the same completed source");
+    }
+
     pub(super) fn fixture_with_permissions(
         permissions: &[Permission],
     ) -> (tempfile::TempDir, SourceServer, String) {

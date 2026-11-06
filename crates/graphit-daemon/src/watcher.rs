@@ -594,7 +594,7 @@ impl NativeState {
             Ok(events) => events,
             Err(errors) => {
                 if let Some(error) = errors.into_iter().next() {
-                    batch.failed(io::Error::other(error));
+                    batch.failed(native_error(error));
                 }
                 return batch;
             }
@@ -744,6 +744,25 @@ impl ProjectWatchControls {
 }
 
 impl ProjectWatcher {
+    #[cfg(test)]
+    pub(crate) fn channel_fixture() -> (Self, mpsc::Sender<ChangeBatch>) {
+        let (sender, receiver) = mpsc::channel(QUEUED_BATCHES);
+        (
+            Self {
+                state: Arc::new(Mutex::new(NativeState {
+                    config: None,
+                    watcher: None,
+                    directories: HashMap::new(),
+                    external: ExternalControls::default(),
+                    external_watches: BTreeSet::new(),
+                })),
+                receiver,
+                overflow: Arc::new(Overflow::default()),
+            },
+            sender,
+        )
+    }
+
     pub fn start(mut config: WatchConfig) -> io::Result<Self> {
         validate_controls(&config)?;
         config.root = fs::canonicalize(&config.root)?;
@@ -1001,12 +1020,17 @@ mod tests {
     #[test]
     fn native_backend_is_shared_by_forty_owners_and_released_after_last_drop() {
         let dir = TempDir::new().unwrap();
+        let roots: Vec<_> = (0..40)
+            .map(|index| {
+                let root = dir.path().join(format!("checkout-{index}"));
+                fs::create_dir(&root).unwrap();
+                root
+            })
+            .collect();
         let cfg = notify::Config::default().with_poll_interval(Duration::from_secs(123_457));
         let mut watchers = Vec::new();
         let mut receivers = Vec::new();
-        for index in 0..40 {
-            let root = dir.path().join(format!("checkout-{index}"));
-            fs::create_dir(&root).unwrap();
+        for root in &roots {
             let (send, receive) = std::sync::mpsc::channel();
             let mut watcher = CheckoutWatcher::new(
                 move |event| {
@@ -1015,7 +1039,7 @@ mod tests {
                 cfg,
             )
             .unwrap();
-            watcher.watch(&root, RecursiveMode::NonRecursive).unwrap();
+            watcher.watch(root, RecursiveMode::NonRecursive).unwrap();
             watchers.push(watcher);
             receivers.push(receive);
         }
@@ -1040,17 +1064,49 @@ mod tests {
                 break;
             }
         }
-        for receiver in &receivers[2..] {
-            assert!(
-                receiver.try_recv().is_err(),
-                "unrelated checkout received a native event"
-            );
+        // Each probe acknowledges delivery after the shared FILE event. FSEvents
+        // may also report startup/root events and global rescans; only ordinary
+        // events outside this subscription would violate checkout isolation.
+        let probe_deadline = std::time::Instant::now() + Duration::from_secs(8);
+        for root in &roots[2..] {
+            fs::write(root.join("own-probe.rs"), "fn own_checkout() {}").unwrap();
         }
-        assert!(
-            receivers[0]
-                .recv_timeout(Duration::from_millis(40))
-                .is_err()
-        );
+        for (receiver, root) in receivers[2..].iter().zip(&roots[2..]) {
+            loop {
+                let event = receiver
+                    .recv_timeout(
+                        probe_deadline
+                            .checked_duration_since(std::time::Instant::now())
+                            .expect("checkout probes exceeded their delivery deadline"),
+                    )
+                    .unwrap()
+                    .unwrap();
+                assert!(
+                    event.need_rescan()
+                        || event
+                            .paths
+                            .iter()
+                            .all(|path| path == root || path.parent() == Some(root.as_path())),
+                    "unrelated checkout received an ordinary event: {event:?}"
+                );
+                if event.paths.contains(&root.join("own-probe.rs")) {
+                    break;
+                }
+            }
+        }
+        // Queued pre-drop events are valid, but no callback retains this owner.
+        let drop_deadline = std::time::Instant::now() + Duration::from_secs(8);
+        loop {
+            match receivers[0].recv_timeout(
+                drop_deadline
+                    .checked_duration_since(std::time::Instant::now())
+                    .expect("dropped subscription exceeded its disconnect deadline"),
+            ) {
+                Ok(_) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(error) => panic!("dropped subscription remains alive: {error}"),
+            }
+        }
         drop(watchers);
         assert!(backend.upgrade().is_none());
         let (send, receive) = std::sync::mpsc::channel();
@@ -1652,6 +1708,61 @@ mod tests {
     }
 
     #[cfg(unix)]
+    async fn accessible_change_while_denied(watcher: &mut ProjectWatcher, path: &Path) {
+        timeout(Duration::from_secs(8), async {
+            loop {
+                let batch = watcher.next().await.expect("watcher remains open");
+                // A delayed directory event can rediscover the denied subtree.
+                // Every denial must remain causal and request reconciliation.
+                if let Some(error) = &batch.error {
+                    assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+                    assert!(batch.rescan);
+                }
+                if batch.paths.contains(path) {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("accessible sibling must deliver its concrete FILE change");
+    }
+
+    #[test]
+    fn debounced_native_errors_preserve_first_cause_and_request_rescan() {
+        let (watcher, _sender) = ProjectWatcher::channel_fixture();
+        for (native, expected) in [
+            (
+                notify::Error::io(io::Error::from(io::ErrorKind::PermissionDenied)),
+                io::ErrorKind::PermissionDenied,
+            ),
+            (
+                notify::Error::new(notify::ErrorKind::PathNotFound),
+                io::ErrorKind::NotFound,
+            ),
+            (
+                notify::Error::new(notify::ErrorKind::MaxFilesWatch),
+                io::ErrorKind::Other,
+            ),
+        ] {
+            let path = PathBuf::from("denied-or-missing");
+            let batch = lock(&watcher.state).process(Err(vec![
+                native.add_path(path.clone()),
+                notify::Error::generic("later error must not replace the first cause"),
+            ]));
+            assert!(batch.rescan);
+            assert!(batch.paths.is_empty());
+            let error = batch.error.unwrap();
+            assert_eq!(error.kind(), expected);
+            let cause = error
+                .get_ref()
+                .unwrap()
+                .downcast_ref::<notify::Error>()
+                .unwrap();
+            assert_eq!(cause.paths, [path]);
+        }
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
     async fn native_unreadable_subtree_reports_and_preserves_accessible_watch() {
         let dir = TempDir::new().unwrap();
@@ -1666,7 +1777,7 @@ mod tests {
         assert!(lock(&watcher.state).directories.contains_key(&accessible));
         let file = accessible.join("source.rs");
         fs::write(&file, "fn accessible() {}").unwrap();
-        changed(&mut watcher, &file).await;
+        accessible_change_while_denied(&mut watcher, &file).await;
         watcher.stop();
         assert!(lock(&watcher.state).directories.is_empty());
         permissions.restore();
@@ -1684,7 +1795,7 @@ mod tests {
         assert!(!lock(&watcher.state).directories.contains_key(&blocked));
         let accessible = dir.path().join("source.rs");
         fs::write(&accessible, "fn accessible() {}").unwrap();
-        changed(&mut watcher, &accessible).await;
+        accessible_change_while_denied(&mut watcher, &accessible).await;
         // Rebuild must also skip a subtree that remains unreadable.
         fs::write(
             dir.path().join(".gitignore"),

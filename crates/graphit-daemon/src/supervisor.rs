@@ -122,7 +122,7 @@ impl ProjectSupervisor {
         context: ProjectContext,
         config: WatchConfig,
         external: crate::watcher::ExternalControls,
-        mut producer: F,
+        producer: F,
     ) -> io::Result<Self>
     where
         F: FnMut(
@@ -138,7 +138,7 @@ impl ProjectSupervisor {
         Fut: Future<Output = io::Result<()>> + Send + 'static,
     {
         let expected_root = context.root().to_owned();
-        let mut watcher = tokio::task::spawn_blocking(move || {
+        let watcher = tokio::task::spawn_blocking(move || {
             if std::fs::canonicalize(&config.root)? != expected_root {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidInput,
@@ -151,6 +151,27 @@ impl ProjectSupervisor {
         })
         .await
         .map_err(io::Error::other)??;
+        Ok(Self::supervise(context, watcher, producer))
+    }
+
+    fn supervise<F, Fut>(
+        context: ProjectContext,
+        mut watcher: ProjectWatcher,
+        mut producer: F,
+    ) -> Self
+    where
+        F: FnMut(
+                ProjectContext,
+                ChangeBatch,
+                Cancellation,
+                crate::watcher::ProjectWatchControls,
+                Cancellation,
+                Cancellation,
+            ) -> Fut
+            + Send
+            + 'static,
+        Fut: Future<Output = io::Result<()>> + Send + 'static,
+    {
         let cancellation = Cancellation::default();
         let stop = cancellation.clone();
         let wake = Arc::new(Notify::new());
@@ -245,13 +266,13 @@ impl ProjectSupervisor {
                 .map_err(io::Error::other)?;
             result
         });
-        Ok(Self {
+        Self {
             context,
             cancellation,
             rescan,
             records,
             task: Some(task),
-        })
+        }
     }
 
     pub fn context(&self) -> &ProjectContext {
@@ -687,59 +708,113 @@ mod tests {
 
     #[tokio::test]
     async fn administrative_rescan_preserves_full_until_native_delta() {
+        administrative_rescan_fixture(Some(false)).await;
+    }
+
+    #[tokio::test]
+    async fn native_rescan_without_paths_preempts_full_and_waits_for_owned_cleanup() {
+        administrative_rescan_fixture(Some(true)).await;
+    }
+
+    #[tokio::test]
+    async fn administrative_rescan_and_native_change_reconcile_after_owned_cleanup() {
+        administrative_rescan_fixture(None).await;
+    }
+
+    // Some(false): exact FILE delta; Some(true): pathless native rescan;
+    // None: real SDK, which may report a coalesced/global FSEvents rescan.
+    async fn administrative_rescan_fixture(channel_rescan: Option<bool>) {
         let dir = TempDir::new().unwrap();
-        let changed = dir.path().join("changed.rs");
+        let root = fs::canonicalize(dir.path()).unwrap();
+        let changed = root.join("changed.rs");
         let (entered_tx, mut entered) = mpsc::channel(8);
         let (hint_observed, hint) = oneshot::channel();
         let (delta_observed, delta) = oneshot::channel();
         let (release_full, full_wait) = oneshot::channel();
         let mut first = Some((hint_observed, delta_observed, full_wait));
-        let owner = ProjectSupervisor::start_controlled(
-            context(dir.path(), "feature"),
-            config(dir.path()),
-            crate::watcher::ExternalControls::default(),
-            move |_, batch, lifetime, _, background, source_preemption| {
-                let entered = entered_tx.clone();
-                let first = first.take();
-                async move {
-                    assert!(!source_preemption.is_cancelled());
-                    entered.send(batch).await.unwrap();
-                    if let Some((hint_observed, delta_observed, full_wait)) = first {
-                        // The background signal acknowledges consumption of the
-                        // administrative hint, without a timer or scheduling guess.
-                        background.cancelled().await;
-                        hint_observed
-                            .send(source_preemption.is_cancelled())
-                            .unwrap();
-                        source_preemption.cancelled().await;
-                        assert!(!lifetime.is_cancelled());
-                        delta_observed.send(()).unwrap();
-                        full_wait.await.unwrap();
-                    }
-                    Ok(())
+        let producer = move |ctx: ProjectContext,
+                             batch: ChangeBatch,
+                             lifetime: Cancellation,
+                             _: crate::watcher::ProjectWatchControls,
+                             background: Cancellation,
+                             source_preemption: Cancellation| {
+            let entered = entered_tx.clone();
+            let first = first.take();
+            async move {
+                assert!(!source_preemption.is_cancelled());
+                let contents = fs::read(ctx.root().join("changed.rs")).ok();
+                entered.send((batch, contents)).await.unwrap();
+                if let Some((hint_observed, delta_observed, full_wait)) = first {
+                    // The background signal acknowledges consumption of the
+                    // administrative hint, without a timer or scheduling guess.
+                    background.cancelled().await;
+                    hint_observed
+                        .send(source_preemption.is_cancelled())
+                        .unwrap();
+                    source_preemption.cancelled().await;
+                    assert!(!lifetime.is_cancelled());
+                    delta_observed.send(()).unwrap();
+                    full_wait.await.unwrap();
                 }
-            },
-        )
-        .await
-        .unwrap();
-        let initial = timeout(Duration::from_secs(8), entered.recv())
+                Ok(())
+            }
+        };
+        let (owner, native_events) = if channel_rescan.is_some() {
+            let (watcher, sender) = ProjectWatcher::channel_fixture();
+            (
+                ProjectSupervisor::supervise(context(&root, "feature"), watcher, producer),
+                Some(sender),
+            )
+        } else {
+            (
+                ProjectSupervisor::start_controlled(
+                    context(&root, "feature"),
+                    config(&root),
+                    crate::watcher::ExternalControls::default(),
+                    producer,
+                )
+                .await
+                .unwrap(),
+                None,
+            )
+        };
+        let (initial, contents) = timeout(Duration::from_secs(8), entered.recv())
             .await
             .unwrap()
             .unwrap();
         assert!(initial.rescan);
+        assert!(contents.is_none());
         let handle = owner.rescan_handle();
         for _ in 0..1000 {
             assert!(handle.request_rescan());
         }
-        assert!(
-            !timeout(Duration::from_secs(8), hint)
-                .await
-                .unwrap()
-                .unwrap(),
-            "administrative hints must let the full source pass finish"
-        );
+        let preempted = timeout(Duration::from_secs(8), hint)
+            .await
+            .unwrap()
+            .unwrap();
+        if channel_rescan.is_some() {
+            assert!(
+                !preempted,
+                "administrative hints must let the full source pass finish"
+            );
+        }
         assert!(entered.try_recv().is_err());
         fs::write(&changed, "fn changed() {}\n").unwrap();
+        if let Some(sender) = native_events {
+            let rescan = channel_rescan.unwrap();
+            sender
+                .send(ChangeBatch {
+                    rescan,
+                    paths: if rescan {
+                        Default::default()
+                    } else {
+                        [changed.clone()].into()
+                    },
+                    ..Default::default()
+                })
+                .await
+                .unwrap();
+        }
         timeout(Duration::from_secs(8), delta)
             .await
             .unwrap()
@@ -749,15 +824,21 @@ mod tests {
             "native delta awaits owned cleanup"
         );
         release_full.send(()).unwrap();
-        let next = timeout(Duration::from_secs(8), entered.recv())
+        let (next, contents) = timeout(Duration::from_secs(8), entered.recv())
             .await
             .unwrap()
             .unwrap();
         assert!(next.rescan, "the administrative hint remains queued");
-        assert!(
-            next.paths.contains(&changed),
-            "the native FILE delta is retained"
-        );
+        assert!(next.error.is_none());
+        assert_eq!(contents.as_deref(), Some(b"fn changed() {}\n".as_slice()));
+        match channel_rescan {
+            Some(false) => assert!(
+                next.paths.contains(&changed),
+                "the native FILE delta is retained"
+            ),
+            Some(true) => assert!(next.paths.is_empty(), "a native rescan needs no FILE path"),
+            None => {} // The real full pass reconciles the file even after a global rescan.
+        }
         owner.stop().await.unwrap();
     }
 

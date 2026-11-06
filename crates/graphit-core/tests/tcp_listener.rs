@@ -49,9 +49,28 @@ fn ephemeral_reservation_reports_actual_address_and_releases_on_drop() {
         std::io::ErrorKind::AddrInUse
     );
     assert!(!format!("{bound:?}").contains(&address.to_string()));
+
+    // Keep this connection in the listener's accept queue. Its lifetime follows
+    // this socket even if another test reserves the address after we drop it.
+    let mut peer = TcpStream::connect_timeout(&address, Duration::from_secs(2)).unwrap();
+    peer.set_nonblocking(true).unwrap();
+    let mut byte = [0];
+    assert_eq!(
+        peer.read(&mut byte).unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+    peer.set_nonblocking(false).unwrap();
+    peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
     drop(bound);
-    let rebound = TcpListener::bind(address).expect("owner Drop releases its socket");
-    drop(rebound);
+    match peer.read(&mut byte) {
+        Ok(0) => (),
+        Err(error)
+            if matches!(
+                error.kind(),
+                std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::ConnectionAborted
+            ) => {}
+        result => panic!("owner Drop must close its queued connection: {result:?}"),
+    }
 }
 
 #[test]

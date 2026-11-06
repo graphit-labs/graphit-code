@@ -28,7 +28,9 @@ impl LiveSessionService {
     /// opening them again requires fresh Auth and fresh Core identity captures.
     pub async fn shutdown(&self, deadline: Instant) -> bool {
         self.request_stop();
-        let slots = match self.slots.try_lock() {
+        // Map access is synchronous and short. Contention with another stop
+        // request is not a pending execution; release it before joining slots.
+        let slots = match self.slots.lock() {
             Ok(slots) => slots.values().map(Arc::clone).collect::<Vec<_>>(),
             Err(_) => return false,
         };
