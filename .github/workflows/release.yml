@@ -350,7 +350,7 @@ jobs:
           cat ./*.tar.gz.sha256 > checksums.sha256
           sha256sum --check checksums.sha256
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: "Graphit Code ${{ github.ref_name }}"
           generate_release_notes: true
