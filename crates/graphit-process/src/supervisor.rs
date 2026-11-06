@@ -232,10 +232,6 @@ async fn run_command<S: IncrementalSink>(
             {
                 state.reject(reason);
             }
-            if !state.cleanup_expired && state.cleanup_end.is_some_and(|end| Instant::now() >= end)
-            {
-                state.expire_cleanup();
-            }
             if state.reason.is_none() && lease.is_closed() {
                 state.reject(stopped_reason(&lease));
             }
@@ -259,12 +255,14 @@ async fn run_command<S: IncrementalSink>(
                 _ = lease.closed(), if state.reason.is_none() => Event::Stopped(stopped_reason(&lease)),
                 _ = original.cancellation().cancelled(), if state.reason.is_none() => Event::Cancelled,
                 _ = sleep_until(Instant::from_std(lease.deadline)), if state.reason.is_none() => Event::Deadline,
-                _ = cleanup_clock(state.cleanup_end), if !state.cleanup_expired => Event::CleanupDeadline,
                 result = lease.slot.completed(), if !state.supervision_done => Event::Supervised(result.supervision),
                 result = input_result(&mut input), if input.is_some() => Event::Input(result),
                 _ = observer.changed(), if !state.supervision_done => Event::Observation,
                 result = stdout.read(state.reason.is_some()), if stdout.open() => Event::Read(Stream::Stdout, result),
                 result = stderr.read(state.reason.is_some()), if stderr.open() => Event::Read(Stream::Stderr, result),
+                // A ready native completion or EOF is an observation, not a
+                // new wait. Only pending work competes with the cleanup clock.
+                _ = cleanup_clock(state.cleanup_end), if !state.cleanup_expired => Event::CleanupDeadline,
             };
             let (stream, bytes) = match event {
                 Event::Read(stream, Ok(bytes)) => (stream, bytes),
@@ -281,7 +279,15 @@ async fn run_command<S: IncrementalSink>(
                     continue;
                 }
             };
-            if bytes == 0 || state.reason.is_some() {
+            if bytes == 0 {
+                continue;
+            }
+            if state.reason.is_some() {
+                // Ready bytes are still unfinished drain work. Do not let a
+                // continuously writable descendant starve the cleanup clock.
+                if state.cleanup_end.is_some_and(|end| Instant::now() >= end) {
+                    state.expire_cleanup();
+                }
                 continue;
             }
             let scratch = match stream {
@@ -320,6 +326,9 @@ async fn run_command<S: IncrementalSink>(
             tokio::pin!(pending);
             loop {
                 state.observe(*observer.borrow_and_update());
+                if let Err(reason) = check(original) {
+                    state.reject(reason);
+                }
                 if lease.is_closed() {
                     state.reject(stopped_reason(&lease));
                 }
@@ -331,11 +340,11 @@ async fn run_command<S: IncrementalSink>(
                     _ = lease.closed() => Event::Stopped(stopped_reason(&lease)),
                     _ = original.cancellation().cancelled() => Event::Cancelled,
                     _ = sleep_until(Instant::from_std(lease.deadline)) => Event::Deadline,
-                    _ = cleanup_clock(state.cleanup_end), if !state.cleanup_expired => Event::CleanupDeadline,
                     result = lease.slot.completed(), if !state.supervision_done => Event::Supervised(result.supervision),
                     result = input_result(&mut input), if input.is_some() => Event::Input(result),
                     _ = observer.changed(), if !state.supervision_done => Event::Observation,
                     result = &mut pending => Event::Pushed(result),
+                    _ = cleanup_clock(state.cleanup_end), if !state.cleanup_expired => Event::CleanupDeadline,
                 };
                 match event {
                     Event::Pushed(Ok(())) => {
@@ -368,22 +377,11 @@ async fn run_command<S: IncrementalSink>(
         stdout: stdout.end.expect("finalized stdout"),
         stderr: stderr.end.expect("finalized stderr"),
     };
-    let cleanup = match state
+    // A delivery/observation timeout is the operation's reason. Preserve the
+    // cleanup actually consumed from the SAME driver, including uncertainty.
+    let cleanup = state
         .cleanup
-        .unwrap_or_else(|| pending_cleanup(*observer.borrow()))
-    {
-        failed @ Cleanup::Failed(_) => failed,
-        failed @ Cleanup::ControlFailed { .. } => failed,
-        unknown @ Cleanup::Unconfirmed(
-            UnconfirmedCleanup::DriverPanic | UnconfirmedCleanup::HostPumpPanic,
-        ) => unknown,
-        uncertain @ Cleanup::Unconfirmed(
-            UnconfirmedCleanup::TreeUnknownWindows { control, .. }
-            | UnconfirmedCleanup::GroupUnknownUnix { control, .. },
-        ) if control != ControlFailures::default() => uncertain,
-        _ if state.cleanup_expired => Cleanup::TimedOut,
-        cleanup => cleanup,
-    };
+        .unwrap_or_else(|| pending_cleanup(*observer.borrow()));
     // Keep the terminal observation available when this caller stopped before
     // consuming it, even if the same driver has finished in the meantime.
     let remaining = if !state.supervision_done {
@@ -2736,6 +2734,123 @@ mod tests {
         }
         let report = host_fixture::joined(host).await;
         assert!(report.failure().is_none());
+    }
+
+    struct ReadyCallbackSink {
+        entered: Option<oneshot::Sender<()>>,
+        release: Option<oneshot::Receiver<()>>,
+    }
+    impl IncrementalSink for ReadyCallbackSink {
+        async fn push<'a>(
+            &'a mut self,
+            _: Chunk<'a>,
+            _: &'a SnapshotContext,
+        ) -> Result<(), SinkFailure> {
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+                self.release.take().unwrap().await.unwrap();
+            }
+            Ok(())
+        }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn late_observation_keeps_ready_callback_eof_and_real_cleanup() {
+        use graphit_core::file_lock::Cancellation;
+        for mode in ["ready", "cancelled", "deadline"] {
+            let host = host_fixture::install(1).await;
+            let signal = Cancellation::default();
+            let original = Arc::new(SnapshotContext::new(
+                std::time::Instant::now() + Duration::from_secs(3),
+                signal.clone(),
+            ));
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let mut request = native_setup_request(&listener, "held");
+            request.limits.cleanup = Duration::from_millis(200);
+            listener.set_nonblocking(true).unwrap();
+            let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+            let (stop, receiver) = operation(&original, &host).unwrap();
+            let slot = Arc::clone(&receiver.lease.slot);
+            let (entered_tx, entered_rx) = oneshot::channel();
+            let (release_tx, release_rx) = oneshot::channel();
+            let mut sink = ReadyCallbackSink {
+                entered: Some(entered_tx),
+                release: Some(release_rx),
+            };
+            let mut result = {
+                let call = run(request, &original, Retention::Full, &mut sink, receiver);
+                tokio::pin!(call);
+                tokio::select! {
+                    result = &mut call => panic!("native fixture ended before callback gate: {result:?}"),
+                    entered = entered_rx => entered.unwrap(),
+                }
+                // The real child remains alive at this gate. Release it, then
+                // observe the SAME Host record without polling the consumer.
+                let (mut peer, _) = listener.accept().await.unwrap();
+                let mut ready = [0];
+                peer.read_exact(&mut ready).await.unwrap();
+                assert_eq!(ready, *b"R");
+                peer.write_all(b"A").await.unwrap();
+                let terminal = slot.completed().await;
+                let endpoint = terminal.supervision.observation.cleanup_end.unwrap();
+                // The callback is ready before cleanup expires. Only its
+                // consumer's next poll is deliberately postponed past it.
+                release_tx.send(()).unwrap();
+                assert!(Instant::now() < endpoint);
+                if mode == "cancelled" {
+                    signal.cancel();
+                }
+                let resume = if mode == "deadline" {
+                    Instant::from_std(original.required_deadline().unwrap())
+                } else {
+                    endpoint
+                };
+                sleep_until(resume + Duration::from_millis(1)).await;
+                call.await
+            };
+            if let Err(failure) = &mut result
+                && let Some(remaining) = failure.remaining.as_mut()
+            {
+                remaining
+                    .repair(original.required_deadline().unwrap())
+                    .await;
+            }
+            drop(stop);
+            let report = host_fixture::joined(host).await;
+            assert!(report.failure().is_none());
+            let (cleanup, status, pipes) = if mode == "ready" {
+                let outcome = result.unwrap();
+                assert_eq!(outcome.delivered, outcome.observed);
+                assert!(outcome.observed.stdout > 0);
+                assert!(outcome.remaining.is_none());
+                (outcome.cleanup, Some(outcome.status), outcome.pipes)
+            } else {
+                let failure = result.unwrap_err();
+                assert_eq!(
+                    failure.reason,
+                    if mode == "cancelled" {
+                        Reason::Cancelled
+                    } else {
+                        Reason::TimedOut
+                    }
+                );
+                assert!(failure.remaining.is_none());
+                (failure.cleanup, failure.status, failure.pipes)
+            };
+            #[cfg(unix)]
+            assert_eq!(cleanup, Cleanup::Complete);
+            #[cfg(windows)]
+            assert_eq!(
+                cleanup,
+                Cleanup::Unconfirmed(UnconfirmedCleanup::TreeUnknownWindows {
+                    leader: LeaderCleanup::Reaped,
+                    control: ControlFailures::default(),
+                })
+            );
+            assert_eq!(status.unwrap().code(), Some(7));
+            assert_eq!(pipes.stdout, PipeEnd::Eof);
+            assert_eq!(pipes.stderr, PipeEnd::Eof);
+        }
     }
 
     struct BrokenReader;

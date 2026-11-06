@@ -55,10 +55,14 @@ pub(super) fn request(cancel: &Cancellation, deadline: Instant) -> RequestContex
     )
     .unwrap()
 }
+#[track_caller]
 fn applied(result: AuthDocumentPublication) {
-    assert_eq!(result.effect(), AuthPublicationEffect::Applied);
-    assert!(result.failure().is_none());
-    assert!(result.cleanup_failure().is_none());
+    assert_eq!(
+        (result.effect(), result.failure(), result.cleanup_failure()),
+        (AuthPublicationEffect::Applied, None, None),
+        "Auth publication cleanup effect: {:?}",
+        result.cleanup_effect(),
+    );
 }
 fn profile(key: &str) -> ProfileData {
     ProfileData {

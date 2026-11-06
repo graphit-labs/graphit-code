@@ -24,6 +24,10 @@ use tokio::{
     time::{Instant, sleep_until},
 };
 
+#[cfg(test)]
+#[path = "service_tests.rs"]
+mod tests;
+
 /// One cancellation-safe, borrowed delivery at a time. The signal is the actual Host service.
 pub trait ServiceSink {
     fn push<'a>(
@@ -750,10 +754,6 @@ pub async fn run_service<S: ServiceSink>(
             {
                 state.reject(reason);
             }
-            if !state.cleanup_expired && state.cleanup_end.is_some_and(|end| Instant::now() >= end)
-            {
-                state.expire_cleanup();
-            }
             if state.reason.is_none() && control.reason().is_some() {
                 state.reject(control.reason().unwrap_or(Reason::Stopped));
             }
@@ -774,11 +774,12 @@ pub async fn run_service<S: ServiceSink>(
                 biased;
                 _ = control.closed(), if state.reason.is_none() => Event::Stopped(control.reason().unwrap_or(Reason::Stopped)),
                 _ = control.service.cancelled(), if state.reason.is_none() => Event::Cancelled,
-                _ = cleanup_clock(state.cleanup_end), if !state.cleanup_expired => Event::CleanupDeadline,
                 result = control.slot.completed(), if !state.supervision_done => Event::Supervised(result.supervision),
                 _ = process.observer.changed(), if !state.supervision_done => Event::Observation,
                 result = stdout.read(state.reason.is_some()), if stdout.open() => Event::Read(Stream::Stdout, result),
                 result = stderr.read(state.reason.is_some()), if stderr.open() => Event::Read(Stream::Stderr, result),
+                // Observe ready native completion and EOF before expiring a wait.
+                _ = cleanup_clock(state.cleanup_end), if !state.cleanup_expired => Event::CleanupDeadline,
             };
             let (stream, bytes) = match event {
                 Event::Read(stream, Ok(bytes)) => (stream, bytes),
@@ -795,7 +796,14 @@ pub async fn run_service<S: ServiceSink>(
                     continue;
                 }
             };
-            if bytes == 0 || state.reason.is_some() {
+            if bytes == 0 {
+                continue;
+            }
+            if state.reason.is_some() {
+                // Ready bytes still require drain work and cannot renew its horizon.
+                if state.cleanup_end.is_some_and(|end| Instant::now() >= end) {
+                    state.expire_cleanup();
+                }
                 continue;
             }
             let scratch = match stream {
@@ -844,10 +852,10 @@ pub async fn run_service<S: ServiceSink>(
                     biased;
                     _ = control.closed() => Event::Stopped(control.reason().unwrap_or(Reason::Stopped)),
                     _ = control.service.cancelled() => Event::Cancelled,
-                    _ = cleanup_clock(state.cleanup_end), if !state.cleanup_expired => Event::CleanupDeadline,
                     result = control.slot.completed(), if !state.supervision_done => Event::Supervised(result.supervision),
                     _ = process.observer.changed(), if !state.supervision_done => Event::Observation,
                     result = &mut pending => Event::Pushed(result),
+                    _ = cleanup_clock(state.cleanup_end), if !state.cleanup_expired => Event::CleanupDeadline,
                 };
                 match event {
                     Event::Pushed(Ok(())) => {
@@ -880,22 +888,10 @@ pub async fn run_service<S: ServiceSink>(
         stdout: stdout.end.expect("finalized stdout"),
         stderr: stderr.end.expect("finalized stderr"),
     };
-    let cleanup = match state
+    // Observation/delivery failure does not replace an actual native cleanup result.
+    let cleanup = state
         .cleanup
-        .unwrap_or_else(|| pending_cleanup(*process.observer.borrow()))
-    {
-        failed @ Cleanup::Failed(_) => failed,
-        failed @ Cleanup::ControlFailed { .. } => failed,
-        unknown @ Cleanup::Unconfirmed(
-            UnconfirmedCleanup::DriverPanic | UnconfirmedCleanup::HostPumpPanic,
-        ) => unknown,
-        uncertain @ Cleanup::Unconfirmed(
-            UnconfirmedCleanup::TreeUnknownWindows { control, .. }
-            | UnconfirmedCleanup::GroupUnknownUnix { control, .. },
-        ) if control != ControlFailures::default() => uncertain,
-        _ if state.cleanup_expired => Cleanup::TimedOut,
-        cleanup => cleanup,
-    };
+        .unwrap_or_else(|| pending_cleanup(*process.observer.borrow()));
     // Match the cleanup observation consumed above rather than a later driver
     // snapshot, which could suppress the caller's only terminal observation.
     let remaining = (!state.supervision_done).then(|| ServiceRemaining {

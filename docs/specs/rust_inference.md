@@ -155,7 +155,13 @@ compiler-artifact result. They neither infer a target directory nor consume a
 binary left by another test. Default Kimi suites start their ignored peer entry
 point themselves; that one entry point is not an omitted scenario.
 
-CLI control uses readiness and ACKs under the same Original. Stalled HTTP bodies
+CLI control uses readiness and ACKs under the same Original. Sequence peers
+confirm a completed pipe write with an explicit probe/reply while retaining the
+ACK barrier; only the ACK releases the next write or process exit. Streaming
+checks require that reply after observing the callback and before its write's
+ACK, including on Windows, and reject
+EOF, unexpected control bytes, cancellation and expiry. They do not infer a live
+blocked peer from a platform-specific empty-socket read result. Stalled HTTP bodies
 remain gated until the caller returns its real error. Conversation concurrency
 uses private per-turn gates and observed authorization, rather than a fixed
 delay before assuming a second writer is waiting. Deliberate expiry tests still

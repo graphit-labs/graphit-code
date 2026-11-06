@@ -13,6 +13,8 @@ use graphit_http::client::{BoundedClient, ClientPolicy, Limits, NetworkEffect};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use serde_json::{Value, json};
 use std::{
+    future::Future,
+    pin::Pin,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -89,6 +91,43 @@ fn redacted(error: &DirectNativeRerankError) {
         "127.0.0.1",
     ] {
         assert!(!display.contains(private));
+    }
+}
+
+async fn await_response_headers(
+    tcp: &mut wire::Fixture,
+    call: Pin<&mut impl Future<Output = Result<Vec<f64>, DirectNativeRerankError>>>,
+) {
+    tokio::select! {
+        biased;
+        observed = tokio::time::timeout(Duration::from_secs(6), tcp.observed.notified()) => {
+            if observed.is_err() {
+                tcp.server.abort();
+                let _ = (&mut tcp.server).await;
+                panic!("rerank fixture did not send response headers");
+            }
+        }
+        result = call => {
+            tcp.server.abort();
+            let _ = (&mut tcp.server).await;
+            panic!("rerank completed before fixture headers: {result:?}");
+        }
+        result = &mut tcp.server => panic!(
+            "rerank fixture stopped before sending headers: {result:?}",
+            result = result.map(|requests| requests.len()),
+        ),
+    }
+}
+
+async fn finish_fixture(tcp: wire::Fixture) -> usize {
+    let mut server = tcp.server;
+    match tokio::time::timeout(Duration::from_secs(6), &mut server).await {
+        Ok(result) => result.unwrap().len(),
+        Err(_) => {
+            server.abort();
+            let _ = server.await;
+            panic!("rerank fixture did not shut down");
+        }
     }
 }
 
@@ -237,7 +276,7 @@ async fn physical_key_rotation_before_entry_prevents_send() {
 #[tokio::test]
 async fn physical_rotation_during_response_discards_all_output_with_remote_effect() {
     let release = Arc::new(Semaphore::new(0));
-    let tcp = fixture_with_barriers(
+    let mut tcp = fixture_with_barriers(
         vec![reply(rows(DirectProtocol::Cohere, &[0.8]))],
         vec![release.clone()],
     )
@@ -253,15 +292,12 @@ async fn physical_rotation_during_response_discards_all_output_with_remote_effec
     let lease = selection.credential().unwrap();
     let transport = client(&tcp.origin);
     let call = direct_native_rerank::score(&lease, "query", &["document"], &transport, limits(1));
-    let revoke = async {
-        tcp.observed.notified().await;
-        auth.rotate_key(&ctx);
-        let expected = lease.check().expect_err("rotation must revoke lease");
-        release.add_permits(1);
-        expected
-    };
-    let (result, expected) = tokio::join!(call, revoke);
-    let result = error(result);
+    tokio::pin!(call);
+    await_response_headers(&mut tcp, call.as_mut()).await;
+    auth.rotate_key(&ctx);
+    let expected = lease.check().expect_err("rotation must revoke lease");
+    release.add_permits(1);
+    let result = error(call.await);
     match &result {
         DirectNativeRerankError::Service { source, effect } => {
             assert_eq!(*effect, NetworkEffect::MayHaveApplied);
@@ -273,14 +309,14 @@ async fn physical_rotation_during_response_discards_all_output_with_remote_effec
         _ => panic!("expected typed Auth revocation"),
     }
     redacted(&result);
-    assert_eq!(tcp.server.await.unwrap().len(), 1);
+    assert_eq!(finish_fixture(tcp).await, 1);
 }
 
 #[tokio::test]
 async fn successful_prior_batch_and_later_physical_revocation_never_return_partial_scores() {
     let first = Arc::new(Semaphore::new(0));
     let second = Arc::new(Semaphore::new(0));
-    let tcp = fixture_with_barriers(
+    let mut tcp = fixture_with_barriers(
         vec![
             reply(rows(DirectProtocol::Voyage, &[0.8])),
             reply(rows(DirectProtocol::Voyage, &[0.7])),
@@ -305,19 +341,17 @@ async fn successful_prior_batch_and_later_physical_revocation_never_return_parti
         &transport,
         limits(1),
     );
-    let revoke = async {
-        tcp.observed.notified().await;
-        first.add_permits(1);
-        tcp.observed.notified().await;
-        auth.rotate_key(&ctx);
-        assert!(lease.check().is_err());
-        second.add_permits(1);
-    };
-    let (result, ()) = tokio::join!(call, revoke);
-    let result = error(result);
+    tokio::pin!(call);
+    await_response_headers(&mut tcp, call.as_mut()).await;
+    first.add_permits(1);
+    await_response_headers(&mut tcp, call.as_mut()).await;
+    auth.rotate_key(&ctx);
+    assert!(lease.check().is_err());
+    second.add_permits(1);
+    let result = error(call.await);
     assert!(matches!(result, DirectNativeRerankError::Service { .. }));
     assert_eq!(result.effect(), NetworkEffect::MayHaveApplied);
-    assert_eq!(tcp.server.await.unwrap().len(), 2);
+    assert_eq!(finish_fixture(tcp).await, 2);
 }
 
 #[tokio::test]
@@ -375,7 +409,7 @@ async fn original_pre_cancel_and_deadline_fail_before_send_with_real_causes() {
 async fn original_cancel_and_deadline_after_observed_send_preserve_effect() {
     for cancel in [true, false] {
         let release = Arc::new(Semaphore::new(0));
-        let tcp = fixture_with_barriers(
+        let mut tcp = fixture_with_barriers(
             vec![reply(rows(DirectProtocol::Jina, &[0.8]))],
             vec![release.clone()],
         )
@@ -396,14 +430,12 @@ async fn original_cancel_and_deadline_after_observed_send_preserve_effect() {
         let transport = client(&tcp.origin);
         let call =
             direct_native_rerank::score(&lease, "query", &["document"], &transport, limits(1));
-        let observe = async {
-            tcp.observed.notified().await;
-            if cancel {
-                cancellation.cancel();
-            }
-        };
-        let (result, ()) = tokio::join!(call, observe);
-        let result = error(result);
+        tokio::pin!(call);
+        await_response_headers(&mut tcp, call.as_mut()).await;
+        if cancel {
+            cancellation.cancel();
+        }
+        let result = error(call.await);
         assert_eq!(result.effect(), NetworkEffect::MayHaveApplied);
         match result {
             DirectNativeRerankError::Rerank {
@@ -420,7 +452,7 @@ async fn original_cancel_and_deadline_after_observed_send_preserve_effect() {
             _ => panic!("expected original inference context failure"),
         }
         release.add_permits(1);
-        assert_eq!(tcp.server.await.unwrap().len(), 1);
+        assert_eq!(finish_fixture(tcp).await, 1);
     }
 }
 

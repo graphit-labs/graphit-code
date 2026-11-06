@@ -34,5 +34,13 @@ pub async fn byte(peer: &mut TcpStream, original: &SnapshotContext) -> io::Resul
 }
 
 pub async fn acknowledge(peer: &mut TcpStream, original: &SnapshotContext) -> io::Result<()> {
-    bounded(original, peer.write_all(b"A")).await
+    command(peer, original, b'A').await
+}
+
+pub async fn command(
+    peer: &mut TcpStream,
+    original: &SnapshotContext,
+    command: u8,
+) -> io::Result<()> {
+    bounded(original, peer.write_all(&[command])).await
 }

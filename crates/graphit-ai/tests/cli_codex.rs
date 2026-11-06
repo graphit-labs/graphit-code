@@ -263,9 +263,9 @@ impl CodexSink for Sink<'_> {
             let p = self.peer.as_mut().unwrap();
             assert_eq!(read_byte(p, original).await, Some(b'L'));
             if self.events == 1 {
-                // The child cannot start its next write until this ACK.
-                let mut b = [0];
-                assert!(matches!(p.try_read(&mut b),Err(e) if e.kind()==io::ErrorKind::WouldBlock));
+                // Confirm this completed pipe write is still held by its ACK.
+                control::command(p, original, b'P').await.unwrap();
+                assert_eq!(read_byte(p, original).await, Some(b'W'));
                 self.pending_verified = true;
             }
             ack(p, original).await;

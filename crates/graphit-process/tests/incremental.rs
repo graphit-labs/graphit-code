@@ -580,7 +580,7 @@ async fn normal_exit_drain_cleanup_horizon_is_not_renewed_for_pending_sink() {
         .await
         .unwrap_err();
     assert_eq!(error.reason, Reason::Cleanup);
-    assert_eq!(error.cleanup, Cleanup::TimedOut);
+    assert_owned_cleanup(error.cleanup);
     assert_eq!(error.status.unwrap().code(), Some(7));
     assert_eq!(error.delivered, Counts::default());
     assert!(error.observed.stdout > 0);

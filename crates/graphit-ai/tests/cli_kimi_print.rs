@@ -282,8 +282,9 @@ async fn official_print_messages_stream_over_existing_process_without_retention(
         ack(&mut p, &c).await;
         assert_eq!(byte(&mut p, &c).await, Some(b'L'));
         started.notified().await;
-        // Native is still awaiting this ACK: the callback occurred before exit/EOF.
-        assert!(matches!(p.try_read(&mut [0]),Err(e) if e.kind()==io::ErrorKind::WouldBlock));
+        // Confirm the callback ran while the native child still awaits this ACK.
+        control::command(&mut p, &c, b'P').await.unwrap();
+        assert_eq!(byte(&mut p, &c).await, Some(b'W'));
         ack(&mut p, &c).await;
         for _ in 0..2 {
             assert_eq!(byte(&mut p, &c).await, Some(b'L'));

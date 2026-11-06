@@ -64,6 +64,12 @@ fn run() -> io::Result<i32> {
                 emit(stream, &bytes)?;
                 let mut ack = [0];
                 peer.read_exact(&mut ack)?;
+                if ack == *b"P" {
+                    // Confirm the pipe write completed and the child is alive
+                    // inside this ACK barrier. A probe never releases a write.
+                    peer.write_all(b"W")?;
+                    peer.read_exact(&mut ack)?;
+                }
                 if ack != *b"A" {
                     return Err(invalid());
                 }
