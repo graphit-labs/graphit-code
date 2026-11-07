@@ -708,7 +708,7 @@ enum Access {
         mac_access: graphit_fs::MacAccessSnapshot,
     },
     #[cfg(windows)]
-    Windows(OsString),
+    Windows(graphit_fs::WindowsDocumentAccess),
     #[cfg(windows)]
     WindowsProject(graphit_fs::WindowsDocumentAccess),
 }
@@ -735,25 +735,18 @@ impl Access {
                 digest.finalize().into()
             }
             #[cfg(windows)]
-            Self::WindowsProject(access) => {
+            Self::Windows(access) | Self::WindowsProject(access) => {
                 let mut digest = Sha256::new();
-                digest.update(b"graphit/native-access/windows-project\0");
+                // Access data is independent of the capture's capability. Both
+                // PROJECT reads and publication receipts observe the same bounded
+                // owner/group/DACL descriptor, without rewriting or sorting ACLs.
+                digest.update(b"graphit/native-access/windows-descriptor\0");
                 let mut remaining = access.byte_length();
                 for word in access.words() {
                     let bytes = word.to_ne_bytes();
                     let count = remaining.min(4);
                     digest.update(&bytes[..count]);
                     remaining -= count;
-                }
-                digest.finalize().into()
-            }
-            #[cfg(windows)]
-            Self::Windows(sddl) => {
-                use std::os::windows::ffi::OsStrExt;
-                let mut digest = Sha256::new();
-                digest.update(b"graphit/native-access/windows\0");
-                for unit in sddl.encode_wide() {
-                    digest.update(unit.to_le_bytes());
                 }
                 digest.finalize().into()
             }
@@ -828,11 +821,11 @@ pub(crate) fn observe_handle_checked(
         if links != 1 {
             return Err(conflict());
         }
-        let sddl = graphit_fs::access_snapshot(file)?;
-        if native_bytes(&sddl)? > access_bytes {
-            return Err(io::ErrorKind::FileTooLarge.into());
-        }
-        Access::Windows(sddl)
+        Access::Windows(graphit_fs::windows_document_access_snapshot(
+            file,
+            access_bytes,
+            before,
+        )?)
     };
     before()?;
     Ok(FileObservation {

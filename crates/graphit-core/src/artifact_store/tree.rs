@@ -1661,17 +1661,56 @@ mod path_string_tests {
 
     #[test]
     fn relative_strings_preserve_source_paths_and_reject_escape() {
-        for text in [
-            "",
-            "docs/ação com espaços/日本語.md",
-            "quote\"and\\slash\tline\n",
+        for (path, text) in [
+            (PathBuf::new(), String::new()),
+            (
+                PathBuf::from("docs")
+                    .join("ação com espaços")
+                    .join("日本語.md"),
+                format!(
+                    "docs{0}ação com espaços{0}日本語.md",
+                    std::path::MAIN_SEPARATOR
+                ),
+            ),
+            (
+                PathBuf::from("quote\"and\\slash\tline\n"),
+                "quote\"and\\slash\tline\n".to_owned(),
+            ),
         ] {
-            let value = RelativePath(PathBuf::from(text));
+            let value = RelativePath(path);
             let encoded = serde_json::to_value(&value).unwrap();
             assert_eq!(encoded, serde_json::json!(text));
             assert!(serde_json::from_value::<RelativePath>(encoded).unwrap() == value);
         }
         for text in ["../outside", "a/../outside", "/absolute", "nul\0"] {
+            assert!(serde_json::from_value::<RelativePath>(serde_json::json!(text)).is_err());
+        }
+    }
+
+    #[test]
+    fn relative_strings_require_native_canonical_spelling_on_both_serde_boundaries() {
+        for path in [
+            PathBuf::from("a").join("..").join("outside"),
+            PathBuf::from(format!("a{0}{0}b", std::path::MAIN_SEPARATOR)),
+            PathBuf::from(format!("a{0}.{0}b", std::path::MAIN_SEPARATOR)),
+            PathBuf::from(format!("a{}", std::path::MAIN_SEPARATOR)),
+        ] {
+            assert!(serde_json::to_value(RelativePath(path.clone())).is_err());
+            assert!(
+                serde_json::from_value::<RelativePath>(serde_json::json!(path.to_str().unwrap()))
+                    .is_err()
+            );
+        }
+        #[cfg(windows)]
+        for text in [
+            "docs/non-native-slash",
+            "C:\\absolute",
+            "C:drive-relative",
+            "\\rooted",
+            "\\\\server\\share\\file",
+            "file:stream",
+        ] {
+            assert!(serde_json::to_value(RelativePath(PathBuf::from(text))).is_err());
             assert!(serde_json::from_value::<RelativePath>(serde_json::json!(text)).is_err());
         }
     }

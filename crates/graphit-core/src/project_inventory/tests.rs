@@ -310,9 +310,22 @@ fn original_request_cancel_deadline_and_root_change_deny_publication() {
     let fresh = request();
     let cap = f.capture(&fresh, "");
     let mut writer = f.writer(&fresh);
-    fs::rename(f.project.root(), f._temp.path().join("moved")).unwrap();
-    fs::create_dir(f.project.root()).unwrap();
-    assert!(writer.register_checkout(&cap).is_err());
+    let moved = f._temp.path().join("moved");
+    let renamed = fs::rename(f.project.root(), &moved);
+    #[cfg(unix)]
+    {
+        renamed.unwrap();
+        fs::create_dir(f.project.root()).unwrap();
+        assert!(writer.register_checkout(&cap).is_err());
+    }
+    #[cfg(windows)]
+    {
+        // The admitted native checkout handle prevents the replacement itself.
+        assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
+        assert!(!moved.exists());
+        assert!(f.project.root().is_dir());
+        assert!(!writer.register_checkout(&cap).unwrap());
+    }
     assert_eq!(fs::read(f.store().path()).unwrap(), bytes);
 }
 #[test]

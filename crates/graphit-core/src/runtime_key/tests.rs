@@ -133,8 +133,25 @@ fn installation_binding_denies_wrong_brand_root_and_full_realm_retarget() {
     let scope = realm(&root, "graphit");
     let before = fs::metadata(&runtime).unwrap().modified().unwrap();
     fs::rename(&runtime, root.join("old-runtime")).unwrap();
-    graphit_fs::create_private_directory(&runtime)
-        .unwrap()
+    let replacement = graphit_fs::create_private_directory(&runtime).unwrap();
+    #[cfg(windows)]
+    let replacement = {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{
+            FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+            FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES,
+        };
+        drop(replacement);
+        // Timestamp spoofing is an explicit fixture operation; production
+        // directory captures correctly do not request WRITE_ATTRIBUTES.
+        fs::OpenOptions::new()
+            .access_mode(FILE_WRITE_ATTRIBUTES)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(&runtime)
+            .unwrap()
+    };
+    replacement
         .set_times(std::fs::FileTimes::new().set_modified(before))
         .unwrap();
     assert_eq!(fs::metadata(&runtime).unwrap().modified().unwrap(), before);
@@ -507,7 +524,7 @@ fn replaced_lease_and_directory_denied_without_repair() {
             owner.namespace.directory.identity().clone(),
             crate::native_file_identity::handle_id(owner.namespace.lease.file()).unwrap(),
             fs::read(key(&root)).unwrap(),
-            fs::read(owner.namespace.lease.path()).unwrap(),
+            owner.namespace.lease.file().metadata().unwrap().len(),
         );
         let selected = if directory {
             root.join("daemon")
@@ -532,6 +549,13 @@ fn replaced_lease_and_directory_denied_without_repair() {
         {
             // Both the real lease and its held directory exclude delete sharing.
             assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
+            assert_eq!(before.3, 0);
+            assert_eq!(
+                fs::read(owner.namespace.lease.path())
+                    .unwrap_err()
+                    .raw_os_error(),
+                Some(33)
+            );
             let current = context();
             owner.namespace.check(&current).unwrap();
             assert!(
@@ -556,7 +580,10 @@ fn replaced_lease_and_directory_denied_without_repair() {
                 before.2.as_slice()
             );
             assert_eq!(fs::read(key(&root)).unwrap(), before.2);
-            assert_eq!(fs::read(owner.namespace.lease.path()).unwrap(), before.3);
+            assert_eq!(
+                fs::metadata(owner.namespace.lease.path()).unwrap().len(),
+                before.3
+            );
             assert!(!root.join("foreign-old").exists());
             assert!(!stage(&root).exists());
         }

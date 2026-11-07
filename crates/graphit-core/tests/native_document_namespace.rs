@@ -105,8 +105,18 @@ fn public_provider_parent_private_namespace_and_permanent_lock_without_document_
         0
     );
     let before = CapturedDocumentDirectory::capture(&provider.join(NS), limits(), &ctx).unwrap();
-    let observed = before.read(OsStr::new("lock"), &ctx).unwrap();
+    #[cfg(windows)]
+    assert_eq!(
+        before
+            .read(OsStr::new("lock"), &ctx)
+            .err()
+            .unwrap()
+            .raw_os_error(),
+        Some(32)
+    );
     drop(held);
+    let observed = before.read(OsStr::new("lock"), &ctx).unwrap();
+    assert_eq!(observed.bytes(), Some([].as_slice()));
     let reopened = slot(&scope, &provider, &ctx);
     assert!(id == reopened.directory_identity());
     drop(reopened.lock(&ctx).unwrap());

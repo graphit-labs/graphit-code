@@ -112,6 +112,18 @@ the cancelled pre-effect token for its verified receipt. A native Original,
 when present, is still checked; its failure preserves the pending operation for
 freshly authorized recovery rather than claiming rollback or completion.
 
+Windows Copy and Link renames retain the existing durable `Movement` until the
+destination receipt is refreshed. NTFS can transfer CreationTime from a former
+destination through [file tunneling](https://learn.microsoft.com/en-us/dotnet/api/system.io.filesysteminfo.creationtimeutc).
+Only an absent recorded source and present recorded destination enter this
+transition. A copied root must retain its volume and full FileID128; a changed
+CreationTime requires verification of the complete tree, including every other
+identity, kind, mode, length and content hash, before persisting the new receipt.
+Links retain their literal target and native object identity. `RefreshProof` is
+durable before clearing `Movement`, including recovery after a rename whose
+journal completion was interrupted. Ordinary identity comparisons remain exact;
+unrelated entries and changed content are conflicts.
+
 Affected tests cover writer collisions, catalogue substitution, write/sync failures, baseline conflicts, phase/outcome serialization, cancellation, timeout, restart recovery and acknowledgement/release.
 
 ## Recreating a deleted owned profile

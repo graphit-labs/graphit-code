@@ -1557,10 +1557,24 @@ mod tests {
         scope.revalidate_bounded(&context).unwrap();
         assert!(scope.binding().unwrap().directory_count() > record.directory_count());
         assert!(record.matches_scope_bounded(&scope, &context).unwrap());
-        fs::rename(scope.owner_root(), temp.path().join("moved")).unwrap();
-        // A data match is deliberately not fresh physical revalidation.
-        assert!(record.matches_scope_bounded(&scope, &context).unwrap());
-        assert!(scope.revalidate_bounded(&context).is_err());
+        let moved = temp.path().join("moved");
+        let renamed = fs::rename(scope.owner_root(), &moved);
+        #[cfg(unix)]
+        {
+            renamed.unwrap();
+            // A data match is deliberately not fresh physical revalidation.
+            assert!(record.matches_scope_bounded(&scope, &context).unwrap());
+            assert!(scope.revalidate_bounded(&context).is_err());
+        }
+        #[cfg(windows)]
+        {
+            // The retained native directory denies retargeting before it can
+            // change the filesystem. The unchanged scope remains valid.
+            assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
+            assert!(!moved.exists());
+            assert!(record.matches_scope_bounded(&scope, &context).unwrap());
+            scope.revalidate_bounded(&context).unwrap();
+        }
     }
     #[test]
     fn binding_comparison_denies_poison_without_recovery() {

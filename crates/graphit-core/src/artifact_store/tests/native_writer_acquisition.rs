@@ -85,7 +85,7 @@ fn project_writer_births_global_store_outside_checkout_and_returns_runtime_guard
         .create_record_directory(ProjectRecordDirectory::Memory, record_limits())
         .unwrap();
     let runtime = global.join("projects").join(ID);
-    assert_eq!(store.runtime_root(), runtime);
+    assert_eq!(store.runtime_root(), fs::canonicalize(&runtime).unwrap());
     assert!(runtime.join("artifact-store.lock").is_file());
     fs::write(runtime.join("memory/selected"), b"GLOBAL").unwrap();
     assert_eq!(

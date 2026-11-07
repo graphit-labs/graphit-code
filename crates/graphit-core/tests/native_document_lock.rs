@@ -47,9 +47,20 @@ fn private_birth_reopen_and_drop_preserve_empty_permanent_entry() {
     let directory = capture(&root, &ctx);
     let guard = acquire(&directory, &ctx).unwrap();
     guard.revalidate().unwrap();
+    assert_eq!(fs::metadata(root.join("document.lock")).unwrap().len(), 0);
+    #[cfg(windows)]
+    assert_eq!(
+        directory
+            .read(OsStr::new("document.lock"), &ctx)
+            .err()
+            .unwrap()
+            .raw_os_error(),
+        Some(32)
+    );
+    // Observe content only after releasing the lock's native sharing contract.
+    drop(guard);
     let before = directory.read(OsStr::new("document.lock"), &ctx).unwrap();
     assert_eq!(before.bytes(), Some([].as_slice()));
-    drop(guard);
     let next = capture(&root, &ctx);
     drop(acquire(&next, &ctx).unwrap());
     directory.revalidate_observation(&before, &ctx).unwrap();

@@ -76,21 +76,41 @@ The cache contains package archives, not a copied installed directory. It sets
 `VCPKG_BINARY_SOURCES=clear;files,<absolute cache path>,readwrite` so an image's
 other providers are not inherited. It does not use the removed `x-gha` provider.
 
-## Manual Windows Core/FS feedback
+## Manual platform and Core/FS feedback
 
 The existing workflow accepts the fixed `suite` choices `standard` (the default)
-and `core-fs`. Pushes, pull requests and manual `standard` runs retain the full
-matrix and its existing jobs. A manual `core-fs` run starts only the Windows
-Core/FS job, with a 20-minute job limit and a concurrency group separate from
-standard runs on the same ref. Unsupported manual suite values fail before
-preparation.
+and `core-fs`, plus a `platform` choice: `all` (the default), `linux-amd64`,
+`darwin-arm64` or `windows-amd64`. Pushes, pull requests and manual
+`suite=standard, platform=all` runs retain the full three-platform matrix and its
+existing build parallelism. A focal standard run selects one native matrix row;
+workflow lint, UI build/lint/tests and native packaging checks still run.
+
+A lightweight selector validates inputs before any build preparation.
+Unsupported or empty manual values fail explicitly. Only after validation do
+consumer jobs join concurrency groups, separated by ref, suite, platform and
+job, plus the native matrix OS where applicable. Default push/pull-request jobs
+share the corresponding manual `standard/all` groups on the same ref. Matrix
+rows run in parallel, a focal platform run does not cancel an `all` run, and
+invalid selections cannot cancel valid consumer jobs.
+
+The `core-fs` suite starts only the Windows Core/FS job, with a 20-minute job
+limit. It accepts `platform=all` to preserve the existing dispatch default, or
+`platform=windows-amd64`; Linux and macOS selections fail before preparation.
 
 Push a topic ref such as `codex/native-regressions` containing the workflow and
-the fixes, then dispatch that ref explicitly:
+the fixes, then dispatch that ref explicitly. For the complete standard suite
+on Windows:
 
 ```sh
 gh workflow run ci.yml --repo graphit-labs/graphit-code \
-  --ref codex/native-regressions -f suite=core-fs
+  --ref codex/native-regressions -f suite=standard -f platform=windows-amd64
+```
+
+For the narrower Core/FS feedback:
+
+```sh
+gh workflow run ci.yml --repo graphit-labs/graphit-code \
+  --ref codex/native-regressions -f suite=core-fs -f platform=windows-amd64
 ```
 
 The workflow file must already exist on the repository's default branch;
@@ -112,8 +132,10 @@ The wrapper's exact package selection avoids the Ladybug dependency and App
 fixture preparation. The job does not prepare C++, models or Docker, and does not
 build App/Daemon fixture binaries. It restores and saves only Cargo sources;
 partial compiled outputs never enter the standard compiled-cache namespaces.
-A successful focal run qualifies Core/FS on that Windows ref; the standard
-matrix remains the broader integration check.
+A successful `core-fs` run qualifies Core/FS on that Windows ref. A successful
+focal standard run qualifies the selected platform and the accompanying checks;
+it does not qualify the other two platforms. The standard `all` matrix remains
+the broader integration check.
 
 ## Invalidation
 
@@ -124,20 +146,32 @@ runner image version, platform SDK and native-library package versions. Windows
 also records the vcpkg checkout, MSVC toolset and Windows SDK. Relevant compiler,
 linker, profile, target and native-tool environment settings contribute to it.
 Native option families `GGML_*`, `LLAMA_*`, `CMAKE_*`, `CARGO_PROFILE_*`, `CUDA*`,
-`CUDNN*` and `LBUG_*` also contribute when present. Their values are hashed without
-printing them; logs show tool versions and option names.
+`CUDNN*` and `LBUG_*` also contribute when present. Compiler aliases matching
+`CC_*`/`CXX_*` and the exact names `HOST_CC`, `HOST_CXX`, `TARGET_CC` and
+`TARGET_CXX` contribute when present; unrelated host environment variables do
+not. Their values are hashed without printing them; logs show tool versions and
+option names.
 
 The native key hashes the lockfile, root, xtask and `graphit-ast` manifests
 (the latter selects the Ladybug binding),
-Rust toolchain, Cargo configuration, this workflow and `xtask/src/ladybug.rs`,
+Rust toolchain, Cargo configuration and `xtask/src/ladybug.rs`,
 which selects the engine options. Other member manifests do not select the native
 engine build. Changing a test feature in Core or Daemon therefore leaves that
-key unchanged when the native inputs remain the same.
+key unchanged when the native inputs remain the same. The workflow file itself
+is excluded from this native hash, so later changes only to the CI matrix or
+input validation preserve the engine cache when its actual inputs and ABI stay
+the same. Compiler selection, flags, CRT, toolchain and engine source/preparer
+changes still participate in invalidation.
 
-The compiled Rust key has a compatibility digest containing those same inputs
-plus member `build.rs` files. Its exact key additionally hashes every member
-manifest and the source revision. The restore prefix ends after the compatibility
-digest: changes to ordinary member manifests can restore existing dependencies,
+Removing the workflow from this hash changes the existing exact native key once.
+The first run must populate that new key; there is no restore fallback to the old
+key and no immediate speedup promised for that run. The compiled Rust and Windows
+package keys continue to hash the workflow.
+
+The compiled Rust key has a compatibility digest containing those same inputs,
+plus this workflow and member `build.rs` files. Its exact key additionally hashes
+every member manifest and the source revision. The restore prefix ends after the
+compatibility digest: changes to ordinary member manifests can restore existing dependencies,
 then Cargo's fingerprints select which features, dependencies and sources need
 rebuilding. Native binding, build-script, lockfile, configuration, toolchain and
 ABI changes still invalidate that prefix.

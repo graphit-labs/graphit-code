@@ -2327,7 +2327,8 @@ fn noncanonical_manifest_relatives_reject_recovery_without_effects_or_import() {
             }
             let canonical_bytes = fs::read(f.store.manifest_path()).unwrap();
             let canonical =
-                serde_json::to_value(tree::RelativePath(PathBuf::from("nested/binary"))).unwrap();
+                serde_json::to_value(tree::RelativePath(PathBuf::from("nested").join("binary")))
+                    .unwrap();
             for spelling in ["nested/./binary", "nested//binary", "nested/binary/"] {
                 let alias = serde_json::json!(spelling);
                 let mut malformed: serde_json::Value =
@@ -4845,7 +4846,7 @@ fn cancellation_at_final_rename_boundary_preserves_unpublished_and_old_destinati
 
 #[test]
 fn private_relative_codec_preserves_root_and_nested_names_without_public_bypass() {
-    for path in [PathBuf::new(), PathBuf::from("nested/name")] {
+    for path in [PathBuf::new(), PathBuf::from("nested").join("name")] {
         let value = tree::RelativePath(path.clone());
         let bytes = serde_json::to_vec(&value).unwrap();
         assert_eq!(

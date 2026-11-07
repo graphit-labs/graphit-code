@@ -23,7 +23,10 @@ pub(super) struct Receipt {
     pub target: NativePath,
 }
 impl Receipt {
-    pub fn same_identity(&self, other: &Self) -> bool {
+    /// Only for a durably recorded rename whose source is now absent. NTFS may
+    /// tunnel CreationTime at the destination; the volume, full file ID and
+    /// literal link target must still identify the same moved object.
+    pub fn same_moved_object(&self, other: &Self) -> bool {
         if !same_target(&self.target.0, &other.target.0) {
             return false;
         }
@@ -44,14 +47,14 @@ impl Receipt {
                 Stamp::Windows {
                     volume: a,
                     index: b,
-                    created: c,
+                    ..
                 },
                 Stamp::Windows {
                     volume: d,
                     index: e,
-                    created: f,
+                    ..
                 },
-            ) => a == d && b == e && c == f,
+            ) => a == d && b == e,
             _ => false,
         }
     }

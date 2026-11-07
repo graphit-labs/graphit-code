@@ -379,9 +379,14 @@ impl Operation {
             }
             if let Proof::Copy { tree, .. } = proof {
                 let root = tree.nodes.first().ok_or_else(invalid)?;
-                if !root.content.directory()
-                    || !matches!(root.mode, tree::Mode::Unix(mode) if mode & 0o200 == 0)
-                {
+                let movable = match root.mode {
+                    #[cfg(windows)]
+                    tree::Mode::Windows(_) => true,
+                    #[cfg(unix)]
+                    tree::Mode::Unix(mode) => root.content.directory() && mode & 0o200 == 0,
+                    _ => false,
+                };
+                if !movable {
                     return Err(invalid());
                 }
             }
@@ -610,7 +615,7 @@ impl ArtifactWriter {
                 if if from_present {
                     &observed != expected
                 } else {
-                    !observed.same_identity(expected)
+                    !observed.same_moved_object(expected)
                 } {
                     return Err(error(
                         ArtifactStage::RecoveryConflict,
@@ -638,8 +643,14 @@ impl ArtifactWriter {
                 }
             }
             Proof::Copy { tree, .. } => {
-                let root = tree.nodes.first().ok_or_else(conflict)?;
-                tree::checked_node(path, root, Some(Access::Move), false)
+                let root = tree.nodes.first().cloned().ok_or_else(conflict)?;
+                #[cfg(windows)]
+                let root = if from_present {
+                    root
+                } else {
+                    self.refresh_windows_moved_copy(document, operation, movement, path)?
+                };
+                tree::checked_node(path, &root, Some(Access::Move), false)
                     .map_err(|e| at(ArtifactStage::RecoveryConflict, e))?;
                 root.mode
                     .set(path)
@@ -650,6 +661,84 @@ impl ArtifactWriter {
         }
         operation.movement = None;
         self.set_operation(document, operation, ArtifactStage::ClearMove)
+    }
+    #[cfg(windows)]
+    fn refresh_windows_moved_copy(
+        &self,
+        document: &mut Document,
+        operation: &mut Operation,
+        movement: Movement,
+        path: &Path,
+    ) -> ArtifactResult<NodeReceipt> {
+        let (_, _, proof, _) = operation
+            .moved_proof(movement)
+            .map_err(|e| at(ArtifactStage::RecoveryConflict, e))?;
+        let Proof::Copy { tree, .. } = proof else {
+            return Err(conflict());
+        };
+        let root = tree.nodes.first().ok_or_else(conflict)?;
+        let metadata =
+            fs::symlink_metadata(path).map_err(|e| at(ArtifactStage::RecoveryConflict, e))?;
+        let actual = tree::physical_id(path, &metadata)
+            .map_err(|e| at(ArtifactStage::RecoveryConflict, e))?;
+        if actual == root.id {
+            return Ok(root.clone());
+        }
+        // A pending, exclusive rename can change the root CreationTime through
+        // NTFS tunneling. This is not a general identity comparison or adoption:
+        // both locations, the complete FileId128 and all content remain fenced.
+        let (
+            tree::PhysicalId::Windows { volume, index, .. },
+            tree::PhysicalId::Windows {
+                volume: observed_volume,
+                index: observed_index,
+                ..
+            },
+        ) = (&root.id, &actual)
+        else {
+            return Err(error(
+                ArtifactStage::RecoveryConflict,
+                io::ErrorKind::AlreadyExists,
+            ));
+        };
+        if volume != observed_volume || index != observed_index {
+            return Err(error(
+                ArtifactStage::RecoveryConflict,
+                io::ErrorKind::AlreadyExists,
+            ));
+        }
+        let mut refreshed = proof.clone();
+        let Proof::Copy { tree, .. } = &mut refreshed else {
+            return Err(conflict());
+        };
+        let root = tree.nodes.first_mut().ok_or_else(conflict)?;
+        root.id = actual;
+        root.verified = None;
+        let root = root.clone();
+        self.verify_tree(
+            tree,
+            path,
+            Some(Access::Move),
+            false,
+            &Cancellation::default(),
+        )
+        .map_err(|e| at(ArtifactStage::RecoveryConflict, e))?;
+        match movement {
+            Movement::Publish => operation.prepared = Some(refreshed),
+            Movement::Detach => {
+                let old = operation.old.as_mut().ok_or_else(conflict)?;
+                old.receipt = refreshed;
+                let entry = document
+                    .entries
+                    .iter_mut()
+                    .find(|e| e.matches_publication(old.publication_slot(), old.key()))
+                    .ok_or_else(conflict)?;
+                *entry = old.clone();
+            }
+        }
+        // The movement stays recorded until the new full receipt is durable.
+        self.set_operation(document, operation, ArtifactStage::RefreshProof)?;
+        Ok(root)
     }
     fn rename_owned(
         &self,
@@ -668,7 +757,7 @@ impl ArtifactWriter {
             root.content.directory()
                 && matches!(root.mode, tree::Mode::Unix(mode) if mode & 0o200 == 0)
         });
-        let recorded = grant || matches!(proof, Proof::Link { .. });
+        let recorded = grant || matches!(proof, Proof::Link { .. }) || cfg!(windows);
         if cancellable {
             self.scope_context.check().map_err(|e| at(stage, e))?;
         }

@@ -383,7 +383,7 @@ fn windows_owned_range_does_not_pin_root_after_reader_drop() {
     assert_eq!(bytes.as_ref(), b"memory");
     assert_eq!(
         std::fs::read(moved.join("Memory").join("data")).unwrap(),
-        b"memory"
+        b"memory-data"
     );
     drop(bytes);
     drop(birth);

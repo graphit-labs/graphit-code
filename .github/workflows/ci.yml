@@ -15,29 +15,76 @@ on:
         options:
           - standard
           - core-fs
+      platform:
+        description: Native validation platform
+        type: choice
+        required: true
+        default: all
+        options:
+          - all
+          - linux-amd64
+          - darwin-arm64
+          - windows-amd64
 
 permissions:
   contents: read
 
-concurrency:
-  group: ci-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.suite != 'standard' && '-core-fs' || '' }}
-  cancel-in-progress: true
-
 jobs:
+
+  select-platforms:
+    name: Validate suite and platform
+    runs-on: ubuntu-22.04
+    outputs:
+      suite: ${{ steps.select.outputs.suite }}
+      platform: ${{ steps.select.outputs.platform }}
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Select native matrix
+        id: select
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SUITE: ${{ inputs.suite }}
+          PLATFORM: ${{ inputs.platform }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" != workflow_dispatch ]]; then
+            SUITE=standard
+            PLATFORM=all
+          fi
+          case "$SUITE" in
+            standard|core-fs) ;;
+            *) echo 'Unsupported suite: choose standard or core-fs' >&2; exit 1 ;;
+          esac
+          case "$PLATFORM" in
+            all|linux-amd64|darwin-arm64|windows-amd64) ;;
+            *) echo 'Unsupported platform: choose all, linux-amd64, darwin-arm64 or windows-amd64' >&2; exit 1 ;;
+          esac
+          selection_platform=$PLATFORM
+          if [[ "$SUITE" == core-fs ]]; then
+            case "$PLATFORM" in
+              all|windows-amd64) PLATFORM=windows-amd64 ;;
+              *) echo 'The core-fs suite supports only all or windows-amd64' >&2; exit 1 ;;
+            esac
+          fi
+          case "$PLATFORM" in
+            all) matrix='{"include":[{"os":"ubuntu-22.04","build-jobs":4},{"os":"macos-15","build-jobs":2},{"os":"windows-2022","build-jobs":4}]}' ;;
+            linux-amd64) matrix='{"include":[{"os":"ubuntu-22.04","build-jobs":4}]}' ;;
+            darwin-arm64) matrix='{"include":[{"os":"macos-15","build-jobs":2}]}' ;;
+            windows-amd64) matrix='{"include":[{"os":"windows-2022","build-jobs":4}]}' ;;
+          esac
+          printf 'suite=%s\nplatform=%s\nmatrix=%s\n' "$SUITE" "$selection_platform" "$matrix" >> "$GITHUB_OUTPUT"
 
   rust-contracts:
     name: Rust contracts (${{ matrix.os }})
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'standard' }}
+    needs: select-platforms
+    if: ${{ needs.select-platforms.outputs.suite == 'standard' }}
+    concurrency:
+      group: ci-${{ github.ref }}:${{ needs.select-platforms.outputs.suite }}:${{ needs.select-platforms.outputs.platform }}:rust-contracts:${{ matrix.os }}
+      cancel-in-progress: true
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-22.04
-            build-jobs: 4
-          - os: macos-15
-            build-jobs: 2
-          - os: windows-2022
-            build-jobs: 4
+      matrix: ${{ fromJSON(needs.select-platforms.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     env:
       CARGO_BUILD_JOBS: ${{ matrix.build-jobs }}
@@ -184,8 +231,8 @@ jobs:
                   memory = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
           names = ("ImageOS", "ImageVersion", "CC", "CXX", "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "RUSTFLAGS", "RUSTDOCFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_TARGET", "CARGO_INCREMENTAL", "CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG", "CMAKE_GENERATOR", "CMAKE_TOOLCHAIN_FILE", "CMAKE_PLATFORM_NO_VERSIONED_SONAME", "OPENSSL_DIR", "OPENSSL_ROOT_DIR", "PKG_CONFIG", "LIBCLANG_PATH", "VCToolsVersion", "WindowsSDKVersion", "GRAPHIT_CI_VCPKG_REVISION")
           options = {name: os.environ.get(name, "") for name in names}
-          prefixes = ("GGML_", "LLAMA_", "CMAKE_", "CARGO_PROFILE_", "CUDA", "CUDNN", "LBUG_")
-          options.update({name: value for name, value in os.environ.items() if name.startswith(prefixes)})
+          prefixes = ("CC_", "CXX_", "GGML_", "LLAMA_", "CMAKE_", "CARGO_PROFILE_", "CUDA", "CUDNN", "LBUG_")
+          options.update({name: value for name, value in os.environ.items() if name.startswith(prefixes) or name in ("HOST_CC", "HOST_CXX", "TARGET_CC", "TARGET_CXX")})
           identity = dict(tools=tools, architecture=platform.machine(), options=options)
           digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
           print(json.dumps(dict(tools=tools, architecture=platform.machine(), option_names=sorted(options)), sort_keys=True, indent=2))
@@ -225,7 +272,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: target/native/ladybug
-          key: code-native-v2-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/graphit-ast/Cargo.toml', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml', '.github/workflows/ci.yml') }}
+          key: code-native-v2-${{ matrix.os }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'crates/graphit-ast/Cargo.toml', 'xtask/Cargo.toml', 'xtask/src/ladybug.rs', 'rust-toolchain.toml', '.cargo/config.toml') }}
       - name: Restore compiled Rust artifacts
         id: rust-cache
         uses: actions/cache/restore@v4
@@ -296,7 +343,11 @@ jobs:
 
   core-fs-windows:
     name: Core and FS native Windows
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.suite != 'standard' }}
+    needs: select-platforms
+    if: ${{ needs.select-platforms.outputs.suite == 'core-fs' }}
+    concurrency:
+      group: ci-${{ github.ref }}:${{ needs.select-platforms.outputs.suite }}:${{ needs.select-platforms.outputs.platform }}:core-fs-windows
+      cancel-in-progress: true
     runs-on: windows-2022
     timeout-minutes: 20
     env:
@@ -358,7 +409,11 @@ jobs:
 
   workflow-lint:
     name: Workflow lint
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'standard' }}
+    needs: select-platforms
+    if: ${{ needs.select-platforms.outputs.suite == 'standard' }}
+    concurrency:
+      group: ci-${{ github.ref }}:${{ needs.select-platforms.outputs.suite }}:${{ needs.select-platforms.outputs.platform }}:workflow-lint
+      cancel-in-progress: true
     runs-on: ubuntu-22.04
 
     steps:
@@ -381,7 +436,11 @@ jobs:
 
   ui-build:
     name: UI Build
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'standard' }}
+    needs: select-platforms
+    if: ${{ needs.select-platforms.outputs.suite == 'standard' }}
+    concurrency:
+      group: ci-${{ github.ref }}:${{ needs.select-platforms.outputs.suite }}:${{ needs.select-platforms.outputs.platform }}:ui-build
+      cancel-in-progress: true
     runs-on: ubuntu-22.04
 
     steps:
@@ -424,7 +483,11 @@ jobs:
 
   native-packaging:
     name: Native packaging contracts
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'standard' }}
+    needs: select-platforms
+    if: ${{ needs.select-platforms.outputs.suite == 'standard' }}
+    concurrency:
+      group: ci-${{ github.ref }}:${{ needs.select-platforms.outputs.suite }}:${{ needs.select-platforms.outputs.platform }}:native-packaging
+      cancel-in-progress: true
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
