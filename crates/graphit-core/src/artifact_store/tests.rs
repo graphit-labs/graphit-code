@@ -2703,12 +2703,14 @@ fn copy_cleanup_fault_keeps_committed_new_membership_until_recovery() {
     let mut writer = f.writer();
     copy_fixture(&mut writer, &f, NodeKind::Directory).unwrap();
     fs::write(f.source.join("nested/binary"), b"updated").unwrap();
+    drop(writer);
+    let mut writer = f.writer();
     writer.fail_at.set(Some(ArtifactStage::Cleanup));
+    let failure = copy_fixture(&mut writer, &f, NodeKind::Directory).unwrap_err();
     assert_eq!(
-        copy_fixture(&mut writer, &f, NodeKind::Directory)
-            .unwrap_err()
-            .stage(),
-        ArtifactStage::CleanupRequired
+        failure.stage(),
+        ArtifactStage::CleanupRequired,
+        "{failure:?}"
     );
     let snapshot = writer.load().unwrap().unwrap();
     let intent = snapshot.pending().unwrap().publication().unwrap();
@@ -2727,6 +2729,8 @@ fn copy_cleanup_fault_keeps_committed_new_membership_until_recovery() {
     let mut writer = f.writer();
     assert_eq!(writer.recover().unwrap(), ArtifactRecovery::CompletedUpdate);
     assert!(!intent.staging_directory().unwrap().exists());
+    drop(writer);
+    let mut writer = f.writer();
     writer.remove(&f.key()).unwrap();
 }
 

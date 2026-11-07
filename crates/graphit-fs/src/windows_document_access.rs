@@ -18,6 +18,27 @@ pub struct WindowsDocumentAccess {
     fingerprint: [u8; 32],
     #[cfg(test)]
     bytes: usize,
+    #[cfg(test)]
+    diagnostics: AccessDiagnostics,
+}
+#[cfg(test)]
+#[derive(Default)]
+struct AccessDiagnostics {
+    revision: u32,
+    control: u16,
+    owner: [u8; 32],
+    owner_present: bool,
+    owner_defaulted: bool,
+    group: [u8; 32],
+    group_present: bool,
+    group_defaulted: bool,
+    dacl: [u8; 32],
+    dacl_present: bool,
+    dacl_null: bool,
+    dacl_defaulted: bool,
+    acl_revision: u32,
+    ace_count: u32,
+    rm_control: Option<u8>,
 }
 impl PartialEq for WindowsDocumentAccess {
     fn eq(&self, other: &Self) -> bool {
@@ -133,12 +154,24 @@ fn snapshot(
     if control & SE_SELF_RELATIVE == 0 {
         return Err(io::ErrorKind::InvalidData.into());
     }
-    let fingerprint = component_fingerprint(&words, length, control, revision, before)?;
+    #[cfg(test)]
+    let mut diagnostics = AccessDiagnostics::default();
+    let fingerprint = component_fingerprint(
+        &words,
+        length,
+        control,
+        revision,
+        before,
+        #[cfg(test)]
+        &mut diagnostics,
+    )?;
     before()?;
     Ok(WindowsDocumentAccess {
         fingerprint,
         #[cfg(test)]
         bytes: length,
+        #[cfg(test)]
+        diagnostics,
     })
 }
 
@@ -189,6 +222,7 @@ fn hash_sid(
     length: usize,
     sid: *mut c_void,
     before: &mut impl FnMut() -> io::Result<()>,
+    #[cfg(test)] comparison: &mut [u8; 32],
 ) -> io::Result<()> {
     digest.update([u8::from(!sid.is_null())]);
     if !sid.is_null() {
@@ -197,6 +231,12 @@ fn hash_sid(
         // SDK-validated live self-relative descriptor; it cannot outlive words.
         let bytes = unsafe { GetLengthSid(sid) } as usize;
         hash_native(digest, words, length, sid, bytes)?;
+        #[cfg(test)]
+        {
+            let mut component = Sha256::new();
+            hash_native(&mut component, words, length, sid, bytes)?;
+            *comparison = component.finalize().into();
+        }
     }
     Ok(())
 }
@@ -208,7 +248,13 @@ fn component_fingerprint(
     control: u16,
     revision: u32,
     before: &mut impl FnMut() -> io::Result<()>,
+    #[cfg(test)] diagnostics: &mut AccessDiagnostics,
 ) -> io::Result<[u8; 32]> {
+    #[cfg(test)]
+    {
+        diagnostics.revision = revision;
+        diagnostics.control = control;
+    }
     let descriptor = words.as_ptr().cast_mut().cast();
     let mut digest = Sha256::new();
     digest.update(b"graphit/windows-document-access/components/v1\0");
@@ -223,7 +269,20 @@ fn component_fingerprint(
         return Err(io::Error::last_os_error());
     }
     digest.update([u8::from(owner_defaulted != 0)]);
-    hash_sid(&mut digest, words, length, owner, before)?;
+    #[cfg(test)]
+    {
+        diagnostics.owner_present = !owner.is_null();
+        diagnostics.owner_defaulted = owner_defaulted != 0;
+    }
+    hash_sid(
+        &mut digest,
+        words,
+        length,
+        owner,
+        before,
+        #[cfg(test)]
+        &mut diagnostics.owner,
+    )?;
     let mut group = ptr::null_mut();
     let mut group_defaulted = 0;
     before()?;
@@ -232,7 +291,20 @@ fn component_fingerprint(
         return Err(io::Error::last_os_error());
     }
     digest.update([u8::from(group_defaulted != 0)]);
-    hash_sid(&mut digest, words, length, group, before)?;
+    #[cfg(test)]
+    {
+        diagnostics.group_present = !group.is_null();
+        diagnostics.group_defaulted = group_defaulted != 0;
+    }
+    hash_sid(
+        &mut digest,
+        words,
+        length,
+        group,
+        before,
+        #[cfg(test)]
+        &mut diagnostics.group,
+    )?;
     let mut present = 0;
     let mut dacl = ptr::null_mut();
     let mut defaulted = 0;
@@ -249,6 +321,14 @@ fn component_fingerprint(
         u8::from(defaulted != 0),
         u8::from(!dacl.is_null()),
     ]);
+    #[cfg(test)]
+    {
+        diagnostics.dacl_present = present != 0;
+        diagnostics.dacl_null = dacl.is_null();
+        diagnostics.dacl_defaulted = defaulted != 0;
+    }
+    #[cfg(test)]
+    let mut acl_digest = Sha256::new();
     if !dacl.is_null() {
         native_range(words, length, dacl.cast(), std::mem::size_of::<ACL>())?;
         before()?;
@@ -287,6 +367,13 @@ fn component_fingerprint(
         native_range(words, length, dacl.cast(), size.AclBytesInUse as usize)?;
         digest.update(acl_revision.AclRevision.to_le_bytes());
         digest.update(size.AceCount.to_le_bytes());
+        #[cfg(test)]
+        {
+            diagnostics.acl_revision = acl_revision.AclRevision;
+            diagnostics.ace_count = size.AceCount;
+            acl_digest.update(acl_revision.AclRevision.to_le_bytes());
+            acl_digest.update(size.AceCount.to_le_bytes());
+        }
         // Capacity/free bytes are allocation data, not permissions. Each ACE
         // includes its header, flags, SID and any object/callback payload.
         for index in 0..size.AceCount {
@@ -305,7 +392,13 @@ fn component_fingerprint(
                 return Err(io::ErrorKind::InvalidData.into());
             }
             hash_native(&mut digest, words, length, entry, header.AceSize.into())?;
+            #[cfg(test)]
+            hash_native(&mut acl_digest, words, length, entry, header.AceSize.into())?;
         }
+    }
+    #[cfg(test)]
+    {
+        diagnostics.dacl = acl_digest.finalize().into();
     }
     if control & SE_RM_CONTROL_VALID != 0 {
         let mut rm_control = 0_u8;
@@ -317,6 +410,10 @@ fn component_fingerprint(
             return Err(io::Error::from_raw_os_error(status as i32));
         }
         digest.update([rm_control]);
+        #[cfg(test)]
+        {
+            diagnostics.rm_control = Some(rm_control);
+        }
     }
     Ok(digest.finalize().into())
 }
@@ -376,6 +473,7 @@ mod tests {
             (words[0] >> 16) as u16,
             1,
             &mut || Ok(()),
+            &mut AccessDiagnostics::default(),
         )
         .unwrap()
     }
@@ -475,26 +573,118 @@ mod tests {
     fn sdk_components_check_original_before_each_sdk_observation() {
         let words = fixture(&owner(), &group(), &[ace(0x120089)], [0, 1, 2], 0, 0);
         let mut calls = 0;
-        component_fingerprint(&words, words.len() * 4, 0x8004, 1, &mut || {
-            calls += 1;
-            Ok(())
-        })
+        component_fingerprint(
+            &words,
+            words.len() * 4,
+            0x8004,
+            1,
+            &mut || {
+                calls += 1;
+                Ok(())
+            },
+            &mut AccessDiagnostics::default(),
+        )
         .unwrap();
         assert!(calls > 4);
         for stop in 1..=calls {
             let mut observed = 0;
-            let error = component_fingerprint(&words, words.len() * 4, 0x8004, 1, &mut || {
-                observed += 1;
-                if observed == stop {
-                    Err(io::ErrorKind::Interrupted.into())
-                } else {
-                    Ok(())
-                }
-            })
+            let error = component_fingerprint(
+                &words,
+                words.len() * 4,
+                0x8004,
+                1,
+                &mut || {
+                    observed += 1;
+                    if observed == stop {
+                        Err(io::ErrorKind::Interrupted.into())
+                    } else {
+                        Ok(())
+                    }
+                },
+                &mut AccessDiagnostics::default(),
+            )
             .unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::Interrupted);
             assert_eq!(observed, stop);
         }
+    }
+    fn compare_access(before: &AccessDiagnostics, after: &AccessDiagnostics) -> String {
+        format!(
+            "revision_match={}, control_before={:#06x}, control_after={:#06x}, owner_sid_match={}, owner_present_match={}, owner_defaulted_match={}, group_sid_match={}, group_present_match={}, group_defaulted_match={}, dacl_present_match={}, dacl_null_match={}, dacl_defaulted_match={}, acl_revision_before={}, acl_revision_after={}, ace_count_before={}, ace_count_after={}, ace_bytes_match={}, rm_match={}",
+            before.revision == after.revision,
+            before.control,
+            after.control,
+            before.owner == after.owner,
+            before.owner_present == after.owner_present,
+            before.owner_defaulted == after.owner_defaulted,
+            before.group == after.group,
+            before.group_present == after.group_present,
+            before.group_defaulted == after.group_defaulted,
+            before.dacl_present == after.dacl_present,
+            before.dacl_null == after.dacl_null,
+            before.dacl_defaulted == after.dacl_defaulted,
+            before.acl_revision,
+            after.acl_revision,
+            before.ace_count,
+            after.ace_count,
+            before.dacl == after.dacl,
+            before.rm_control == after.rm_control,
+        )
+    }
+    #[test]
+    fn native_replace_preserves_previous_access_components() {
+        use std::io::Write;
+        let temporary = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(temporary.path()).unwrap();
+        let mut differences = Vec::new();
+        for private_previous in [false, true] {
+            let destination = root.join(format!("existing-{private_previous}"));
+            if private_previous {
+                // The previous private document is born by the same first-save
+                // stage and exclusive rename as Core's missing-file publication.
+                let previous_directory_path = root.join(".graphit-doc-previous");
+                let previous_directory =
+                    crate::create_private_directory(&previous_directory_path).unwrap();
+                let previous_stage = previous_directory_path.join("document");
+                let mut file = crate::create_private_file(&previous_stage).unwrap();
+                file.write_all(b"old").unwrap();
+                file.sync_all().unwrap();
+                drop(file);
+                crate::rename_exclusive(&previous_stage, &destination).unwrap();
+                drop(previous_directory);
+                std::fs::remove_dir(previous_directory_path).unwrap();
+            } else {
+                std::fs::write(&destination, b"old").unwrap();
+            }
+            let previous =
+                snapshot(&File::open(&destination).unwrap(), 65536, &mut || Ok(())).unwrap();
+            let directory_path = root.join(format!(".graphit-doc-next-{private_previous}"));
+            let directory = crate::create_private_directory(&directory_path).unwrap();
+            let stage_path = directory_path.join("document");
+            let mut stage = crate::create_private_file(&stage_path).unwrap();
+            stage.write_all(b"new").unwrap();
+            stage.sync_all().unwrap();
+            let prepared = snapshot(&stage, 65536, &mut || Ok(())).unwrap();
+            drop(stage);
+            crate::replace_existing_file(&stage_path, &destination).unwrap();
+            let actual =
+                snapshot(&File::open(&destination).unwrap(), 65536, &mut || Ok(())).unwrap();
+            assert!(!stage_path.exists());
+            assert_eq!(std::fs::read(&destination).unwrap(), b"new");
+            crate::verify_private_directory(&directory).unwrap();
+            drop(directory);
+            std::fs::remove_dir(directory_path).unwrap();
+            if actual != previous {
+                differences.push(format!(
+                    "private_previous={private_previous}; previous_to_post: {}; stage_to_post: {}",
+                    compare_access(&previous.diagnostics, &actual.diagnostics),
+                    compare_access(&prepared.diagnostics, &actual.diagnostics),
+                ));
+            }
+        }
+        // Keep the strict publication contract and report only component
+        // equality/flags/counts; never log SIDs, ACLs or raw descriptor data.
+        assert!(differences.is_empty(), "{}", differences.join("\n"));
     }
     #[test]
     fn real_read_control_handle_returns_bounded_repeatable_access_data() {
