@@ -146,6 +146,10 @@ fn dos_members_require_attributes_and_preserve_readonly_without_host_conversion(
         #[cfg(windows)]
         {
             let mut permissions = fs::metadata(&readonly).unwrap().permissions();
+            #[expect(
+                clippy::permissions_set_readonly_false,
+                reason = "Windows fixture cleanup clears FILE_ATTRIBUTE_READONLY, not Unix write permissions"
+            )]
             permissions.set_readonly(false);
             fs::set_permissions(&readonly, permissions).unwrap();
         }
