@@ -1595,6 +1595,13 @@ impl ArtifactWriter {
         operation
             .verify_wrappers()
             .map_err(|e| at(ArtifactStage::RecoveryConflict, e))?;
+        #[cfg(windows)]
+        if operation.movement == Some(Movement::Detach) && operation.goal == Goal::Update {
+            // The prepared payload must remain valid before advancing any
+            // recorded detach, including one stopped before the native rename.
+            // Windows verification cannot require a durable read-access grant.
+            self.prove_at(&mut document, &mut operation, Location::Payload)?;
+        }
         if operation.movement.is_some() {
             self.restore_movement(&mut document, &mut operation)?;
         }

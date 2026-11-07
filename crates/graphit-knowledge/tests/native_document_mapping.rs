@@ -431,13 +431,13 @@ fn raw_targets_preserve_order_duplicates_empty_self_and_dangling_without_body_re
             "b",
             "ghost",
             "ghost",
-            "source-t-646f6373-6123622e6d64",
+            "1C6VXTHGJTXRKNNVSFG69SXJV2",
             "a",
             "",
             "id.md",
-            "source-t-646f6373-61255a5a2e6d64",
+            "4AXYPA0NFAWSTVVJHT81M8N4C2",
             "b",
-            "source-t-646f6373-646f6373-612e6d64"
+            "6NEEE8JBPTHY0PSSCS89WX3GH9"
         ]
     );
     let fields = mapped.authored_fields(&fixture.request, &targets).unwrap();
@@ -560,7 +560,7 @@ fn relative_markdown_rejects_project_escape_and_bounds_canonical_identifier() {
     let reader = capture(&f, &f.request, raw.len()).unwrap();
     let compiled = compile(&f, &reader, limits()).unwrap();
     let entries = [input(&compiled, "source", "docs/a.md")];
-    let target = "source-t-646f6373-6d697373696e672e6d64";
+    let target = "5ASQP9QMZYM14B52BJD4WHDRX9";
     let mut caps = mapping_limits();
     caps.max_target_bytes = nz(target.len());
     let mapped = prepare(&f.request, &entries, caps).unwrap();

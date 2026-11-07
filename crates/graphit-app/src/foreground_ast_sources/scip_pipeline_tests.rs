@@ -36,7 +36,15 @@ use std::{
 use tokio_util::sync::CancellationToken;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error>>;
-type VectorRows = BTreeMap<(String, String), (Vec<f32>, Option<u64>)>;
+#[derive(Debug, PartialEq, Eq)]
+struct VectorObservation {
+    name: String,
+    source_sha256: [u8; 32],
+    projection: String,
+    bits: Vec<u32>,
+    model_generation: Option<u64>,
+}
+type VectorRows = BTreeMap<(String, String), VectorObservation>;
 
 async fn live_vectors(
     owner: &ForegroundSource,
@@ -114,6 +122,12 @@ async fn live_vectors(
             .as_any()
             .downcast_ref::<UInt64Array>()
             .unwrap();
+        let source_hashes = batch
+            .column_by_name("full_source_sha256")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<FixedSizeBinaryArray>()
+            .unwrap();
         for row in 0..batch.num_rows() {
             let vector = vectors.value(row);
             let vector = vector.as_any().downcast_ref::<Float32Array>().unwrap();
@@ -122,10 +136,17 @@ async fn live_vectors(
                     strings("uid").value(row).to_owned(),
                     strings("data_key").value(row).to_owned(),
                 ),
-                (
-                    vector.values().to_vec(),
-                    (!generations.is_null(row)).then(|| generations.value(row)),
-                ),
+                VectorObservation {
+                    name: strings("name").value(row).to_owned(),
+                    source_sha256: source_hashes.value(row).try_into()?,
+                    projection: strings("projection").value(row).to_owned(),
+                    bits: vector
+                        .values()
+                        .iter()
+                        .map(|value| value.to_bits())
+                        .collect(),
+                    model_generation: (!generations.is_null(row)).then(|| generations.value(row)),
+                },
             );
         }
     }
@@ -758,25 +779,74 @@ async fn scenario(mode: Docker) -> TestResult {
             ast.index(&selected.0, &context, ChangeBatch {
                 paths:BTreeSet::from([selected.0.root().join("code.rs")]), ..Default::default()
             }, &cancellation).await?;
+            let restored = source.graph_server().call_mcp(
+                CallToolRequestParams::new("graphit_ast_query").with_arguments(selection.as_object().unwrap().clone()),
+                headers.clone(), CancellationToken::new(),
+            ).await;
+            assert_ne!(restored.is_error, Some(true), "{restored:?}");
+            assert_eq!(syntax["rows"], restored.structured_content.unwrap()["rows"],
+                "restoring Source alone cannot change the prior Syntax identity or compiler facts");
             ast.index_semantic(selected.0.clone(), context, Some(Arc::clone(&resources)),
                 Some(pending_files), BTreeSet::from(["calls.js".into()]), false,
                 cancellation.clone(), cancellation.clone()).await
                 .map_err(|error| format!("SCIP resumed producer: {error:?}"))?;
             let enriched = source.graph_server().call_mcp(
                 CallToolRequestParams::new("graphit_ast_query").with_arguments(selection.as_object().unwrap().clone()),
-                headers, CancellationToken::new(),
+                headers.clone(), CancellationToken::new(),
             ).await;
             assert_ne!(enriched.is_error, Some(true), "{enriched:?}");
             let enriched = enriched.structured_content.unwrap();
             assert!(serde_json::to_string(&enriched)?.contains(COMPILER_ALPHA));
-            for column in 0..3 {
-                assert_eq!(syntax["rows"][0][column], enriched["rows"][0][column], "resumed SCIP enrichment keeps A's UID/data_key and FILE SHA after an unrelated Source commit without reparsing it");
+            assert_ne!(syntax["rows"][0][0], enriched["rows"][0][0],
+                "a genuine Compiler symbol promotes the prior Syntax identity");
+            for column in 1..3 {
+                assert_eq!(syntax["rows"][0][column], enriched["rows"][0][column], "resumed SCIP enrichment preserves A's data_key and FILE SHA across Syntax-to-Compiler promotion");
             }
+            let functions = source.graph_server().call_mcp(
+                CallToolRequestParams::new("graphit_ast_query").with_arguments(json!({
+                    "project_dir":NativePath::new(selected.0.root().to_owned())?,
+                    "project_version":selected.2.version(),
+                    "query":"MATCH (n:Function) WHERE n.path='code.rs' RETURN n.name,n.uid,n.data_key,n.source_sha256,n.scip_symbols_json",
+                }).as_object().unwrap().clone()), headers, CancellationToken::new(),
+            ).await;
+            assert_ne!(functions.is_error, Some(true), "{functions:?}");
+            let functions = functions.structured_content.unwrap();
+            let expected_source = crate::file_publication::hex(&Sha256::digest(RUST.as_bytes()));
+            let mut promoted_functions = BTreeMap::new();
+            for row in functions["rows"].as_array().unwrap() {
+                let name = row[0]["value"].as_str().unwrap();
+                let symbol = match name {
+                    "alpha" => COMPILER_ALPHA,
+                    "beta" => COMPILER_BETA,
+                    _ => panic!("unexpected Rust fixture function {name}"),
+                };
+                assert_eq!(row[3]["value"], expected_source,
+                    "promotion remains bound to the exact restored FILE Source");
+                let symbols: Vec<Value> = serde_json::from_str(row[4]["value"].as_str().unwrap())?;
+                assert!(symbols.iter().any(|entry| entry["symbol"] == symbol),
+                    "each promoted function retains its literal compiler symbol");
+                assert!(promoted_functions.insert(
+                    (name.to_owned(), row[2]["value"].as_str().unwrap().to_owned()),
+                    row[1]["value"].as_str().unwrap().to_owned(),
+                ).is_none(), "fixture function/data_key must be unique");
+            }
+            assert_eq!(promoted_functions.len(), 2);
             let compiled_vectors=live_vectors(&owner,&selected,&resources).await
                 .map_err(|error| format!("SCIP enriched NN observation: {error:?}"))?;
             assert!(compiled_vectors.keys().any(|(_,key)|key=="scip_definitions"),"new compiler definition receives a real NN vector");
-            for (identity,vector) in parser_vectors {
-                assert_eq!(compiled_vectors.get(&identity),Some(&vector),"compiler enrichment reuses every parser vector and generation");
+            for ((syntax_uid, data_key), vector) in parser_vectors {
+                if let Some(compiler_uid) = promoted_functions.get(&(vector.name.clone(), data_key.clone())) {
+                    assert_ne!(compiler_uid, &syntax_uid,
+                        "every promoted parser vector follows its proven Compiler identity");
+                    assert_eq!(compiled_vectors.get(&(compiler_uid.clone(), data_key.clone())), Some(&vector),
+                        "compiler enrichment preserves every vector bit, generation, projection and Source under the current Graph identity");
+                    assert!(!compiled_vectors.contains_key(&(syntax_uid, data_key)),
+                        "promotion leaves no old Syntax alias in the corpus");
+                } else {
+                    assert_ne!(data_key, "functions", "both fixture functions have compiler definitions");
+                    assert_eq!(compiled_vectors.get(&(syntax_uid, data_key)), Some(&vector),
+                        "parser views without a compiler definition retain their identity and complete vector observation");
+                }
             }
         } else {
             assert!(ast.index_semantic(selected.0.clone(), context, Some(Arc::clone(&resources)), None, std::collections::BTreeSet::new(), false,

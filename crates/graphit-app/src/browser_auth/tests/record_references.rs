@@ -793,7 +793,7 @@ async fn record_references_native_sources_keep_independent_dtos_and_causal_sourc
 }
 
 #[tokio::test]
-async fn record_references_import_http_uses_same_realm_registered_native_source_and_full16_page() {
+async fn record_references_import_http_same_realm_registered_source_complete_page() {
     let (_temp, tasks, raw) = crate::task_server::tests::fixture_with_reference_permissions(
         &[
             Permission::ManageAuthProfiles,
@@ -846,7 +846,9 @@ async fn record_references_import_http_uses_same_realm_registered_native_source_
     assert_eq!(body["native"]["page"]["state"], "found");
     assert_eq!(body["focused_source"], Value::Null);
     let document = &body["native"]["page"]["document"];
-    assert_eq!(document.as_object().unwrap().len(), 16);
+    assert_eq!(document.as_object().unwrap().len(), 18);
+    assert_eq!(document.get("previous"), Some(&Value::Null));
+    assert_eq!(document.get("next"), Some(&Value::Null));
     assert_eq!(document["slug"], "Imported page");
     assert_eq!(document["source_path"], "docs/records.md");
     assert_eq!(document["title"], "Imported title");
@@ -1905,7 +1907,9 @@ async fn record_references_import_http_manual_zero_edge_focus_keeps_namespace_b_
     assert_eq!(focus["witness"].as_array().unwrap().len(), 32);
     assert_eq!(body["native"]["page"]["state"], "found");
     let document = &body["native"]["page"]["document"];
-    assert_eq!(document.as_object().unwrap().len(), 16);
+    assert_eq!(document.as_object().unwrap().len(), 18);
+    assert_eq!(document.get("previous"), Some(&Value::Null));
+    assert_eq!(document.get("next"), Some(&Value::Null));
     assert_eq!(focus["source_path"], document["source_path"]);
     assert_eq!(focus["compilation_digest"], document["compilation_digest"]);
     assert_eq!(f.issuer.project_calls.load(Ordering::SeqCst), before);

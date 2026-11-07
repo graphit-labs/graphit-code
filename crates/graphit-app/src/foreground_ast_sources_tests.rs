@@ -377,6 +377,86 @@ async fn raw_ignored_build_churn_publishes_and_selected_change_preserves_previou
     Ok(())
 }
 
+// A Source lookup index may advance its own HEAD without replacing any FILE.
+// Compare the complete immutable row image and identify the actual SDK operation.
+pub(super) async fn assert_raw_index_only_change(
+    before: &lance::Dataset,
+    after: &lance::Dataset,
+) -> io::Result<()> {
+    assert_eq!(
+        after.fragments(),
+        before.fragments(),
+        "Source FILE data, deletion vectors and overlays must be unchanged"
+    );
+    assert_raw_index_operation(before, after).await
+}
+
+async fn assert_raw_index_operation(
+    before: &lance::Dataset,
+    after: &lance::Dataset,
+) -> io::Result<()> {
+    if after.version_id() != before.version_id() {
+        let transaction = after.read_transaction().await.map_err(io_error)?;
+        assert!(
+            transaction.as_ref().is_some_and(|transaction| matches!(
+                &transaction.operation,
+                lance::dataset::transaction::Operation::CreateIndex { new_indices, .. }
+                    if !new_indices.is_empty() && new_indices.iter().all(|index| index.name == "path_source")
+            )),
+            "only the Source path index may advance an unchanged FILE image: {transaction:?}"
+        );
+    }
+    Ok(())
+}
+
+async fn graph_file_observation(
+    owner: &ForegroundSource,
+    project: &ProjectPaths,
+    selected: &graphit_daemon::supervisor::ProjectContext,
+    path: &str,
+    original: &Arc<graphit_core::file_io::SnapshotContext>,
+) -> io::Result<Option<graphit_ast::live_graph::LiveFileObservation>> {
+    let capture = CapturedPublicationScope::project(project, selected.id, owner.scope, original)?;
+    let record = capture.binding()?;
+    let project = graphit_auth::ProjectCapture {
+        scope: graphit_auth::ScopeCapture {
+            live: &capture,
+            record: &record,
+        },
+        version: &selected.version,
+    };
+    let registry = owner.server.as_ref().unwrap().graph_server().live_ast();
+    let Some((index, _directory)) = registry
+        .capture(
+            owner.auth.installation(),
+            project,
+            owner.native,
+            original,
+            false,
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    index.graph.file_observation(path, original)
+}
+
+async fn raw_image(uri: &std::path::Path, branch: Option<&str>) -> io::Result<lance::Dataset> {
+    let image = lance::Dataset::open(uri.to_str().ok_or(io::ErrorKind::InvalidData)?)
+        .await
+        .map_err(io_error)?;
+    match branch {
+        Some(branch) => image
+            .checkout_version(lance::dataset::refs::Ref::Version(
+                Some(branch.to_owned()),
+                None,
+            ))
+            .await
+            .map_err(io_error),
+        None => Ok(image),
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unchanged_inherited_raw_is_materialized_before_first_projection()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -429,19 +509,70 @@ async fn unchanged_inherited_raw_is_materialized_before_first_projection()
             .is_some()
     );
     let ast = owner.ast_jobs.as_ref().unwrap();
-    assert!(
-        ast.index(
-            &project,
-            &selected,
-            graphit_daemon::watcher::ChangeBatch {
-                rescan: true,
-                ..Default::default()
-            },
-            &cancel
-        )
-        .await?
-        .is_none(),
-        "Source bytes did not change"
+    let inherited = raw_image(&uri, None).await?;
+    ast.index(
+        &project,
+        &selected,
+        graphit_daemon::watcher::ChangeBatch {
+            rescan: true,
+            ..Default::default()
+        },
+        &cancel,
+    )
+    .await?;
+    let materialized = raw_image(&uri, Some(&branch)).await?;
+    // A shallow branch changes the SDK's internal base ID, while referencing
+    // exactly the same physical data. Resolve that published BasePath before
+    // constructing the expected comparison value; never alter stored metadata.
+    let mut expected_fragments = inherited.fragments().to_vec();
+    for fragment in &mut expected_fragments {
+        let fragment_id = fragment.id;
+        for file in fragment.referenced_lance_files_mut() {
+            assert!(
+                file.base_id.is_none(),
+                "the fixture starts with local Main data"
+            );
+            let cloned = materialized
+                .fragments()
+                .iter()
+                .find(|candidate| candidate.id == fragment_id)
+                .and_then(|candidate| {
+                    candidate
+                        .referenced_lance_files()
+                        .find(|candidate| candidate.path == file.path)
+                })
+                .ok_or("materialized Source file reference missing")?;
+            let base_id = cloned
+                .base_id
+                .ok_or("shallow Source file must reference its Main base")?;
+            let base = materialized
+                .manifest()
+                .base_paths
+                .get(&base_id)
+                .ok_or("Source base ID has no SDK BasePath")?;
+            assert!(base.is_dataset_root);
+            assert_eq!(
+                base.extract_path(materialized.session().store_registry())?
+                    .join("data"),
+                inherited.data_dir(),
+                "the branch reference resolves to the original Main data directory"
+            );
+            let base_reader = lance::Dataset::open(&base.path).await?;
+            assert_eq!(base_reader.data_dir(), inherited.data_dir());
+            file.base_id = Some(base_id);
+        }
+    }
+    assert_eq!(
+        materialized.fragments().as_slice(),
+        expected_fragments.as_slice(),
+        "materialization preserves every data file, field, size, deletion and overlay; only its proven base reference changes"
+    );
+    assert_raw_index_operation(&inherited, &materialized).await?;
+    assert_eq!(
+        observed_branch_text(&uri, Some(&branch), "a.rs", original.snapshot())
+            .await?
+            .as_deref(),
+        Some("pub fn alpha() {}")
     );
     let first = store.capture_target(Some(&branch)).await?;
     assert_eq!(first.physical_branch(), Some(branch.as_str()));
@@ -533,7 +664,8 @@ async fn ast_only_real_foreground_initial_raw_and_source_http()
     // Repairing only A after the actual failed full scan must also reconcile B.
     owner.supervisors.shutdown().await?;
     let store = LanceBranchStore::open(uri.to_str().unwrap(), source_schema(), None).await?;
-    let old_version = store.capture_target(None).await?.version();
+    let old_image = raw_image(&uri, None).await?;
+    let old_version = old_image.version_id();
     assert_eq!(
         observed_text(&uri, "b.rs", original.snapshot())
             .await?
@@ -551,7 +683,7 @@ async fn ast_only_real_foreground_initial_raw_and_source_http()
         tokio::time::timeout(Duration::from_secs(10), failed_full).await??,
         io::ErrorKind::Other
     );
-    assert_eq!(store.capture_target(None).await?.version(), old_version);
+    assert_raw_index_only_change(&old_image, &raw_image(&uri, None).await?).await?;
     assert_eq!(
         observed_text(&uri, "a.rs", original.snapshot())
             .await?
@@ -617,6 +749,9 @@ async fn ast_only_real_foreground_initial_raw_and_source_http()
         Some("fn original() {}")
     );
     let selected = owner.supervisors.supervised().next().unwrap().clone();
+    let file_b = graph_file_observation(&owner, &project, &selected, "b.rs", original.snapshot())
+        .await?
+        .ok_or("reconciled B FILE observation missing")?;
     let source = owner.server.as_ref().unwrap();
     let runtime_key = owner.auth.runtime().check(original.snapshot())?;
     let credential = std::str::from_utf8(runtime_key.secret(original.snapshot())?)?;
@@ -647,11 +782,10 @@ async fn ast_only_real_foreground_initial_raw_and_source_http()
                 .and_then(|value| value["rows"].as_array())
                 .is_some_and(|rows| {
                     rows.iter().any(|row| {
-                        row == &json!([
-                            {"type":"STRING", "value":"b.rs"},
-                            {"type":"STRING", "value":reconciled_version.to_string()},
-                            {"type":"STRING", "value":expected_hash},
-                        ])
+                        row[0] == json!({"type":"STRING", "value":"b.rs"})
+                            && row[1]
+                                == json!({"type":"STRING", "value":file_b.raw_version.to_string()})
+                            && row[2] == json!({"type":"STRING", "value":expected_hash})
                     })
                 })
         {
@@ -855,10 +989,18 @@ async fn raw_named_branch_custom_layers_empty_ignore_and_late_error()
         rescan: true,
         ..Default::default()
     };
-    assert!(
-        job.index(&project, &selected, rescan(), &cancel)
+    let before_rescan = raw_image(&uri, Some(&branch)).await?;
+    job.index(&project, &selected, rescan(), &cancel).await?;
+    assert_raw_index_only_change(&before_rescan, &raw_image(&uri, Some(&branch)).await?).await?;
+    assert_eq!(
+        observed_branch_text(&uri, Some(&branch), "a.custom", startup.snapshot())
             .await?
-            .is_none()
+            .as_deref(),
+        Some("original custom")
+    );
+    assert_eq!(
+        observed_branch_text(&uri, Some(&branch), "SPECIAL.FILE", startup.snapshot()).await?,
+        Some(String::new())
     );
     // A complete file is visible even if a later file cannot be decoded.
     std::fs::write(project.root().join("a.custom"), "new valid source")?;

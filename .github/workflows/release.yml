@@ -290,12 +290,9 @@ jobs:
           $global:LASTEXITCODE = 0
       - name: Exercise the installed model-server on native Windows and macOS
         if: runner.os != 'Linux'
-        shell: bash
-        run: |
-          suffix=''
-          if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
-          export GRAPHIT_TEST_MODEL_SERVER="$RUNNER_TEMP/graphit-install/graphit-model-server$suffix"
-          cargo xtask cargo test --locked --release -p graphit-daemon --test model_child packaged_model_child_preserves_bootstrap_errors_and_shutdown -- --ignored --exact
+        env:
+          GRAPHIT_TEST_MODEL_SERVER: ${{ runner.temp }}/graphit-install/graphit-model-server${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cargo xtask cargo test --locked --release -p graphit-daemon --test model_child packaged_model_child_preserves_bootstrap_errors_and_shutdown -- --ignored --exact
       - name: Verify Git record snapshots with the Release build
         if: github.event_name == 'workflow_dispatch'
         run: cargo xtask cargo test --locked --release -p graphit-records --lib git_records::tests

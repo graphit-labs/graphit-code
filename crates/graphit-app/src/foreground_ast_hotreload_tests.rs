@@ -41,18 +41,6 @@ async fn wait_raw_rows(
     }
 }
 
-async fn raw_version(uri: &Path) -> io::Result<u64> {
-    Ok(
-        LanceBranchStore::open(uri.to_str().unwrap(), source_schema(), None)
-            .await
-            .map_err(io_error)?
-            .capture_target(None)
-            .await
-            .map_err(io_error)?
-            .version(),
-    )
-}
-
 async fn raw_images(uris: &[PathBuf]) -> io::Result<Vec<lance::Dataset>> {
     let mut images = Vec::new();
     for uri in uris {
@@ -433,8 +421,8 @@ async fn automatic_project_queries_dir_retarget_then_native_profile_edit_under_i
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn structural_failure_recovers_on_unselected_watcher_without_a_new_raw_version() -> TestResult
-{
+async fn structural_failure_recovers_on_unselected_watcher_without_replacing_source_files()
+-> TestResult {
     let (_temp, installation, project, config, policy) = ast_fixture();
     std::fs::write(project.root().join("source.json"), "{\"answer\":42}\n")?;
     let cancellation = Cancellation::default();
@@ -465,12 +453,31 @@ async fn structural_failure_recovers_on_unselected_watcher_without_a_new_raw_ver
         startup.snapshot(),
     )
     .await?;
+    let selected = owner.supervisors.supervised().next().unwrap().clone();
+    let observation = tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            if let Some(observation) = graph_file_observation(
+                &owner,
+                &project,
+                &selected,
+                "source.json",
+                startup.snapshot(),
+            )
+            .await?
+            {
+                break Ok::<_, io::Error>(observation);
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await??;
     owner.supervisors.shutdown().await?;
-    let version = raw_version(&raw).await?;
+    let before = raw_image(&raw, None).await?;
     // Graph publication now belongs to the progressive Raw producer. Establish
     // its real baseline first, then block its parent without deleting either
     // the Source dataset or the retained graph. A failed retry must not commit
-    // another Raw version merely because graph admission is unavailable.
+    // another Source FILE merely because graph admission is unavailable. A lookup
+    // index commit is independent of those retained rows.
     let parent = project.project_runtime(id, &["ast"])?;
     let blocked = parent.join("live");
     let retained = parent.join("retained-live");
@@ -481,7 +488,7 @@ async fn structural_failure_recovers_on_unselected_watcher_without_a_new_raw_ver
         .attach_jobs(&installation, &config, NativeBinding::Codex, &[], &startup)
         .await?;
     tokio::time::timeout(Duration::from_secs(30), failed).await??;
-    assert_eq!(raw_version(&raw).await?, version);
+    assert_raw_index_only_change(&before, &raw_image(&raw, None).await?).await?;
     std::fs::remove_file(&blocked)?;
     std::fs::rename(retained, &blocked)?;
     let batch = owner.ast_jobs.as_ref().unwrap().observe_next_raw_batch();
@@ -518,7 +525,7 @@ async fn structural_failure_recovers_on_unselected_watcher_without_a_new_raw_ver
                 .is_some_and(|rows| {
                     rows.iter().any(|row| {
                         row == &json!([{"type":"STRING","value":"source.json"},
-                    {"type":"STRING","value":version.to_string()}])
+                    {"type":"STRING","value":observation.raw_version.to_string()}])
                     })
                 })
         {
@@ -530,7 +537,18 @@ async fn structural_failure_recovers_on_unselected_watcher_without_a_new_raw_ver
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert_eq!(raw_version(&raw).await?, version);
+    assert_raw_index_only_change(&before, &raw_image(&raw, None).await?).await?;
+    assert_eq!(
+        graph_file_observation(
+            &owner,
+            &project,
+            &selected,
+            "source.json",
+            startup.snapshot()
+        )
+        .await?,
+        Some(observation)
+    );
     owner.shutdown().await?;
     Ok(())
 }

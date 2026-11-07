@@ -93,9 +93,7 @@ impl Mode {
                     0o400
                 },
             ),
-            Self::Windows(readonly) => {
-                Self::Windows(readonly && (directory || access != Access::Cleanup))
-            }
+            Self::Windows(readonly) => Self::Windows(readonly && access != Access::Cleanup),
         }
     }
 }

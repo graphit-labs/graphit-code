@@ -1027,16 +1027,31 @@ async fn actual_code_document_nn_mcp_query_and_raw_associations() {
         .unwrap();
     assert_eq!(schema.is_error, Some(false));
     let schema = schema.structured_content.unwrap();
-    assert!(schema["generation"].is_array());
-    assert_eq!(
-        schema["nodes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|node| node["label"] == "Function")
-            .unwrap()["primary_key"],
-        "entity_key"
-    );
+    assert!(schema.get("generation").is_none());
+    let function = schema["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["label"] == "Function")
+        .unwrap();
+    assert_eq!(function["primary_key"], "entity_key");
+    for name in [
+        "entity_key",
+        "uid",
+        "data_key",
+        "path",
+        "source_sha256",
+        "raw_version",
+    ] {
+        assert!(
+            function["columns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|column| column[0] == name && column[1] == "STRING"),
+            "Function schema must expose {name} for identity and Source association"
+        );
+    }
     let graph = client
         .call_tool(
             CallToolRequestParams::new("graphit_ast_query").with_arguments(

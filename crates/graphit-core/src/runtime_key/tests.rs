@@ -547,8 +547,12 @@ fn replaced_lease_and_directory_denied_without_repair() {
         }
         #[cfg(windows)]
         {
-            // Both the real lease and its held directory exclude delete sharing.
-            assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
+            // Windows may reject the delete access itself or the sharing of the
+            // open lease/ancestor. Both prevent this attempted retarget outright.
+            use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_SHARING_VIOLATION};
+            let denied = renamed.unwrap_err();
+            assert!(matches!(denied.raw_os_error(), Some(code)
+                if code == ERROR_ACCESS_DENIED as i32 || code == ERROR_SHARING_VIOLATION as i32));
             assert_eq!(before.3, 0);
             assert_eq!(
                 fs::read(owner.namespace.lease.path())

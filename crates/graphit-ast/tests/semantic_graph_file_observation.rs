@@ -24,8 +24,14 @@ use graphit_ast::{
     },
 };
 use graphit_core::{file_io::SnapshotContext, file_lock::Cancellation};
-use graphit_data::{lance_branch_store::LanceBranchStore, lance_module_store::LanceModuleStore};
-use std::{collections::BTreeSet, error::Error, sync::Arc};
+use graphit_data::{
+    CodePrimaryKey, lance_branch_store::LanceBranchStore, lance_module_store::LanceModuleStore,
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    error::Error,
+    sync::Arc,
+};
 use tempfile::TempDir;
 type TestResult = Result<(), Box<dyn Error>>;
 fn context() -> SnapshotContext {
@@ -164,6 +170,20 @@ fn text_property<'a>(node: &'a graphit_ast::semantic_graph::AstGraphNode, key: &
     value
 }
 
+fn assert_projection_key(key: &str, properties: &BTreeMap<String, AstGraphValue>) -> TestResult {
+    let AstGraphValue::String(uid) = properties.get("uid").expect("semantic UID") else {
+        panic!("string semantic UID")
+    };
+    let AstGraphValue::String(data_key) = properties.get("data_key").expect("projection data key")
+    else {
+        panic!("string projection data key")
+    };
+    let actual: CodePrimaryKey = key.parse()?;
+    assert_eq!(actual, CodePrimaryKey::derive(uid.parse()?, data_key)?);
+    assert_eq!(actual.to_string(), key);
+    Ok(())
+}
+
 #[tokio::test]
 async fn file_observation_preserves_all_native_relation_states_once_per_file() -> TestResult {
     let temp = TempDir::new()?;
@@ -252,15 +272,14 @@ async fn file_observation_preserves_all_native_relation_states_once_per_file() -
             1
         );
         for (_, key, properties) in records {
-            let key: serde_json::Value = serde_json::from_str(&key)?;
-            assert_eq!(
-                key.as_array().unwrap().len(),
-                if properties.get("is_file_observation") == Some(&AstGraphValue::Bool(true)) {
-                    3
-                } else {
-                    2
-                }
-            );
+            if properties.get("is_file_observation") == Some(&AstGraphValue::Bool(true)) {
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&key)?,
+                    serde_json::json!(["file_observation", "model.go", ["go", "tree-sitter-go"]])
+                );
+            } else {
+                assert_projection_key(&key, &properties)?;
+            }
         }
         Ok(())
     })
@@ -381,13 +400,7 @@ async fn file_observation_survives_empty_source_zero_entities_and_json_diagnosti
         assert!(semantic.properties().contains_key("uid"));
         assert!(semantic.properties().contains_key("data_key"));
         assert!(!semantic.properties().contains_key("is_file_observation"));
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(semantic.key())?
-                .as_array()
-                .unwrap()
-                .len(),
-            2
-        );
+        assert_projection_key(semantic.key(), semantic.properties())?;
         assert_eq!(
             graph
                 .file_observation()

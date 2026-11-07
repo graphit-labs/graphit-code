@@ -58,18 +58,8 @@ fn native_test(work: impl Future<Output = ()> + Send + 'static) {
 }
 fn package(f: &auth::Fixture, ctx: &RequestContext<'_>) -> PathBuf {
     let path = f.temp.path().join("corpus");
-    fs::create_dir_all(path.join("graph.icebug")).unwrap();
-    fs::write(path.join("graph.icebug/icebug.json"), serde_json::to_vec(&json!({
-        "manifest_version":3,"format":"icebug-canonical","storage":"direct-parquet","finished":true,
-        "add_reverse_edges":false,"schema_file":"schema.cypher","node_tables":[],"relationships":[],
-        "relation_uids":true,"generation":"native-http-fixture","n_edges":0,"repaired_strings":0,
-        "invariants":{"indptr_row_groups":1,"self_loops":"forward-once"}
-    })).unwrap()).unwrap();
-    fs::write(
-        path.join("graph.icebug/schema.cypher"),
-        "opaque native metadata",
-    )
-    .unwrap();
+    fs::create_dir(&path).unwrap();
+    crate::native_install::ast_payload(&path, ctx);
     let captured = CapturedSourceReader::capture(
         &path,
         graphit_fs::NodeKind::Directory,

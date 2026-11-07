@@ -15,6 +15,7 @@ libc = { version = "=0.2.190", default-features = false, features = ["extra_trai
 errno = { version = "=0.3.14", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
+sha2.workspace = true
 windows-sys = { version = "=0.61.2", default-features = false, features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_Ioctl"] }
 renamore = { version = "=0.3.2", default-features = false, features = ["always-supported"] }
 windows-permissions = { version = "=0.2.4", default-features = false }

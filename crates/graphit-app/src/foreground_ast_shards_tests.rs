@@ -321,18 +321,23 @@ async fn raw_eof_maintains_shards_and_preserves_incremental_source_and_reopen() 
             .await?
             .ok_or("cold graph missing")?;
         assert_eq!(reopened.graph.files(original.snapshot())?, remaining);
-        let queried = reopened.graph.query(
-            "MATCH (n:AstFileObservation) RETURN n.path ORDER BY n.path",
-            &BTreeMap::new(),
-            graphit_ast::icebug_query::QueryOptions {
-                buffer_pool_bytes: 64 * 1024 * 1024,
-                query_threads: 1,
-                max_rows: 8,
-                max_bytes: 4096,
-                max_depth: 16,
-            },
-            original.snapshot(),
-        )?;
+        let query_graph = Arc::clone(&reopened.graph);
+        let query_original = Arc::clone(original.snapshot());
+        let queried = tokio::task::spawn_blocking(move || {
+            query_graph.query(
+                "MATCH (n:AstFileObservation) RETURN n.path ORDER BY n.path",
+                &BTreeMap::new(),
+                graphit_ast::icebug_query::QueryOptions {
+                    buffer_pool_bytes: 64 * 1024 * 1024,
+                    query_threads: 1,
+                    max_rows: 8,
+                    max_bytes: 4096,
+                    max_depth: 16,
+                },
+                &query_original,
+            )
+        })
+        .await??;
         assert_eq!(queried.rows.len(), 1);
         assert_eq!(queried.rows[0][0]["value"], "a.lua");
         Ok(())
@@ -582,18 +587,23 @@ async fn graph_maintenance_precedes_unavailable_lance_indices() -> TestResult {
         std::fs::rename(&corpus, &unavailable)?;
         let lance_failure = publication.maintain_indices(&check).await;
         let result = publication.finish_maintenance(&check, None).await;
-        let queried = index.graph.query(
-            "MATCH (n:Function) RETURN n.path ORDER BY n.path",
-            &BTreeMap::new(),
-            graphit_ast::icebug_query::QueryOptions {
-                buffer_pool_bytes: 64 * 1024 * 1024,
-                query_threads: 1,
-                max_rows: 8,
-                max_bytes: 4096,
-                max_depth: 16,
-            },
-            original.snapshot(),
-        );
+        let query_graph = Arc::clone(&index.graph);
+        let query_original = Arc::clone(original.snapshot());
+        let queried = tokio::task::spawn_blocking(move || {
+            query_graph.query(
+                "MATCH (n:Function) RETURN n.path ORDER BY n.path",
+                &BTreeMap::new(),
+                graphit_ast::icebug_query::QueryOptions {
+                    buffer_pool_bytes: 64 * 1024 * 1024,
+                    query_threads: 1,
+                    max_rows: 8,
+                    max_bytes: 4096,
+                    max_depth: 16,
+                },
+                &query_original,
+            )
+        })
+        .await;
         let preemption = Cancellation::default();
         let held = Arc::clone(&index.fence).lock_owned().await;
         let mut waiting = Box::pin(publication.finish_maintenance(&check, Some(&preemption)));
@@ -604,7 +614,7 @@ async fn graph_maintenance_precedes_unavailable_lance_indices() -> TestResult {
         // Restore the real corpus before assertions or fixture shutdown.
         std::fs::rename(&unavailable, &corpus)?;
         preempted??;
-        let queried = queried?;
+        let queried = queried??;
         assert_eq!(queried.rows.len(), 2);
         assert_eq!(queried.rows[0][0]["value"], "a.lua");
         assert_eq!(queried.rows[1][0]["value"], "b.lua");

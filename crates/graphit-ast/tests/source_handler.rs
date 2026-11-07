@@ -423,68 +423,73 @@ async fn publish(
     )
 }
 
-fn entity_fixture(
+async fn entity_fixture(
     f: &Fixture,
     ctx: &RequestContext<'_>,
     text: &str,
 ) -> Result<(LiveGraph, ProjectEntitySource), Box<dyn Error>> {
-    let hash: [u8; 32] = Sha256::digest(text.as_bytes()).into();
-    let hash_text = hash
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let graph = LiveGraph::open_path_owned(
-        f._temp.path().join("entity-graph"),
-        ctx.snapshot(),
-        [31; 32],
-        true,
-    )?;
-    // The entity carries its exact extent and bytes, not a historical SDK locator.
-    let node = GraphNode {
-        label: "Function".into(),
-        key: "target".into(),
-        properties: BTreeMap::from([
-            ("name".into(), GraphValue::String("target".into())),
-            ("path".into(), GraphValue::String("entity.rs".into())),
-            ("start_line".into(), GraphValue::Int64(2)),
-            ("end_line".into(), GraphValue::Int64(2)),
-            ("source_sha256".into(), GraphValue::String(hash_text)),
-            ("available".into(), GraphValue::Bool(true)),
-            ("extent_status".into(), GraphValue::String("Exact".into())),
-        ]),
-    };
-    graph.replace_file(
-        LiveFileInput {
-            path: "entity.rs",
-            source_sha256: hash,
-            raw_version: 1,
-            nodes: &[node],
-            edges: &[],
-            definitions: &[],
-            references: &[],
-            scip_document: None,
-            oracle: &[],
-            oracle_file: None,
-            pending_compiler: None,
-            scip_compiler: None,
+    let directory = f._temp.path().join("entity-graph");
+    let original = Arc::clone(ctx.snapshot());
+    let text = text.to_owned();
+    // The synchronous resolver keeps its live shard fence on the blocking job.
+    tokio::task::spawn_blocking(
+        move || -> Result<_, graphit_ast::imported_graph::EntitySourceError> {
+            let hash: [u8; 32] = Sha256::digest(text.as_bytes()).into();
+            let hash_text = hash
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>();
+            let graph = LiveGraph::open_path_owned(directory, &original, [31; 32], true)?;
+            // The entity carries its exact extent and bytes, not a historical SDK locator.
+            let node = GraphNode {
+                label: "Function".into(),
+                key: "target".into(),
+                properties: BTreeMap::from([
+                    ("name".into(), GraphValue::String("target".into())),
+                    ("path".into(), GraphValue::String("entity.rs".into())),
+                    ("start_line".into(), GraphValue::Int64(2)),
+                    ("end_line".into(), GraphValue::Int64(2)),
+                    ("source_sha256".into(), GraphValue::String(hash_text)),
+                    ("available".into(), GraphValue::Bool(true)),
+                    ("extent_status".into(), GraphValue::String("Exact".into())),
+                ]),
+            };
+            graph.replace_file(
+                LiveFileInput {
+                    path: "entity.rs",
+                    source_sha256: hash,
+                    raw_version: 1,
+                    nodes: &[node],
+                    edges: &[],
+                    definitions: &[],
+                    references: &[],
+                    scip_document: None,
+                    oracle: &[],
+                    oracle_file: None,
+                    pending_compiler: None,
+                    scip_compiler: None,
+                },
+                &original,
+            )?;
+            let entity = resolve_live_project_entity_source(
+                &graph,
+                &original,
+                "entity.rs",
+                "target",
+                Some("Function"),
+                QueryOptions {
+                    buffer_pool_bytes: 67_108_864,
+                    query_threads: 2,
+                    max_rows: 100,
+                    max_bytes: 65_536,
+                    max_depth: 32,
+                },
+            )?;
+            Ok((graph, entity))
         },
-        ctx.snapshot(),
-    )?;
-    let entity = resolve_live_project_entity_source(
-        &graph,
-        ctx.snapshot(),
-        "entity.rs",
-        "target",
-        Some("Function"),
-        QueryOptions {
-            buffer_pool_bytes: 67_108_864,
-            query_threads: 2,
-            max_rows: 100,
-            max_bytes: 65_536,
-            max_depth: 32,
-        },
-    )?;
-    Ok((graph, entity))
+    )
+    .await?
+    .map_err(Into::into)
 }
 
 async fn inspect_entity(
@@ -525,7 +530,7 @@ async fn entity_source_matches_current_file_after_other_file_advance_and_history
     let ctx = request(&cancel);
     let f = Fixture::new(&ctx, true, false)?;
     let text = "before\nfn target() {}\nafter\n";
-    let (_graph, entity) = entity_fixture(&f, &ctx, text)?;
+    let (_graph, entity) = entity_fixture(&f, &ctx, text).await?;
     let base = publish(&f, 0, &[("entity.rs", Some(text))]).await?;
     let changed = base
         .snapshot()
@@ -559,7 +564,7 @@ async fn entity_source_rejects_changed_and_absent_rows_but_checks_unstored_physi
     let ctx = request(&cancel);
     let f = Fixture::new(&ctx, true, false)?;
     let text = "before\nfn target() {}\nafter\n";
-    let (_graph, entity) = entity_fixture(&f, &ctx, text)?;
+    let (_graph, entity) = entity_fixture(&f, &ctx, text).await?;
     let base = publish(&f, 0, &[("entity.rs", Some(text))]).await?;
     let path = f.projects[0].root.join("entity.rs");
     fs::write(&path, text)?;

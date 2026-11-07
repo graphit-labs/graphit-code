@@ -122,7 +122,16 @@ identity, kind, mode, length and content hash, before persisting the new receipt
 Links retain their literal target and native object identity. `RefreshProof` is
 durable before clearing `Movement`, including recovery after a rename whose
 journal completion was interrupted. Ordinary identity comparisons remain exact;
-unrelated entries and changed content are conflicts.
+unrelated entries and changed content are conflicts. Before recovering a pending
+Windows detach for an update, Core verifies the prepared payload before changing
+`Movement`; an invalid payload leaves the journal byte-for-byte intact.
+
+Durable Copy cleanup temporarily removes the Windows readonly attribute from
+both owned files and directories before deletion. Each grant still requires the
+recorded identity, kind and original or previously granted mode; the full
+remaining tree is checked before any deletion. Interruption after a grant leaves
+the same receipt recoverable. Read and Move retain their recorded modes, and
+source permissions are never changed by cleanup.
 
 Affected tests cover writer collisions, catalogue substitution, write/sync failures, baseline conflicts, phase/outcome serialization, cancellation, timeout, restart recovery and acknowledgement/release.
 

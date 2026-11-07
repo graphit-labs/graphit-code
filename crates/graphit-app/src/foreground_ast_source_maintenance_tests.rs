@@ -158,14 +158,20 @@ async fn unchanged_rescan_consolidates_existing_source_index() -> TestResult {
 }
 
 #[cfg(target_os = "linux")]
-fn function_rows(
-    graph: &LiveGraph,
+async fn function_rows(
+    graph: &Arc<LiveGraph>,
     original: &Arc<graphit_core::file_io::SnapshotContext>,
 ) -> io::Result<Vec<Vec<serde_json::Value>>> {
-    Ok(graph.query("MATCH (n:Function) RETURN n.path, n.name, n.raw_version, n.source_sha256, n.start_byte, n.end_byte ORDER BY n.path",
-        &BTreeMap::new(),graphit_ast::icebug_query::QueryOptions {
-            buffer_pool_bytes: 64*1024*1024,query_threads:1,max_rows:64,max_bytes:65536,max_depth:16,
-        },original)?.rows)
+    let graph = Arc::clone(graph);
+    let original = Arc::clone(original);
+    tokio::task::spawn_blocking(move || {
+        graph.query("MATCH (n:Function) RETURN n.path, n.name, n.raw_version, n.source_sha256, n.start_byte, n.end_byte ORDER BY n.path",
+            &BTreeMap::new(), graphit_ast::icebug_query::QueryOptions {
+                buffer_pool_bytes: 64*1024*1024,query_threads:1,max_rows:64,max_bytes:65536,max_depth:16,
+            }, &original).map(|result| result.rows)
+    })
+    .await
+    .map_err(io::Error::other)?
 }
 
 #[cfg(target_os = "linux")]
@@ -206,7 +212,17 @@ async fn raw_and_graph_are_readable_before_source_index_batch_and_after_reopen()
             )
             .await
         }));
-        tokio::time::timeout(Duration::from_secs(30), observed).await??;
+        tokio::select! {
+            biased;
+            finished = job.as_mut().unwrap() => {
+                job.take();
+                finished??;
+                return Err("initial producer completed before the FILE publication gate".into());
+            }
+            observed = tokio::time::timeout(Duration::from_secs(30), observed) => {
+                observed.map_err(|error| format!("initial FILE publication gate: {error}"))??;
+            }
+        }
         let cancel = Cancellation::default();
         let original = fixture.policy.request_context(Instant::now(), &cancel)?;
         let capture = CapturedPublicationScope::project(
@@ -261,7 +277,7 @@ async fn raw_and_graph_are_readable_before_source_index_batch_and_after_reopen()
             observation.source_sha256,
             <[u8; 32]>::from(Sha256::digest(body.as_bytes()))
         );
-        let before = function_rows(&index.graph, original.snapshot())?;
+        let before = function_rows(&index.graph, original.snapshot()).await?;
         let row = before
             .iter()
             .find(|row| row[0]["value"] == "f001.lua")
@@ -295,8 +311,11 @@ async fn raw_and_graph_are_readable_before_source_index_batch_and_after_reopen()
             .unwrap()
             .send(())
             .map_err(|_| "producer closed")?;
-        tokio::time::timeout(Duration::from_secs(30), job.as_mut().unwrap()).await???;
+        let finished = tokio::time::timeout(Duration::from_secs(30), job.as_mut().unwrap())
+            .await
+            .map_err(|error| format!("initial index maintenance completion: {error}"))?;
         job.take();
+        finished??;
         let raw = Dataset::open(uri).await?;
         let (_, coverage) = source_index(&raw).await?;
         assert!(
@@ -316,7 +335,8 @@ async fn raw_and_graph_are_readable_before_source_index_batch_and_after_reopen()
             "FILE origin is independent of maintenance HEAD"
         );
         assert_eq!(
-            function_rows(&index.graph, original.snapshot())?
+            function_rows(&index.graph, original.snapshot())
+                .await?
                 .into_iter()
                 .find(|row| row[0]["value"] == "f001.lua"),
             Some(saved.clone())
@@ -339,7 +359,8 @@ async fn raw_and_graph_are_readable_before_source_index_batch_and_after_reopen()
             Some(observation.clone())
         );
         assert_eq!(
-            function_rows(&reopened.graph, original.snapshot())?
+            function_rows(&reopened.graph, original.snapshot())
+                .await?
                 .into_iter()
                 .find(|row| row[0]["value"] == "f001.lua"),
             Some(saved)
@@ -379,7 +400,17 @@ async fn raw_and_graph_are_readable_before_source_index_batch_and_after_reopen()
             )
             .await
         }));
-        tokio::time::timeout(Duration::from_secs(30), observed).await??;
+        tokio::select! {
+            biased;
+            finished = job.as_mut().unwrap() => {
+                job.take();
+                finished??;
+                return Err("incremental producer completed before the FILE publication gate".into());
+            }
+            observed = tokio::time::timeout(Duration::from_secs(30), observed) => {
+                observed.map_err(|error| format!("incremental FILE publication gate: {error}"))??;
+            }
+        }
         let raw = Dataset::open(uri).await?;
         let (_, coverage) = source_index(&raw).await?;
         assert!(
@@ -410,7 +441,7 @@ async fn raw_and_graph_are_readable_before_source_index_batch_and_after_reopen()
                 .file_observation("f000.lua", original.snapshot())?,
             unaffected
         );
-        let changed_rows = function_rows(&reopened.graph, original.snapshot())?;
+        let changed_rows = function_rows(&reopened.graph, original.snapshot()).await?;
         let row = changed_rows
             .iter()
             .find(|row| row[0]["value"] == "f001.lua")
@@ -438,8 +469,11 @@ async fn raw_and_graph_are_readable_before_source_index_batch_and_after_reopen()
             .unwrap()
             .send(())
             .map_err(|_| "updated producer closed")?;
-        tokio::time::timeout(Duration::from_secs(30), job.as_mut().unwrap()).await???;
+        let finished = tokio::time::timeout(Duration::from_secs(30), job.as_mut().unwrap())
+            .await
+            .map_err(|error| format!("incremental index maintenance completion: {error}"))?;
         job.take();
+        finished??;
         let raw = Dataset::open(uri).await?;
         let (_, coverage) = source_index(&raw).await?;
         assert!(
@@ -472,7 +506,8 @@ async fn raw_and_graph_are_readable_before_source_index_batch_and_after_reopen()
             unaffected
         );
         assert_eq!(
-            function_rows(&reopened.graph, original.snapshot())?
+            function_rows(&reopened.graph, original.snapshot())
+                .await?
                 .into_iter()
                 .find(|row| row[0]["value"] == "f001.lua"),
             Some(saved)

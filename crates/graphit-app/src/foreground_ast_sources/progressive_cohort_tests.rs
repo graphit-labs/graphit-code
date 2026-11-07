@@ -251,17 +251,19 @@ async fn first_file_is_queryable_before_raw_full_eof_and_delta_preempts_tail() -
         assert!(after_cleanup.len() < before_cleanup.len(),
             "NN must prune obsolete history while the structural producer is held: {before_cleanup:?} -> {after_cleanup:?}");
         assert!(!after_cleanup.contains(before_cleanup.first().unwrap()));
-        let source_after_cleanup = lance::Dataset::open(source_uri).await?.versions().await?
+        let source_after_first_file = lance::Dataset::open(source_uri).await?.versions().await?
             .into_iter().map(|version| version.version).collect::<BTreeSet<_>>();
-        assert!(source_after_cleanup.len() < source_before_cleanup.len(),
-            "Source FILE maintenance must prune SDK history before the structural tail: {source_before_cleanup:?} -> {source_after_cleanup:?}");
-        assert!(!source_after_cleanup.contains(source_before_cleanup.first().unwrap()));
+        assert!(source_before_cleanup.is_subset(&source_after_first_file),
+            "one readable Source FILE must not trigger SDK history cleanup before the batch cadence or EOF");
         let raw = graphit_ast::source_index_locator::open_local_source_index(owner.auth.installation(), project,
             original.snapshot(), owner.native).await?;
         let graphit_ast::source_index_locator::SourceIndexPresence::Available(raw) = raw else {
             return Err("first Raw FILE is not available".into());
         };
         assert_eq!(raw.paths(original.snapshot()).await?, ["a.rs"], "the tail has not been read or committed to Raw");
+        // This real reader pins Source history through its shared native lock.
+        // Release it after the availability assertion so EOF may clean history.
+        drop(raw);
         let headers = HeaderMap::from_iter([
             (header::AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {credential}"))?),
             (header::HeaderName::from_static("x-graphit-auth-origin"), HeaderValue::from_static("runtime")),
@@ -297,6 +299,13 @@ async fn first_file_is_queryable_before_raw_full_eof_and_delta_preempts_tail() -
         ast.index_productive(&selected.0, &context, ChangeBatch {
             paths: BTreeSet::from([selected.0.root().join("b.rs")]), ..Default::default()
         }, Some(Arc::clone(&resources)), Some(BTreeSet::new()), false, &cancel, &cancel, &cancel).await?;
+        // The delta reached its real EOF after preempting the full tail. Source
+        // maintenance belongs here (or at AST_INDEX_BATCH), not to the first FILE.
+        let source_after_cleanup = lance::Dataset::open(source_uri).await?.versions().await?
+            .into_iter().map(|version| version.version).collect::<BTreeSet<_>>();
+        assert!(source_after_cleanup.len() < source_before_cleanup.len(),
+            "Source EOF must prune obsolete SDK history: {source_before_cleanup:?} -> {source_after_cleanup:?}");
+        assert!(!source_after_cleanup.contains(source_before_cleanup.first().unwrap()));
         // Resume the full metadata walk after the real delta. A is already
         // published and its graph revision, Source and vector must be reused.
         let resumed = ast.index_productive(&selected.0, &context, ChangeBatch { rescan: true, ..Default::default() },
@@ -1110,6 +1119,16 @@ async fn idle_nn_releases_live_database_and_reopens_the_same_source_and_vectors(
                 .is_none()
         );
         drop((unchanged, unchanged_directory));
+        // Capture the actual unchanged Source FILE before rebuilding its missing
+        // graph record. EOF index metadata is not that FILE's former origin.
+        let source_path = selected.0.project_runtime(selected.1, &["ast", "source.lance"])?;
+        let source_store = graphit_data::lance_branch_store::LanceBranchStore::open(
+            source_path.to_str().ok_or("Source path is not Unicode")?,
+            graphit_ast::indexed_source::source_schema(), None,
+        ).await?;
+        let source_pin = source_store.capture_target(None).await?;
+        let repaired_raw = graphit_ast::indexed_source::read_branch_source(&source_pin, "idle.lua", original.snapshot()).await?;
+        let raw_before_repair = lance::Dataset::open(source_path.to_str().ok_or("Source path is not Unicode")?).await?;
         ast.index_productive(
             &selected.0,
             &context,
@@ -1125,13 +1144,16 @@ async fn idle_nn_releases_live_database_and_reopens_the_same_source_and_vectors(
             &cancellation,
         )
         .await?;
+        let raw_after_repair = lance::Dataset::open(source_path.to_str().ok_or("Source path is not Unicode")?).await?;
+        super::ast_source_tests::assert_raw_index_only_change(&raw_before_repair, &raw_after_repair).await?;
         let (repaired, repaired_directory) = open().await?;
         let repaired_source = repaired
             .graph
             .file_observation("idle.lua", original.snapshot())?
             .ok_or("unchanged Raw must repair a missing native FILE")?;
         assert_eq!(repaired_source.source_sha256, before_source.source_sha256);
-        assert_eq!(repaired_source.raw_version, before_source.raw_version);
+        assert_eq!(repaired_source.raw_version, repaired_raw.version(), "a missing FILE is rebuilt from its newly admitted Source pin, independent of the former FILE origin");
+        assert!(matches!(repaired_raw.source(original.snapshot())?, graphit_ast::source_inspection::IndexedSource::Available("function idle_source() return 7 end\n")));
         assert!(repaired_source.file_revision > before_source.file_revision);
         let before_source = repaired_source;
         drop((repaired, repaired_directory));

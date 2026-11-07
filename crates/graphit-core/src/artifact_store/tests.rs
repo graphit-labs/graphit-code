@@ -1404,6 +1404,8 @@ fn directory_links_preserve_source_and_explicit_relink_preserves_conflicts() {
             ArtifactMode::Link,
         )
         .unwrap();
+    drop(writer);
+    let mut writer = f.writer();
     assert_eq!(
         writer
             .publish(
@@ -1420,7 +1422,11 @@ fn directory_links_preserve_source_and_explicit_relink_preserves_conflicts() {
     fs::write(replacement.join("keep"), b"live").unwrap();
     assert_eq!(fs::read(f.destination.join("keep")).unwrap(), b"live");
     fs::write(replacement.join("keep"), b"new").unwrap();
+    drop(writer);
+    let mut writer = f.writer();
     writer.remove(&f.key()).unwrap();
+    drop(writer);
+    let mut writer = f.writer();
     writer
         .publish(
             &f.key(),
@@ -1431,10 +1437,14 @@ fn directory_links_preserve_source_and_explicit_relink_preserves_conflicts() {
         )
         .unwrap();
     assert_eq!(fs::read(f.destination.join("keep")).unwrap(), b"new");
+    drop(writer);
+    let mut writer = f.writer();
     writer.remove(&f.key()).unwrap();
     assert_eq!(fs::read(f.source.join("keep")).unwrap(), b"untouched");
     assert_eq!(fs::read(replacement.join("keep")).unwrap(), b"new");
     fs::remove_dir_all(&replacement).unwrap();
+    drop(writer);
+    let mut writer = f.writer();
     assert_eq!(
         writer
             .publish(
@@ -2404,6 +2414,9 @@ fn copy_file_and_directory_reopen_true_noop_update_remove() {
         } else {
             assert_eq!(fs::read(&f.destination).unwrap(), b"source remains");
         }
+        // Each public action has its own finite writer request.
+        drop(writer);
+        let mut writer = f.writer();
         assert_eq!(
             copy_fixture(&mut writer, &f, kind).unwrap(),
             ArtifactChange::Unchanged
@@ -2416,6 +2429,8 @@ fn copy_file_and_directory_reopen_true_noop_update_remove() {
             f.source.clone()
         };
         fs::write(&changed, b"new bytes").unwrap();
+        drop(writer);
+        let mut writer = f.writer();
         let updated = copy_fixture(&mut writer, &f, kind);
         #[cfg(windows)]
         if updated.is_err()
@@ -2631,10 +2646,14 @@ fn copy_build_fault_cleans_proven_partial_and_preserves_old_update() {
             f.source.clone()
         };
         fs::write(changed, b"larger new content").unwrap();
+        drop(writer);
+        let mut writer = f.writer();
         writer.fail_at.set(Some(ArtifactStage::CopyChunk));
         assert!(copy_fixture(&mut writer, &f, kind).is_err());
         assert!(writer.document().unwrap().entries[0] == old);
         assert!(writer.document().unwrap().pending.is_none());
+        drop(writer);
+        let mut writer = f.writer();
         writer.remove(&f.key()).unwrap();
     }
 }
@@ -2854,6 +2873,8 @@ fn copy_and_link_backend_changes_replace_owned_objects_without_false_noop() {
                 initial,
             )
             .unwrap();
+        drop(writer);
+        let mut writer = f.writer();
         assert_eq!(
             writer
                 .publish(
@@ -2883,6 +2904,8 @@ fn copy_and_link_backend_changes_replace_owned_objects_without_false_noop() {
                 b"source remains".as_slice()
             }
         );
+        drop(writer);
+        let mut writer = f.writer();
         writer.remove(&f.key()).unwrap();
         assert_eq!(fs::read(&f.source).unwrap(), b"live update");
     }
@@ -3581,16 +3604,19 @@ fn copy_cancellation_cleans_known_build_preserves_pre_detach_and_finishes_after_
 }
 
 #[cfg(windows)]
-#[test]
-fn windows_copy_readonly_file_and_directory_modes_survive_noop_update_and_cleanup() {
-    struct Reset(Vec<PathBuf>);
-    impl Drop for Reset {
-        fn drop(&mut self) {
-            for path in &self.0 {
-                let _ = tree::Mode::Windows(false).set(path);
-            }
+struct WindowsModeReset(Vec<PathBuf>);
+#[cfg(windows)]
+impl Drop for WindowsModeReset {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            let _ = tree::Mode::Windows(false).set(path);
         }
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_copy_readonly_file_and_directory_modes_survive_noop_update_and_cleanup() {
     fn readonly(path: &Path, value: bool) {
         tree::Mode::Windows(value).set(path).unwrap();
     }
@@ -3606,7 +3632,7 @@ fn windows_copy_readonly_file_and_directory_modes_survive_noop_update_and_cleanu
         } else {
             (NodeKind::File, f.source.clone(), f.destination.clone())
         };
-        let _reset = Reset(vec![
+        let _reset = WindowsModeReset(vec![
             source_file.clone(),
             f.source.clone(),
             target_file.clone(),
@@ -3627,6 +3653,8 @@ fn windows_copy_readonly_file_and_directory_modes_survive_noop_update_and_cleanu
                 .readonly()
         );
         let manifest = fs::read(f.store.manifest_path()).unwrap();
+        drop(writer);
+        let mut writer = f.writer();
         assert_eq!(
             copy_fixture(&mut writer, &f, kind).unwrap(),
             ArtifactChange::Unchanged
@@ -3635,6 +3663,8 @@ fn windows_copy_readonly_file_and_directory_modes_survive_noop_update_and_cleanu
         readonly(&source_file, false);
         fs::write(&source_file, b"readonly updated").unwrap();
         readonly(&source_file, true);
+        drop(writer);
+        let mut writer = f.writer();
         assert_eq!(
             copy_fixture(&mut writer, &f, kind).unwrap(),
             ArtifactChange::Updated
@@ -3654,6 +3684,56 @@ fn windows_copy_readonly_file_and_directory_modes_survive_noop_update_and_cleanu
         assert_eq!(fs::read(&source_file).unwrap(), b"readonly updated");
         assert!(fs::metadata(&source_file).unwrap().permissions().readonly());
         assert!(fs::metadata(&f.source).unwrap().permissions().readonly());
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_readonly_cleanup_resumes_after_recorded_grant() {
+    for directory in [false, true] {
+        let f = Fixture::new();
+        let (kind, source_file) = if directory {
+            directory_source(&f);
+            (NodeKind::Directory, f.source.join("nested/binary"))
+        } else {
+            (NodeKind::File, f.source.clone())
+        };
+        let _reset = WindowsModeReset(vec![source_file.clone(), f.source.clone()]);
+        tree::Mode::Windows(true).set(&source_file).unwrap();
+        tree::Mode::Windows(true).set(&f.source).unwrap();
+        let original = physical_tree(&f.source);
+        let mut writer = f.writer();
+        copy_fixture(&mut writer, &f, kind).unwrap();
+        drop(writer);
+
+        let mut writer = f.writer();
+        writer.fail_at.set(Some(ArtifactStage::Cleanup));
+        let failure = writer.remove(&f.key()).unwrap_err();
+        assert_eq!(
+            failure.stage(),
+            ArtifactStage::CleanupRequired,
+            "{failure:?}"
+        );
+        let snapshot = writer.load().unwrap().unwrap();
+        let intent = snapshot.pending().unwrap().publication().unwrap();
+        assert_eq!(intent.phase(), ArtifactPending::Cleanup);
+        let backup = intent.backup().unwrap();
+        // The first grant precedes deletion and leaves the exact owned root.
+        assert!(
+            !fs::symlink_metadata(&backup)
+                .unwrap()
+                .permissions()
+                .readonly()
+        );
+        assert!(!f.destination.exists());
+        assert!(physical_tree(&f.source) == original);
+        drop(writer);
+
+        let mut writer = f.writer();
+        assert_eq!(writer.recover().unwrap(), ArtifactRecovery::CompletedRemove);
+        assert!(!backup.exists());
+        assert!(writer.load().unwrap().unwrap().pending().is_none());
+        assert!(physical_tree(&f.source) == original);
     }
 }
 
@@ -3740,12 +3820,14 @@ fn cleanup_remaining_tree_rejects_extras_bytes_and_replacements_before_more_dele
         let mut writer = f.writer();
         copy_fixture(&mut writer, &f, NodeKind::Directory).unwrap();
         fs::write(f.source.join("nested/binary"), b"updated").unwrap();
+        drop(writer);
+        let mut writer = f.writer();
         writer.fail_at.set(Some(ArtifactStage::Cleanup));
+        let failure = copy_fixture(&mut writer, &f, NodeKind::Directory).unwrap_err();
         assert_eq!(
-            copy_fixture(&mut writer, &f, NodeKind::Directory)
-                .unwrap_err()
-                .stage(),
-            ArtifactStage::CleanupRequired
+            failure.stage(),
+            ArtifactStage::CleanupRequired,
+            "{failure:?}"
         );
         let snapshot = writer.load().unwrap().unwrap();
         let intent = snapshot.pending().unwrap().publication().unwrap();
@@ -4519,6 +4601,8 @@ fn cleanup_checks_old_wrapper_when_new_wrapper_has_already_disappeared() {
     let destination = parent.join("alias");
     let mut writer = f.writer();
     copy_fixture(&mut writer, &f, NodeKind::File).unwrap();
+    drop(writer);
+    let mut writer = f.writer();
     writer.fail_at.set(Some(ArtifactStage::Cleanup));
     assert!(
         writer
@@ -4550,6 +4634,8 @@ fn cleanup_checks_old_wrapper_when_new_wrapper_has_already_disappeared() {
         b"preserve foreign"
     );
     assert_eq!(fs::read(&destination).unwrap(), b"source remains");
+    drop(writer);
+    let mut writer = f.writer();
     let abandoned = writer.forget(&f.key()).unwrap();
     assert_eq!(
         abandoned
@@ -6593,12 +6679,26 @@ mod native_stage_tests {
         .unwrap();
         let failure = at(ArtifactStage::Observe, failure);
         assert_eq!(failure.kind(), io::ErrorKind::InvalidData);
-        assert_eq!(failure.secondary_failure(), Some(io::ErrorKind::NotFound));
-        // Capture plus the failed streaming compare.
-        assert_eq!(
-            fs::read(moved.join(f.destination.file_name().unwrap())).unwrap(),
-            b"real"
-        );
+        #[cfg(unix)]
+        {
+            assert_eq!(failure.secondary_failure(), Some(io::ErrorKind::NotFound));
+            assert_eq!(
+                fs::read(moved.join(f.destination.file_name().unwrap())).unwrap(),
+                b"real"
+            );
+        }
+        #[cfg(windows)]
+        {
+            // Capture retains no-delete parent handles: the attempted rename
+            // fails before the revalidation, and that native error is secondary.
+            assert_eq!(
+                failure.secondary_failure(),
+                Some(io::ErrorKind::PermissionDenied)
+            );
+            assert!(!moved.exists());
+            assert_eq!(fs::read(&f.destination).unwrap(), b"real");
+            parent.revalidate(&ctx).unwrap();
+        }
     }
     #[test]
     fn native_stage_prepared_receipt_is_frozen_across_content_access_links_and_identity_changes() {

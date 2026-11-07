@@ -1,4 +1,4 @@
-//! Actual installation SDK integration. Empty canonical Icebug is not Parquet row proof.
+//! Actual installation SDK integration with native File rows and stored Source.
 use crate::native_install_auth as auth;
 use arrow_array::{ArrayRef, RecordBatch, StringArray};
 use graphit_app::native_install::{
@@ -15,7 +15,11 @@ use graphit_core::{
     project_identity::ProjectId,
     text_slice::Request,
 };
-use graphit_data::{LocalGraphPolicy, lance_module_store::LanceModuleStore};
+use graphit_data::{
+    LocalGraphPolicy,
+    graph_writer::{GraphNode, GraphValue, IcebugWriter},
+    lance_module_store::LanceModuleStore,
+};
 use graphit_hub::{
     ArtifactId, ArtifactType, ConcreteVersion, NativeBinding, SourceRef,
     native::ContentLimits,
@@ -89,23 +93,35 @@ fn request(input: PathBuf, id: &str, version: &str) -> InstallRequest {
         kind: None,
     }
 }
-async fn payload(path: &Path, kind: PackageKind, source: bool, wrong_schema: bool) {
+pub(crate) fn ast_payload(path: &Path, ctx: &RequestContext<'_>) {
+    let graph = IcebugWriter::new(Arc::clone(ctx.snapshot()))
+        .unwrap()
+        .push_file(
+            [GraphNode {
+                label: "File".into(),
+                key: "file.any".into(),
+                properties: std::collections::BTreeMap::from([
+                    ("name".into(), GraphValue::String("file.any".into())),
+                    ("path".into(), GraphValue::String("file.any".into())),
+                ]),
+            }],
+            [],
+        )
+        .unwrap()
+        .finish()
+        .unwrap();
+    fs::rename(graph.directory(), path.join("graph.icebug")).unwrap();
+}
+async fn payload(
+    path: &Path,
+    kind: PackageKind,
+    source: bool,
+    wrong_schema: bool,
+    ctx: &RequestContext<'_>,
+) {
     fs::create_dir(path).unwrap();
     if kind == PackageKind::Ast {
-        fs::create_dir(path.join("graph.icebug")).unwrap();
-        let manifest = json!({"manifest_version":3,"format":"icebug-canonical","storage":"direct-parquet","finished":true,
-            "add_reverse_edges":false,"schema_file":"schema.cypher","node_tables":[],"relationships":[],"relation_uids":true,
-            "generation":"native-install-fixture","n_edges":0,"repaired_strings":0,"invariants":{"indptr_row_groups":1,"self_loops":"forward-once"}});
-        fs::write(
-            path.join("graph.icebug/icebug.json"),
-            serde_json::to_vec(&manifest).unwrap(),
-        )
-        .unwrap();
-        fs::write(
-            path.join("graph.icebug/schema.cypher"),
-            "opaque native schema metadata",
-        )
-        .unwrap();
+        ast_payload(path, ctx);
         if source {
             let schema = if wrong_schema {
                 graphit_data::knowledge_index::physical_schema()
@@ -201,7 +217,7 @@ fn actual_signed_native_ast_knowledge_and_imported_source() {
         let f = auth::Fixture::new(&ctx, true);
         let broker = auth::Broker::start().await;
         let ast = f.temp.path().join("ast");
-        payload(&ast, PackageKind::Ast, true, false).await;
+        payload(&ast, PackageKind::Ast, true, false, &ctx).await;
         let schema = graphit_ast::corpus::schema();
         LanceModuleStore::create(
             ast.join("graph.icebug")
@@ -296,7 +312,7 @@ fn actual_signed_native_ast_knowledge_and_imported_source() {
         assert!(second.outcome.succeeded(), "{second:?}");
         assert_eq!(f.registry.load().unwrap().entries().count(), 2);
         let no_source = f.temp.path().join("ast-no-source");
-        payload(&no_source, PackageKind::Ast, false, false).await;
+        payload(&no_source, PackageKind::Ast, false, false, &ctx).await;
         let req = request(
             export(&f, &no_source, "optional", PackageKind::Ast, &ctx),
             "namespace/optional",
@@ -313,7 +329,7 @@ fn actual_signed_native_ast_knowledge_and_imported_source() {
                 .exists()
         );
         let wiki = f.temp.path().join("wiki");
-        payload(&wiki, PackageKind::Knowledge, false, false).await;
+        payload(&wiki, PackageKind::Knowledge, false, false, &ctx).await;
         let req = request(
             export(&f, &wiki, "wiki", PackageKind::Knowledge, &ctx),
             "namespace/wiki",
@@ -347,7 +363,7 @@ fn actual_auth_schema_crc_and_original_failures() {
         let broker = auth::Broker::start().await;
         let f = auth::Fixture::new(&ctx, true);
         let ast = f.temp.path().join("ast");
-        payload(&ast, PackageKind::Ast, true, false).await;
+        payload(&ast, PackageKind::Ast, true, false, &ctx).await;
         let zip = export(&f, &ast, "actual", PackageKind::Ast, &ctx);
         let req = request(zip.clone(), "negative/test", "v1");
         let mut wire = serde_json::to_value(&req).unwrap();
@@ -382,7 +398,7 @@ fn actual_auth_schema_crc_and_original_failures() {
             FailureCategory::InvalidInput,
         );
         let bad_source = f.temp.path().join("bad-source");
-        payload(&bad_source, PackageKind::Ast, true, true).await;
+        payload(&bad_source, PackageKind::Ast, true, true, &ctx).await;
         let req_bad = request(
             export(
                 &f,
@@ -396,7 +412,7 @@ fn actual_auth_schema_crc_and_original_failures() {
         );
         not_published(&install(&f, &req_bad, &ctx).await, FailureCategory::Lance);
         let bad_wiki = f.temp.path().join("bad-wiki");
-        payload(&bad_wiki, PackageKind::Knowledge, false, true).await;
+        payload(&bad_wiki, PackageKind::Knowledge, false, true, &ctx).await;
         let req_bad = request(
             export(
                 &f,
@@ -416,11 +432,14 @@ fn actual_auth_schema_crc_and_original_failures() {
             "v1",
         );
         not_published(&install(&f, &bad_graph, &ctx).await, FailureCategory::Graph);
+        let offset = {
+            let mut archive = zip::ZipArchive::new(fs::File::open(&zip).unwrap()).unwrap();
+            let manifest = archive.by_name("graph.icebug/icebug.json").unwrap();
+            assert_eq!(manifest.compression(), zip::CompressionMethod::Stored);
+            assert!(manifest.size() > 0);
+            usize::try_from(manifest.data_start().unwrap()).unwrap()
+        };
         let mut bytes = fs::read(&zip).unwrap();
-        let offset = bytes
-            .windows(b"opaque native schema metadata".len())
-            .position(|b| b == b"opaque native schema metadata")
-            .unwrap();
         bytes[offset] ^= 1;
         let corrupt = f.temp.path().join("corrupt.zip");
         fs::write(&corrupt, bytes).unwrap();
@@ -533,7 +552,7 @@ fn actual_registry_failure_and_cancel_after_publication_keep_payload() {
         let f = auth::Fixture::new(&ctx, true);
         f.profile(&broker, auth::now() + 600, "broker-api", false, &ctx);
         let ast = f.temp.path().join("ast");
-        payload(&ast, PackageKind::Ast, true, false).await;
+        payload(&ast, PackageKind::Ast, true, false, &ctx).await;
         let zip = export(&f, &ast, "ast", PackageKind::Ast, &ctx);
         let first = request(zip.clone(), "partial/first", "v1");
         assert!(install(&f, &first, &ctx).await.outcome.succeeded());
@@ -642,7 +661,7 @@ fn actual_profile_replacement_after_publication_refuses_registration() {
         let f = auth::Fixture::new(&ctx, true);
         f.profile(&broker, auth::now() + 600, "broker-api", false, &ctx);
         let ast = f.temp.path().join("ast");
-        payload(&ast, PackageKind::Ast, true, false).await;
+        payload(&ast, PackageKind::Ast, true, false, &ctx).await;
         let req = request(
             export(&f, &ast, "ast", PackageKind::Ast, &ctx),
             "partial/revoked",
@@ -757,7 +776,7 @@ fn staged_install_refuses_changed_input_and_competing_destination() {
         let ctx = original(&cancel);
         let f = auth::Fixture::new(&ctx, true);
         let ast = f.temp.path().join("ast");
-        payload(&ast, PackageKind::Ast, true, false).await;
+        payload(&ast, PackageKind::Ast, true, false, &ctx).await;
         let policy = f
             .policy
             .snapshot_policy(CopyPolicy::RejectFileLinks, [])

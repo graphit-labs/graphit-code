@@ -273,18 +273,19 @@ impl CapturedProjectDocumentDirectory {
                 self.limits.bytes,
                 context,
             )?;
-            let after = observe(&opened, self.limits.access_bytes, request)?;
-            if after != before {
-                return Err(conflict());
+            {
+                let after = observe(&opened, self.limits.access_bytes, request)?;
+                if after != before {
+                    return Err(conflict());
+                }
             }
-            drop(after);
-            let fresh = self.open(name, request)?;
-            let fresh_observation = observe(&fresh, self.limits.access_bytes, request)?;
-            if fresh_observation != before {
-                return Err(conflict());
+            {
+                let fresh = self.open(name, request)?;
+                let fresh_observation = observe(&fresh, self.limits.access_bytes, request)?;
+                if fresh_observation != before {
+                    return Err(conflict());
+                }
             }
-            drop(fresh_observation);
-            drop(fresh);
             self.chain.revalidate()?;
             request.check()?;
             let receipt = NativeDocumentReceipt {

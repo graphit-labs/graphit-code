@@ -45,13 +45,18 @@ PROJECT and published-document reads share one body/hash/growth-probe loop. It v
 NativeDocumentFileLimits bounds document bytes, logical path bytes, ancestor count, aggregate selected-prefix/file path bytes and complete access data. ScopeLimits continues to bound root capture. PROJECT uses the existing rustix and generated Windows SDK backends. Windows owner/group/DACL reads use SDK-validated aligned storage; this operation does not require a new FFI bridge.
 
 Windows PROJECT reads and published-document observations fingerprint the same
-bounded owner/group/DACL descriptor representation. The fingerprint describes
-access data, independently of the capture's capability, so a receipt can be
-compared with the subsequent native publication observation. Descriptor bytes
-and ACL order are preserved; no ACL is rewritten or sorted. PROJECT observations
-remain read-only and cannot apply access to a stage. Existing native publication
-continues to preserve access through its platform operation and exact receipt
-checks. The representation uses the existing generated
+bounded owner/group/DACL descriptor components. The fingerprint describes access
+data independently of the capture's capability, so a receipt can be compared
+with the subsequent native publication observation. Generated SDK getters retain
+revision, every control bit, valid RM control, owner/group presence and SIDs,
+defaulted flags, DACL presence/NULL/empty distinctions, ACL revision and complete
+ACEs in their native order. No ACL is rewritten or sorted. Self-relative offsets,
+component placement, padding and unused ACL capacity are storage layout and do
+not contribute to the fingerprint. Component pointers and lengths remain bounded
+by the validated descriptor, with the original request checked before each SDK
+observation. PROJECT observations remain read-only and cannot apply access to a
+stage. Native publication retains exact receipt checks; a differing security
+component remains a conflict. The representation uses the existing generated
 [`GetKernelObjectSecurity` API](https://learn.microsoft.com/en-us/windows/win32/api/securitybaseapi/nf-securitybaseapi-getkernelobjectsecurity)
 with the original request and configured access-data bound.
 

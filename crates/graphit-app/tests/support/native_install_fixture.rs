@@ -173,18 +173,7 @@ impl Fixture {
         let path = self.temp.path().join(name);
         fs::create_dir(&path).unwrap();
         if kind == PackageKind::Ast {
-            fs::create_dir(path.join("graph.icebug")).unwrap();
-            fs::write(path.join("graph.icebug/icebug.json"), serde_json::to_vec(&serde_json::json!({
-                "manifest_version":3,"format":"icebug-canonical","storage":"direct-parquet","finished":true,
-                "add_reverse_edges":false,"schema_file":"schema.cypher","node_tables":[],"relationships":[],
-                "relation_uids":true,"generation":"native-executable-fixture","n_edges":0,"repaired_strings":0,
-                "invariants":{"indptr_row_groups":1,"self_loops":"forward-once"}
-            })).unwrap()).unwrap();
-            fs::write(
-                path.join("graph.icebug/schema.cypher"),
-                "opaque schema metadata",
-            )
-            .unwrap();
+            crate::native_install::ast_payload(&path, ctx);
             let schema = if wrong_schema {
                 graphit_data::knowledge_index::physical_schema()
             } else {

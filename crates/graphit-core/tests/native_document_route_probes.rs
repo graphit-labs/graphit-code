@@ -85,6 +85,21 @@ fn receipt_identity_distinguishes_in_place_edit_from_equal_bytes_replacement() {
 
     // Keep both files alive, so their IDs cannot be immediately recycled.
     fs::write(&distinct, edited_bytes).unwrap();
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileTimesExt;
+        // NTFS may tunnel the old target's creation time on rename. Give both
+        // files that time before observing them: equal bytes and creation time
+        // must still leave their distinct native FileId128 identities distinct.
+        let created = fs::metadata(&target).unwrap().created().unwrap();
+        fs::OpenOptions::new()
+            .write(true)
+            .open(&distinct)
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_created(created))
+            .unwrap();
+        assert_eq!(fs::metadata(&distinct).unwrap().created().unwrap(), created);
+    }
     let other = parent
         .read_named("distinct".as_ref(), names(), &ctx)
         .unwrap();

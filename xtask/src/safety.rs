@@ -159,7 +159,11 @@ impl<'ast> Visit<'ast> for Audit {
         self.block_base = self.blocks;
         let name = function.sig.ident.to_string();
         let listed = (self.source == Path::new("windows.rs") && name == "set_junction")
-            || (self.source == Path::new("windows_document_access.rs") && name == "snapshot")
+            || (self.source == Path::new("windows_document_access.rs")
+                && matches!(
+                    name.as_str(),
+                    "snapshot" | "component_fingerprint" | "hash_sid"
+                ))
             || (self.source == Path::new("windows_private_file.rs")
                 && matches!(
                     name.as_str(),
@@ -225,6 +229,7 @@ impl<'ast> Visit<'ast> for Audit {
         if self.allowed {
             let expected = match (self.source.to_str(), self.function.as_deref()) {
                 (Some("windows_document_access.rs"), Some("snapshot")) => 4,
+                (Some("windows_document_access.rs"), Some("component_fingerprint")) => 9,
                 (Some("macos_private_file.rs"), Some("configure_filesec"))
                 | (Some("windows_relative_sdk.rs"), Some("open_relative"))
                 | (Some("windows_relative_sdk.rs"), Some("reopen_directory")) => 3,
@@ -410,6 +415,50 @@ fn expected_arguments(source: &Path, function: &str, ordinal: usize, call: &syn:
         (Some("windows_document_access.rs"), "snapshot", 4) => (
             "GetSecurityDescriptorControl",
             &["words.as_mut_ptr().cast()", "&mut control", "&mut revision"],
+        ),
+        (Some("windows_document_access.rs"), "hash_sid", 1) => ("GetLengthSid", &["sid"]),
+        (Some("windows_document_access.rs"), "component_fingerprint", 1) => (
+            "GetSecurityDescriptorOwner",
+            &["descriptor", "&mut owner", "&mut owner_defaulted"],
+        ),
+        (Some("windows_document_access.rs"), "component_fingerprint", 2) => (
+            "GetSecurityDescriptorGroup",
+            &["descriptor", "&mut group", "&mut group_defaulted"],
+        ),
+        (Some("windows_document_access.rs"), "component_fingerprint", 3) => (
+            "GetSecurityDescriptorDacl",
+            &["descriptor", "&mut present", "&mut dacl", "&mut defaulted"],
+        ),
+        (Some("windows_document_access.rs"), "component_fingerprint", 4) => {
+            ("IsValidAcl", &["dacl"])
+        }
+        (Some("windows_document_access.rs"), "component_fingerprint", 5) => (
+            "GetAclInformation",
+            &[
+                "dacl",
+                "ptr::from_mut(&mut acl_revision).cast()",
+                "std::mem::size_of::<ACL_REVISION_INFORMATION>() as u32",
+                "AclRevisionInformation",
+            ],
+        ),
+        (Some("windows_document_access.rs"), "component_fingerprint", 6) => (
+            "GetAclInformation",
+            &[
+                "dacl",
+                "ptr::from_mut(&mut size).cast()",
+                "std::mem::size_of::<ACL_SIZE_INFORMATION>() as u32",
+                "AclSizeInformation",
+            ],
+        ),
+        (Some("windows_document_access.rs"), "component_fingerprint", 7) => {
+            ("GetAce", &["dacl", "index", "&mut entry"])
+        }
+        (Some("windows_document_access.rs"), "component_fingerprint", 8) => {
+            ("ptr::read", &["entry.cast::<ACE_HEADER>()"])
+        }
+        (Some("windows_document_access.rs"), "component_fingerprint", 9) => (
+            "GetSecurityDescriptorRMControl",
+            &["descriptor", "&mut rm_control"],
         ),
         (Some("windows_relative_sdk.rs"), "open_relative", 1) => (
             "NtCreateFile",
@@ -1162,7 +1211,7 @@ mod tests {
         let code = include_str!("../../crates/graphit-fs/src/windows_document_access.rs");
         let valid = audit_in(source, code);
         assert!(valid.errors.is_empty(), "{:?}", valid.errors);
-        assert_eq!((valid.exceptions, valid.blocks), (1, 4));
+        assert_eq!((valid.exceptions, valid.blocks), (3, 14));
         assert!(audit_in("lib.rs", "pub use windows_document_access::{WindowsDocumentAccess, windows_document_access_snapshot};").errors.is_empty());
         assert!(
             !audit_in(
@@ -1177,6 +1226,21 @@ mod tests {
             code.replace("file.as_raw_handle()", "ptr::null_mut()"),
             code.replace("IsValidSecurityDescriptor", "OtherSdkCall"),
             code.replace("&mut control", "ptr::null_mut()"),
+            code.replace("fn component_fingerprint(", "pub fn component_fingerprint("),
+            code.replace("fn hash_sid(", "pub fn hash_sid("),
+            code.replace("GetLengthSid(sid)", "GetLengthSid(ptr::null_mut())"),
+            code.replace("&mut owner_defaulted", "ptr::null_mut()"),
+            code.replace("&mut group_defaulted", "ptr::null_mut()"),
+            code.replace("&mut present", "ptr::null_mut()"),
+            code.replace("&mut defaulted", "ptr::null_mut()"),
+            code.replace("IsValidAcl(dacl)", "IsValidAcl(ptr::null())"),
+            code.replace("AclRevisionInformation,", "AclSizeInformation,"),
+            code.replace(
+                "GetAce(dacl, index, &mut entry)",
+                "GetAce(dacl, 0, &mut entry)",
+            ),
+            code.replace("entry.cast::<ACE_HEADER>()", "entry.cast::<ACL>()"),
+            code.replace("&mut rm_control", "ptr::null_mut()"),
             code.replace("unsafe {", "unsafe { unexpected();"),
         ] {
             assert!(!audit_in(source, &invalid).errors.is_empty());

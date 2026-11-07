@@ -484,6 +484,38 @@ fn overrides_wrap_defaults_and_selected_invalid_inputs_fail_without_fallback() {
 }
 
 #[test]
+fn knowledge_catalog_supplies_its_literal_id_tool_and_missing_alias_is_undefined() {
+    for (brand, alias) in [
+        ("graphit", "catalog_g__knowledge_id"),
+        ("orbit", "catalog_o__knowledge_id"),
+    ] {
+        let set = module_mandate(Module::Knowledge, MandateAudience::Coordinator).unwrap();
+        let data = data(brand);
+        let rendered = render(set, &data);
+        assert!(
+            rendered
+                .body()
+                .contains(&format!("call `{alias}` with its actual relative `path`"))
+        );
+        let modules = fixture_modules(&data);
+        let mut missing = variables(&data, &modules);
+        missing.retain(|variable| variable.name != "mcp_tool_knowledge_id");
+        assert_eq!(
+            render_instruction(
+                set.entry(),
+                set.candidates(),
+                &missing,
+                limits(),
+                &request(),
+            )
+            .unwrap_err()
+            .kind(),
+            InstructionErrorKind::Template(minijinja::ErrorKind::UndefinedError)
+        );
+    }
+}
+
+#[test]
 fn original_cancellation_deadline_and_real_utf8_byte_limits_are_enforced() {
     let set = policy_prompt(PolicyPrompt::BootstrapHeader);
     let mut data = data("orbit");

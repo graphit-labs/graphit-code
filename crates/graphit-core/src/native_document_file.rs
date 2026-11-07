@@ -735,21 +735,7 @@ impl Access {
                 digest.finalize().into()
             }
             #[cfg(windows)]
-            Self::Windows(access) | Self::WindowsProject(access) => {
-                let mut digest = Sha256::new();
-                // Access data is independent of the capture's capability. Both
-                // PROJECT reads and publication receipts observe the same bounded
-                // owner/group/DACL descriptor, without rewriting or sorting ACLs.
-                digest.update(b"graphit/native-access/windows-descriptor\0");
-                let mut remaining = access.byte_length();
-                for word in access.words() {
-                    let bytes = word.to_ne_bytes();
-                    let count = remaining.min(4);
-                    digest.update(&bytes[..count]);
-                    remaining -= count;
-                }
-                digest.finalize().into()
-            }
+            Self::Windows(access) | Self::WindowsProject(access) => access.fingerprint(),
         }
     }
 }
