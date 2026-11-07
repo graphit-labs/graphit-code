@@ -1,7 +1,7 @@
 import '@/test/contextControls'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 import { nativeKnowledgeApi } from '@/api/nativeKnowledge'
 import { parseNativeJson } from '@/api/nativeJson'
 import { importedSourceKey } from '@/api/nativeRecordNavigation'
@@ -13,6 +13,14 @@ const source = { kind: 'imported_knowledge' as const, artifact: { id: 'literal@a
 const generation = { corpus_uri: 'import-corpus', version: 18446744073709551615n, physical_branch: null, inherited_target: null }
 function Location() { return <output aria-label="Current URI">{useLocation().search}</output> }
 function mount() { return render(<MemoryRouter initialEntries={['/knowledge/contexts']}><Location /><Routes><Route path="/knowledge/contexts" element={<WikiContextsPage />} /><Route path="/knowledge/explorer" element={<WikiExplorerPage />} /></Routes></MemoryRouter>) }
+const scrollToDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'scrollTo')
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, 'scrollTo', { configurable: true, writable: true, value: vi.fn() })
+})
+afterAll(() => {
+  if (scrollToDescriptor) Object.defineProperty(HTMLElement.prototype, 'scrollTo', scrollToDescriptor)
+  else Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo')
+})
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(nativeKnowledgeApi.importedContexts).mockResolvedValue({ contexts: [source] })
