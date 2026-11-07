@@ -232,7 +232,9 @@ impl IntoResponse for ReadFailure {
                     E::Encoding(_)=>(None, "response_encoding_failed"),
                     E::Native(e)=>(None, match *e {
                         K::Auth(_)=>"authentication_or_permission_denied",
-                        K::Request(_)=>"request_cancelled_or_expired",
+                        K::Request(ref error) if matches!(error.kind(),std::io::ErrorKind::Interrupted|std::io::ErrorKind::TimedOut)=>"request_cancelled_or_expired",
+                        K::Request(ref error) if error.kind()==std::io::ErrorKind::InvalidData=>"invalid_knowledge_corpus",
+                        K::Request(_)=>"knowledge_index_failure",
                         K::Projection(graphit_data::knowledge_document_projection::KnowledgeDocumentProjectionError::Request(_))=>"request_cancelled_or_expired",
                         K::WrongAdmission=>"wrong_admission",K::DifferentRequest=>"different_original_request",
                         K::LimitExceeded(_)=>"knowledge_read_limit",K::Overflow(_)=>"knowledge_read_overflow",

@@ -51,6 +51,8 @@ pub fn encode_file(
         .flatten();
     let mut fingerprints = FixedSizeBinaryBuilder::with_capacity(lexical.num_rows(), 32);
     let mut reuse = Vec::with_capacity(lexical.num_rows());
+    let mut previous_occurrences = None;
+    let mut previous_inputs = None;
     for (row, projection) in selected.iter().enumerate() {
         original.check()?;
         let Some(projection) = projection.map(|row| row as usize) else {
@@ -95,9 +97,60 @@ pub fn encode_file(
         fingerprints
             .append_value(expected)
             .map_err(io::Error::other)?;
-        let prior = previous_keys
+        let mut prior = previous_keys
             .get(&(uid.value(row).into(), key.value(row).into()))
             .copied();
+        // Identity may be refined without changing the model input. Reuse one
+        // unambiguous observation already loaded for this FILE, not an alias or
+        // a second corpus. Exact identities keep the normal fast path.
+        if prior.is_none()
+            && let Some(old) = previous
+        {
+            if previous_occurrences.is_none() {
+                previous_occurrences = Some(occurrence_rows(old, original)?);
+            }
+            if let Some(rows) = previous_occurrences.as_ref()
+                && !rows.is_empty()
+            {
+                let occurrence = super::publication::source_occurrence(&prepared, projection)?;
+                prior = rows.get(&occurrence).copied().flatten();
+            }
+            if let Some(index) = prior
+                && !super::publication::same_source_occurrence(
+                    old,
+                    index as usize,
+                    &prepared,
+                    projection,
+                )?
+            {
+                prior = None;
+            }
+            // A Source edit can move an otherwise identical model input while
+            // also refining its identity. Reuse the model output, not the old
+            // observation: the fingerprint and provenance above remain current.
+            // Keep publication's occurrence guard strict for in-flight inference.
+            if prior.is_none() {
+                if previous_inputs.is_none() {
+                    previous_inputs = Some(input_rows(old, original)?);
+                }
+                let path = array::<StringArray>(&prepared, "path")?.value(projection);
+                let text = array::<StringArray>(&prepared, "projection")?.value(projection);
+                prior = previous_inputs
+                    .as_ref()
+                    .and_then(|rows| rows.get(&(path, text)))
+                    .copied()
+                    .flatten();
+                if let Some(index) = prior {
+                    let old_schema = old.schema();
+                    let model = super::model(old_schema.as_ref())?.ok_or_else(invalid)?;
+                    // Certify the selected old output against its own truthful
+                    // input and model before binding it to the new observation.
+                    if vectors(&old.slice(index as usize, 1), &model, original)?.num_rows() != 1 {
+                        return Err(invalid());
+                    }
+                }
+            }
+        }
         let compatible = match (previous, prior) {
             (Some(old), Some(index))
                 if old
@@ -108,10 +161,16 @@ pub fn encode_file(
                 let hashes = array::<FixedSizeBinaryArray>(old, "projection_sha256")?;
                 let ids = array::<FixedSizeBinaryArray>(old, "vector_id")?;
                 let fingerprints = array::<FixedSizeBinaryArray>(old, "input_fingerprint")?;
+                let recipes = array::<StringArray>(old, "projection_recipe")?;
+                let roles = array::<StringArray>(old, "role")?;
                 if fingerprints.is_null(index)
                     || fingerprints.value(index) != fingerprint(old, index)?
                     || ids.is_null(index)
                     || ids.value(index) != previous_vector_id.ok_or_else(invalid)?
+                    || recipes.is_null(index)
+                    || recipes.value(index) != NATIVE_ENTITY_PROJECTION_RECIPE
+                    || roles.is_null(index)
+                    || roles.value(index) != "CodeDocument"
                 {
                     return Err(invalid());
                 }
@@ -119,6 +178,9 @@ pub fn encode_file(
                     && hashes.value(index)
                         == array::<FixedSizeBinaryArray>(&prepared, "projection_sha256")?
                             .value(projection)
+                    && !array::<StringArray>(old, "projection")?.is_null(index)
+                    && array::<StringArray>(old, "projection")?.value(index)
+                        == array::<StringArray>(&prepared, "projection")?.value(projection)
                     && old.schema().field_with_name(VECTOR).ok()
                         == schema.field_with_name(VECTOR).ok()
             }
@@ -166,6 +228,57 @@ pub fn encode_file(
     }
     original.check()?;
     RecordBatch::try_new(schema, columns).map_err(io::Error::other)
+}
+
+fn occurrence_rows(
+    previous: &RecordBatch,
+    original: &SnapshotContext,
+) -> io::Result<HashMap<[u8; 32], Option<u32>>> {
+    let mut rows = HashMap::new();
+    let Some(vectors) = previous.column_by_name(VECTOR) else {
+        return Ok(rows);
+    };
+    for row in 0..previous.num_rows() {
+        original.check()?;
+        if vectors.is_null(row) {
+            continue;
+        }
+        let key = super::publication::source_occurrence(previous, row)?;
+        let row = u32::try_from(row).map_err(|_| invalid())?;
+        rows.entry(key)
+            .and_modify(|value| *value = None)
+            .or_insert(Some(row));
+    }
+    Ok(rows)
+}
+
+fn input_rows<'a>(
+    previous: &'a RecordBatch,
+    original: &SnapshotContext,
+) -> io::Result<HashMap<(&'a str, &'a str), Option<u32>>> {
+    let mut rows = HashMap::new();
+    let Some(vectors) = previous.column_by_name(VECTOR) else {
+        return Ok(rows);
+    };
+    let paths = array::<StringArray>(previous, "path")?;
+    let projections = array::<StringArray>(previous, "projection")?;
+    for row in 0..previous.num_rows() {
+        original.check()?;
+        if vectors.is_null(row) {
+            continue;
+        }
+        if paths.is_null(row) || projections.is_null(row) {
+            return Err(invalid());
+        }
+        // With the same recipe and CodeDocument role the model sees only this
+        // text, with a fixed prefix. Never choose among duplicate old inputs.
+        let key = (paths.value(row), projections.value(row));
+        let row = u32::try_from(row).map_err(|_| invalid())?;
+        rows.entry(key)
+            .and_modify(|value| *value = None)
+            .or_insert(Some(row));
+    }
+    Ok(rows)
 }
 
 /// Return genuine prepared observations for inference; lexical-only rows remain

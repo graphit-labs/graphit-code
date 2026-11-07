@@ -27,6 +27,7 @@ use std::{
 pub(crate) mod ask;
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub(crate) mod imported_search;
+pub(crate) mod navigation;
 pub(crate) mod reference_binding;
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub(crate) mod search;
@@ -223,6 +224,8 @@ struct DocumentFields<'a> {
     stale_since: Option<Timestamp>,
     stale_after: Option<Age>,
     resolved_wiki_targets: &'a [String],
+    previous: Option<&'a graphit_knowledge::navigation::NavigationLink>,
+    next: Option<&'a graphit_knowledge::navigation::NavigationLink>,
 }
 impl<'a> From<&'a KnowledgeDocument> for DocumentFields<'a> {
     fn from(v: &'a KnowledgeDocument) -> Self {
@@ -247,24 +250,35 @@ impl<'a> From<&'a KnowledgeDocument> for DocumentFields<'a> {
             stale_since: v.stale_since.map(Timestamp),
             stale_after: v.stale_after.map(Age::from),
             resolved_wiki_targets: &v.resolved_wiki_targets,
+            previous: None,
+            next: None,
         }
     }
 }
-struct Document<'a>(&'a KnowledgeDocument);
+struct Document<'a>(
+    &'a KnowledgeDocument,
+    &'a graphit_knowledge::navigation::DocumentNavigation,
+);
 impl Serialize for Document<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        DocumentFields::from(self.0).serialize(s)
+        let mut fields = DocumentFields::from(self.0);
+        fields.previous = self.1.previous.as_ref();
+        fields.next = self.1.next.as_ref();
+        fields.serialize(s)
     }
 }
 /// Reuse the native FULL16 page view for the retained imported reader.
-pub(crate) struct PageView<'a>(pub(crate) &'a KnowledgeSnapshotPage);
+pub(crate) struct PageView<'a>(
+    pub(crate) &'a KnowledgeSnapshotPage,
+    pub(crate) &'a graphit_knowledge::navigation::DocumentNavigation,
+);
 impl Serialize for PageView<'_> {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         match self.0 {
             KnowledgeSnapshotPage::PublishedEmpty => SelectedPage::PublishedEmpty,
             KnowledgeSnapshotPage::PageAbsent => SelectedPage::PageAbsent,
             KnowledgeSnapshotPage::Found { document: v, .. } => SelectedPage::Found {
-                document: Document(v.as_ref()),
+                document: Document(v.as_ref(), self.1),
             },
         }
         .serialize(s)
@@ -363,6 +377,13 @@ pub(crate) async fn read<'a>(
                 } => focused_source.as_deref(),
                 _ => None,
             };
+            let navigation = match &native {
+                KnowledgeIndexPageRead::Published {
+                    page: KnowledgeSnapshotPage::Found { document, .. },
+                    ..
+                } => navigation::project(original, admission, document, limits).await?,
+                _ => graphit_knowledge::navigation::DocumentNavigation::default(),
+            };
             let view = match &native {
                 KnowledgeIndexPageRead::NoCorpus => PageRead::NoCorpus,
                 KnowledgeIndexPageRead::Published { generation, page } => PageRead::Published {
@@ -371,7 +392,7 @@ pub(crate) async fn read<'a>(
                         KnowledgeSnapshotPage::PublishedEmpty => SelectedPage::PublishedEmpty,
                         KnowledgeSnapshotPage::PageAbsent => SelectedPage::PageAbsent,
                         KnowledgeSnapshotPage::Found { document: v, .. } => SelectedPage::Found {
-                            document: Document(v.as_ref()),
+                            document: Document(v.as_ref(), &navigation),
                         },
                     },
                 },

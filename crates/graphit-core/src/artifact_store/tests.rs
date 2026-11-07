@@ -2415,10 +2415,50 @@ fn copy_file_and_directory_reopen_true_noop_update_remove() {
             f.source.clone()
         };
         fs::write(&changed, b"new bytes").unwrap();
-        assert_eq!(
-            copy_fixture(&mut writer, &f, kind).unwrap(),
-            ArtifactChange::Updated
-        );
+        let updated = copy_fixture(&mut writer, &f, kind);
+        #[cfg(windows)]
+        if updated.is_err()
+            && let Some(Pending::Publication(operation)) = writer.document().unwrap().pending
+        {
+            eprintln!(
+                "copy update state: parent_canonical={} payload_present={} backup_present={} destination_present={}",
+                fs::canonicalize(f.destination.parent().unwrap()).unwrap()
+                    == f.destination.parent().unwrap(),
+                operation.stage.path.0.join("payload").exists(),
+                operation.stage.path.0.join("backup").exists(),
+                f.destination.exists(),
+            );
+            if let Some(Proof::Copy { tree, .. }) = operation.prepared {
+                let expected = &tree.nodes[0];
+                for (label, path) in [
+                    ("payload", operation.stage.path.0.join("payload")),
+                    ("destination", f.destination.clone()),
+                ] {
+                    if let Ok(metadata) = fs::symlink_metadata(&path)
+                        && let tree::PhysicalId::Windows {
+                            volume,
+                            index,
+                            created,
+                        } = tree::physical_id(&path, &metadata).unwrap()
+                        && let tree::PhysicalId::Windows {
+                            volume: expected_volume,
+                            index: expected_index,
+                            created: expected_created,
+                        } = &expected.id
+                    {
+                        eprintln!(
+                            "copy update {label}: volume_matches={} index_matches={} creation_matches={} mode_matches={} kind_matches={}",
+                            volume == *expected_volume,
+                            index == *expected_index,
+                            created == *expected_created,
+                            tree::Mode::observe(&metadata) == expected.mode,
+                            metadata.is_dir() == expected.content.directory(),
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(updated.unwrap(), ArtifactChange::Updated);
         let target = if directory {
             f.destination.join("nested/binary")
         } else {

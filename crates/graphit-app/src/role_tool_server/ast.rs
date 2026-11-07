@@ -106,6 +106,11 @@ pub(super) async fn execute<'a>(
                 .live_index()
                 .ok_or_else(|| error("ast_graph_absent"))?;
             let graph = Arc::clone(&index.graph);
+            let catalog = state.graph.query_catalog();
+            let scope = graph_server::NeighborhoodScope::Project {
+                project: selected.1.to_string(),
+                version: selected.2.version().into(),
+            };
             tokio::task::spawn_blocking(move || {
                 let _runtime = runtime.enter();
                 let (operation, input) = match command {
@@ -115,11 +120,15 @@ pub(super) async fn execute<'a>(
                 };
                 let bytes = graph_server::live::render_live(
                     &graph,
+                    &catalog,
                     &request,
+                    &scope,
                     operation,
                     input,
                     None,
                     policy.graph_query,
+                    None,
+                    None,
                     policy.content.max_output_bytes,
                 )
                 .map_err(query_failure)?;

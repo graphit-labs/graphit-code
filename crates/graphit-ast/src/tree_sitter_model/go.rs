@@ -433,17 +433,20 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
         for frame in &seed.namespaces {
             self.parsed.original.check()?;
             let references: Vec<_> = owners.iter().collect();
-            owners.push(
-                self.parsed
-                    .identity
-                    .symbol(&frame.label, frame.anchor, &references)?,
-            );
+            owners.push(self.parsed.identity.symbol(
+                &frame.label,
+                frame.anchor,
+                &references,
+                LogicalDeclaration::named(&frame.name),
+            )?);
         }
         let references: Vec<_> = owners.iter().collect();
-        seed.identity = self
-            .parsed
-            .identity
-            .symbol(target.label, seed.raw, &references)?;
+        seed.identity = self.parsed.identity.symbol(
+            target.label,
+            seed.raw,
+            &references,
+            LogicalDeclaration::named(&seed.name),
+        )?;
         Ok(())
     }
 

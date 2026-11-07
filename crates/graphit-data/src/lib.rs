@@ -1,5 +1,6 @@
 //! Icebug reads, native storage locations, record schemas and Lance snapshot/publication adapters.
 //! Authorization and domain effects remain with callers; this library does not execute Cypher.
+mod code_identity;
 mod error;
 pub mod graph_search_sidecar;
 pub mod graph_writer;
@@ -27,6 +28,10 @@ pub mod remote_graph;
 pub mod vector_distance;
 
 use ::parquet::record::{Field, Row};
+pub use code_identity::{
+    CODE_ID_TEXT_BYTES, CodeDeclaration, CodeFileId, CodeIdentityError, CodePrimaryKey,
+    CodeRelationOccurrence, CodeRelationUid, CodeScope, CodeUid,
+};
 pub use error::DataReadError;
 use error::{Result, add, bounded};
 use graphit_core::artifact_store::{
@@ -36,36 +41,41 @@ use graphit_fs::NodeKind;
 use manifest::Manifest;
 pub use neighborhood::{
     GraphAnchorKey, GraphDirection, GraphNeighborhoodCursor, GraphNeighborhoodLimits,
-    GraphNeighborhoodPage, GraphNeighborhoodRequest, GraphProperty, GraphPropertyEdge,
-    GraphPropertyNode, GraphPropertyValueRef, fingerprint as neighborhood_fingerprint,
+    GraphNeighborhoodPage, GraphNeighborhoodPosition, GraphNeighborhoodRequest, GraphProperty,
+    GraphPropertyEdge, GraphPropertyNode, GraphPropertyValueRef,
+    fingerprint as neighborhood_fingerprint,
 };
 use parquet::{DecodeRequest, Scalar, Shape, Table, Work};
 pub use policy::{GraphSampleLimits, LocalGraphLimits, LocalGraphPolicy};
-use std::{collections::HashSet, path::Path, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::Path,
+    sync::Arc,
+};
 
-/// Data identity only: it cannot restore a source capture or grant access.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct GraphGeneration([u8; 32]);
-impl GraphGeneration {
-    /// Identity reported by an observed graph producer. This value cannot open
-    /// a database, restore a captured reader, or grant PROJECT access.
-    pub fn from_observed_digest(digest: [u8; 32]) -> Self {
-        Self(digest)
-    }
-    pub fn bytes(self) -> [u8; 32] {
-        self.0
-    }
-}
+/// Physical table/row coordinates in a sample or page, not a portable lookup key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct NodeId {
-    generation: GraphGeneration,
     table: u32,
     row: u64,
 }
-impl NodeId {
-    pub fn generation(self) -> GraphGeneration {
-        self.generation
+/// A resolved ordinal borrowed from its genuine graph capture, not a portable ID.
+/// ```compile_fail
+/// fn detach(graph: graphit_data::CapturedLocalGraph, limits: graphit_data::GraphNeighborhoodLimits)
+///     -> graphit_data::ResolvedGraphNode<'static> {
+///     graph.resolve_node("File", graphit_data::GraphAnchorKey::String("a.rs"), limits).unwrap()
+/// }
+/// ```
+pub struct ResolvedGraphNode<'a> {
+    graph: GraphSchemaSource<'a>,
+    id: NodeId,
+}
+impl ResolvedGraphNode<'_> {
+    pub fn id(&self) -> NodeId {
+        self.id
     }
+}
+impl NodeId {
     pub fn table(self) -> u32 {
         self.table
     }
@@ -75,14 +85,10 @@ impl NodeId {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EdgeId {
-    generation: GraphGeneration,
     member: u32,
     row: u64,
 }
 impl EdgeId {
-    pub fn generation(self) -> GraphGeneration {
-        self.generation
-    }
     pub fn member(self) -> u32 {
         self.member
     }
@@ -167,14 +173,10 @@ impl GraphEdgeSummary {
 /// fn detach(sample: graphit_data::GraphSample) { let _ = sample.nodes; }
 /// ```
 pub struct GraphSample {
-    generation: GraphGeneration,
     nodes: Vec<GraphNodeSummary>,
     edges: Vec<GraphEdgeSummary>,
 }
 impl GraphSample {
-    pub fn generation(&self) -> GraphGeneration {
-        self.generation
-    }
     pub fn nodes(&self) -> &[GraphNodeSummary] {
         &self.nodes
     }
@@ -218,22 +220,13 @@ impl GraphSchema<'_> {
             GraphSchemaSource::Remote(graph) => graph.manifest(),
         }
     }
-    pub fn generation(&self) -> GraphGeneration {
-        match self.0 {
-            GraphSchemaSource::Local(graph) => graph.generation,
-            GraphSchemaSource::Remote(graph) => graph.generation(),
-        }
-    }
-    /// Generation declared by icebug.json, distinct from the capture fingerprint.
-    pub fn manifest_generation(&self) -> &str {
-        &self.manifest().generation
-    }
     /// Validated relative schema reference; this does not open or execute it.
     pub fn schema_file(&self) -> &str {
         &self.manifest().schema_file
     }
     /// Declared graph files in validated manifest order; metadata grants no access.
     pub fn referenced_files(&self) -> impl Iterator<Item = &str> {
+        let mut seen = HashSet::new();
         ["icebug.json", self.schema_file()]
             .into_iter()
             .chain(
@@ -249,6 +242,7 @@ impl GraphSchema<'_> {
                     .flat_map(|group| group.members.iter().chain(&group.reverse_members))
                     .flat_map(|member| [member.indices.as_str(), member.indptr.as_str()]),
             )
+            .filter(move |path| seen.insert(*path))
     }
     pub fn node_tables(&self) -> impl ExactSizeIterator<Item = GraphNodeSchema<'_>> {
         self.manifest().node_tables.iter().map(GraphNodeSchema)
@@ -262,6 +256,8 @@ impl GraphSchema<'_> {
                 Box::new(graph.members.iter().map(|member| GraphRelationshipSchema {
                     indices: member.indices.relative_path(),
                     indptr: member.indptr.relative_path(),
+                    indices_row_offset: member.indices.row_offset(),
+                    indptr_row_offset: member.indptr.row_offset(),
                     kind: &member.kind,
                     from: &graph.manifest.node_tables[member.from].label,
                     to: &graph.manifest.node_tables[member.to].label,
@@ -317,6 +313,9 @@ impl<'a> GraphNodeShard<'a> {
     pub fn row_base(&self) -> u64 {
         self.0.row_base
     }
+    pub fn row_offset(&self) -> u64 {
+        self.0.row_offset
+    }
     pub fn rows(&self) -> u64 {
         self.0.rows
     }
@@ -325,6 +324,8 @@ impl<'a> GraphNodeShard<'a> {
 pub struct GraphRelationshipSchema<'a> {
     indices: &'a str,
     indptr: &'a str,
+    indices_row_offset: u64,
+    indptr_row_offset: u64,
     kind: &'a str,
     from: &'a str,
     to: &'a str,
@@ -336,6 +337,12 @@ pub struct GraphRelationshipSchema<'a> {
     target_rows: u64,
 }
 impl GraphRelationshipSchema<'_> {
+    pub fn indices_row_offset(&self) -> u64 {
+        self.indices_row_offset
+    }
+    pub fn indptr_row_offset(&self) -> u64 {
+        self.indptr_row_offset
+    }
     pub fn source_row_base(&self) -> u64 {
         self.source_row_base
     }
@@ -385,9 +392,6 @@ impl GraphRelationshipSchema<'_> {
 
 /// Original context/source are private; serialized identities never recreate authority.
 /// ```compile_fail
-/// fn restore(id: graphit_data::GraphGeneration) { let _ = graphit_data::CapturedLocalGraph::from_generation(id); }
-/// ```
-/// ```compile_fail
 /// fn bypass(graph: &graphit_data::CapturedLocalGraph) { let _ = &graph.reader; }
 /// ```
 pub struct CapturedLocalGraph {
@@ -397,7 +401,7 @@ pub struct CapturedLocalGraph {
     manifest: Manifest,
     nodes: Vec<Table>,
     members: Vec<MemberTable>,
-    generation: GraphGeneration,
+    reverse_members: Vec<MemberTable>,
 }
 fn generated_manifest_bytes(
     file: &CapturedSourceFile,
@@ -423,31 +427,19 @@ fn generated_manifest_bytes(
 }
 
 impl CapturedLocalGraph {
-    /// Preserve the producer's stable PROJECT/version + revision graph identity.
-    /// Namespace metadata is checked after admission and never grants access.
-    pub fn owned_generation(&self, namespace: [u8; 32]) -> Result<[u8; 32]> {
-        use sha2::{Digest, Sha256};
+    /// Validate the producer namespace after admission, without deriving a
+    /// generation shared with other captures or independently published corpora.
+    pub fn validate_namespace(&self, namespace: [u8; 32]) -> Result<()> {
         self.context.check()?;
         let live = self
             .manifest
             .live
             .as_ref()
             .ok_or(DataReadError::InvalidManifest("local graph metadata"))?;
-        let observed = live
-            .get("namespace")
-            .and_then(|value| serde_json::from_value::<[u8; 32]>(value.clone()).ok());
-        if observed != Some(namespace) {
+        if live.namespace != Some(namespace) {
             return Err(DataReadError::InvalidManifest("local graph namespace"));
         }
-        let revision = live
-            .get("schema")
-            .and_then(|schema| schema.get("revision"))
-            .and_then(serde_json::Value::as_u64)
-            .ok_or(DataReadError::InvalidManifest("local graph revision"))?;
-        let mut hash = Sha256::new();
-        hash.update(namespace);
-        hash.update(revision.to_le_bytes());
-        Ok(hash.finalize().into())
+        Ok(())
     }
     /// Borrow the genuine Core capture for exporting this same graph publication.
     /// The caller retains its admission; the reader supplies no authorization.
@@ -547,6 +539,8 @@ impl CapturedLocalGraph {
                     .flat_map(|member| [member.indices.as_str(), member.indptr.as_str()]),
             )
             .map(std::path::PathBuf::from)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
             .collect::<Vec<_>>();
         let reader = CapturedSourceReader::capture_generated_metadata(
             source,
@@ -561,7 +555,11 @@ impl CapturedLocalGraph {
                 "publication changed during capture",
             ));
         }
-        Self::from_reader_inner(reader, context, policy, true)
+        drop(observed);
+        drop(file);
+        drop(manifest_reader);
+        drop(bytes);
+        Self::from_manifest(reader, context, policy, manifest)
     }
     /// Consume a genuine Core reader, preserving its original operation and source guards.
     /// This supplies no authorization and does not restore a reader from a generation.
@@ -570,40 +568,34 @@ impl CapturedLocalGraph {
         context: Arc<SnapshotContext>,
         policy: LocalGraphPolicy,
     ) -> Result<Self> {
-        Self::from_reader_inner(reader, context, policy, false)
-    }
-    fn from_reader_inner(
-        reader: CapturedSourceReader,
-        context: Arc<SnapshotContext>,
-        policy: LocalGraphPolicy,
-        generated: bool,
-    ) -> Result<Self> {
         reader.check_request(&context)?;
         let limits = policy.0;
         let manifest_file = reader.open_file(Path::new("icebug.json"))?;
-        let (manifest, manifest_digest) = if generated {
-            use sha2::{Digest, Sha256};
-            let bytes = generated_manifest_bytes(&manifest_file, &context)?;
-            let manifest = Manifest::parse_generated(&bytes, limits)?;
-            (manifest, <[u8; 32]>::from(Sha256::digest(&bytes)))
-        } else {
-            use sha2::{Digest, Sha256};
-            let length = usize::try_from(manifest_file.len())
-                .map_err(|_| DataReadError::LimitExceeded("manifest bytes"))?;
-            bounded(length, limits.manifest_bytes, "manifest bytes")?;
-            let bytes = manifest_file.read_range(0, length)?;
-            let manifest = Manifest::parse(bytes.as_ref(), limits)?;
-            (manifest, <[u8; 32]>::from(Sha256::digest(bytes.as_ref())))
-        };
+        let length = usize::try_from(manifest_file.len())
+            .map_err(|_| DataReadError::LimitExceeded("manifest bytes"))?;
+        bounded(length, limits.manifest_bytes, "manifest bytes")?;
+        let bytes = manifest_file.read_range(0, length)?;
+        let manifest = Manifest::parse(bytes.as_ref(), limits)?;
+        drop(bytes);
         drop(manifest_file);
-
+        Self::from_manifest(reader, context, policy, manifest)
+    }
+    fn from_manifest(
+        reader: CapturedSourceReader,
+        context: Arc<SnapshotContext>,
+        policy: LocalGraphPolicy,
+        manifest: Manifest,
+    ) -> Result<Self> {
+        reader.check_request(&context)?;
+        let limits = policy.0;
+        let mut captured = BTreeMap::new();
         let mut nodes = Vec::new();
         nodes
             .try_reserve_exact(manifest.node_tables.len())
             .map_err(|_| DataReadError::LimitExceeded("tables allocation"))?;
         for node in &manifest.node_tables {
             context.check()?;
-            let table = Table::capture_nodes(&reader, node, limits)?;
+            let table = Table::capture_nodes(&reader, node, limits, &mut captured)?;
             for (name, kind) in &table.fields {
                 if matches!(name.as_str(), "name" | "path" | "uid" | "cluster" | "lang")
                     && *kind != Scalar::String
@@ -615,6 +607,7 @@ impl CapturedLocalGraph {
             nodes.push(table);
         }
         let mut members = Vec::new();
+        let mut reverse_members = Vec::new();
         for group in &manifest.relationships {
             for member in &group.members {
                 let from = manifest
@@ -634,12 +627,21 @@ impl CapturedLocalGraph {
                 let indices = Table::capture(
                     &reader,
                     &member.indices,
+                    member.indices_row_offset,
                     member.rows,
                     Shape::Indices,
                     limits,
+                    &mut captured,
                 )?;
-                let indptr =
-                    Table::capture(&reader, &member.indptr, pointer_rows, Shape::Indptr, limits)?;
+                let indptr = Table::capture(
+                    &reader,
+                    &member.indptr,
+                    member.indptr_row_offset,
+                    pointer_rows,
+                    Shape::Indptr,
+                    limits,
+                    &mut captured,
+                )?;
                 members
                     .try_reserve(1)
                     .map_err(|_| DataReadError::LimitExceeded("members allocation"))?;
@@ -661,18 +663,50 @@ impl CapturedLocalGraph {
             }
             for member in &group.reverse_members {
                 context.check()?;
+                let from = manifest
+                    .node_tables
+                    .iter()
+                    .position(|node| node.label == member.from)
+                    .ok_or(DataReadError::InvalidManifest("from label"))?;
+                let to = manifest
+                    .node_tables
+                    .iter()
+                    .position(|node| node.label == member.to)
+                    .ok_or(DataReadError::InvalidManifest("to label"))?;
                 let pointer_rows = member
                     .source_rows
                     .checked_add(1)
                     .ok_or(DataReadError::InvalidManifest("pointer rows"))?;
-                Table::capture(
+                let indices = Table::capture(
                     &reader,
                     &member.indices,
+                    member.indices_row_offset,
                     member.rows,
                     Shape::Indices,
                     limits,
+                    &mut captured,
                 )?;
-                Table::capture(&reader, &member.indptr, pointer_rows, Shape::Indptr, limits)?;
+                let indptr = Table::capture(
+                    &reader,
+                    &member.indptr,
+                    member.indptr_row_offset,
+                    pointer_rows,
+                    Shape::Indptr,
+                    limits,
+                    &mut captured,
+                )?;
+                reverse_members.push(MemberTable {
+                    from,
+                    to,
+                    kind: copy_text(&group.kind)?,
+                    rows: member.rows,
+                    source_row_base: member.source_row_base,
+                    source_rows: member.source_rows,
+                    target_row_base: member.target_row_base,
+                    target_rows: member.target_rows,
+                    indices,
+                    indptr,
+                });
             }
         }
         members.sort_by(|a, b| a.0.cmp(b.0));
@@ -686,13 +720,6 @@ impl CapturedLocalGraph {
         let members = ordered;
         reader.revalidate_bindings()?;
         context.check()?;
-        let generation = {
-            use sha2::{Digest, Sha256};
-            let mut hash = Sha256::new();
-            hash.update(reader.fingerprint());
-            hash.update(manifest_digest);
-            GraphGeneration(hash.finalize().into())
-        };
         Ok(Self {
             reader,
             context,
@@ -700,11 +727,8 @@ impl CapturedLocalGraph {
             manifest,
             nodes,
             members,
-            generation,
+            reverse_members,
         })
-    }
-    pub fn generation(&self) -> GraphGeneration {
-        self.generation
     }
     /// Checks the captured operation before exposing its complete metadata.
     pub fn schema(&self) -> Result<GraphSchema<'_>> {
@@ -756,21 +780,35 @@ impl CapturedLocalGraph {
         let mut selected = HashSet::new();
         let mut seeds = limits.seed_nodes;
         for (index, table) in self.nodes.iter().enumerate() {
+            if seeds == 0 {
+                break;
+            }
             if let Some(marker) =
                 marker.filter(|marker| table.fields.iter().any(|(name, _)| name == marker))
             {
-                table.scan(&request, &[marker], |row, record| {
-                    let excluded = match field(record, marker)? {
-                        Field::Bool(value) => *value,
-                        Field::Null => false,
-                        _ => return Err(DataReadError::InvalidParquet("sample boolean marker")),
-                    };
-                    if !excluded && seeds > 0 {
-                        admit_node(&mut selected, self.node_id(index, row), &limits)?;
-                        seeds -= 1;
+                for range in table.row_group_ranges()? {
+                    if seeds == 0 {
+                        break;
                     }
-                    Ok(())
-                })?;
+                    let count = usize::try_from(range.end - range.start)
+                        .map_err(|_| DataReadError::LimitExceeded("decoded rows"))?;
+                    bounded(count, request.decode.max_decoded_rows, "decoded rows")?;
+                    let rows = range.collect::<Vec<_>>();
+                    table.scan_selected(&request, &[marker], &rows, |row, record| {
+                        let excluded = match field(record, marker)? {
+                            Field::Bool(value) => *value,
+                            Field::Null => false,
+                            _ => {
+                                return Err(DataReadError::InvalidParquet("sample boolean marker"));
+                            }
+                        };
+                        if !excluded && seeds > 0 {
+                            admit_node(&mut selected, self.node_id(index, row), &limits)?;
+                            seeds -= 1;
+                        }
+                        Ok(())
+                    })?;
+                }
             } else {
                 let count = table.rows.min(seeds as u64);
                 for row in table.seed_rows(count)? {
@@ -780,19 +818,28 @@ impl CapturedLocalGraph {
             }
         }
         let mut edges = Vec::new();
-        let mut edge_uids = HashSet::new();
         let mut remaining = limits.global_edges;
         for (index, member) in self.members.iter().enumerate() {
+            if remaining == 0 {
+                break;
+            }
             let count = member.rows.min(remaining as u64) as usize;
+            if count == 0 {
+                continue;
+            }
+            let rows = (0..count as u64).collect::<Vec<_>>();
             let edge_start = edges.len();
             member
                 .indices
-                .scan(&request, &["target", "uid"], |row, record| {
+                .scan_selected(&request, &["target", "uid"], &rows, |row, record| {
                     let local_target = uint(field(record, "target")?)?;
                     if local_target >= member.target_rows {
                         return Err(DataReadError::InvalidCsr("target shard bounds"));
                     }
-                    let target = member.target_row_base + local_target;
+                    let target = member
+                        .target_row_base
+                        .checked_add(local_target)
+                        .ok_or(DataReadError::InvalidCsr("target bounds"))?;
                     if !self.nodes[member.to].contains(target) {
                         return Err(DataReadError::InvalidCsr("target bounds"));
                     }
@@ -803,19 +850,11 @@ impl CapturedLocalGraph {
                     }
                     bounded(uid.len(), limits.max_string_bytes, "edge UID")?;
                     if row < count as u64 {
-                        if edge_uids.contains(uid) {
-                            return Err(DataReadError::DuplicateEdgeUid);
-                        }
-                        edge_uids
-                            .try_reserve(1)
-                            .map_err(|_| DataReadError::LimitExceeded("UID set"))?;
-                        edge_uids.insert(limits.text(uid)?);
                         edges
                             .try_reserve(1)
                             .map_err(|_| DataReadError::LimitExceeded("edge allocation"))?;
                         edges.push(GraphEdgeSummary {
                             id: EdgeId {
-                                generation: self.generation,
                                 member: index as u32,
                                 row,
                             },
@@ -839,8 +878,13 @@ impl CapturedLocalGraph {
                         if edges[next_edge].id.row < previous {
                             return Err(DataReadError::InvalidCsr("edge alignment"));
                         }
-                        edges[next_edge].from =
-                            self.node_id(member.from, member.source_row_base + row - 1);
+                        edges[next_edge].from = self.node_id(
+                            member.from,
+                            member
+                                .source_row_base
+                                .checked_add(row - 1)
+                                .ok_or(DataReadError::InvalidCsr("source bounds"))?,
+                        );
                         next_edge += 1;
                     }
                 }
@@ -860,9 +904,15 @@ impl CapturedLocalGraph {
         let mut nodes = Vec::new();
         for (index, table) in self.nodes.iter().enumerate() {
             let descriptor = &self.manifest.node_tables[index];
-            if table.rows == 0 {
+            let mut rows = selected
+                .iter()
+                .filter(|id| id.table as usize == index)
+                .map(|id| id.row)
+                .collect::<Vec<_>>();
+            if rows.is_empty() {
                 continue;
             }
+            rows.sort_unstable();
             let names: Vec<_> = table
                 .fields
                 .iter()
@@ -876,7 +926,7 @@ impl CapturedLocalGraph {
                 .map(|(name, _)| name.as_str())
                 .collect();
             let mut primary_keys = HashSet::new();
-            table.scan(&request, &names, |row, record| {
+            table.scan_selected(&request, &names, &rows, |row, record| {
                 let key = match field(record, &descriptor.primary_key)? {
                     Field::Str(value) => {
                         bounded(value.len(), limits.max_string_bytes, "primary key")?;
@@ -953,24 +1003,27 @@ impl CapturedLocalGraph {
         }
         self.reader.revalidate_bindings()?;
         self.context.check()?;
-        Ok(GraphSample {
-            generation: self.generation,
-            nodes,
-            edges,
-        })
+        Ok(GraphSample { nodes, edges })
     }
     fn node_id(&self, table: usize, row: u64) -> NodeId {
         NodeId {
-            generation: self.generation,
             table: table as u32,
             row,
         }
     }
 }
-#[derive(Hash, PartialEq, Eq)]
+#[derive(Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 enum PrimaryKey {
     String(String),
     Int64(i64),
+}
+impl PrimaryKey {
+    fn borrowed(&self) -> GraphAnchorKey<'_> {
+        match self {
+            Self::String(key) => GraphAnchorKey::String(key),
+            Self::Int64(key) => GraphAnchorKey::Int64(*key),
+        }
+    }
 }
 impl GraphSampleLimits {
     fn text(&self, value: &str) -> Result<String> {

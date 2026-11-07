@@ -437,3 +437,50 @@ fn initial_cancel_and_deadline_precede_empty_or_invalid_content() {
         }
     }
 }
+
+#[test]
+fn exported_guide_navigation_links_real_targets_and_retains_scalar_metadata() {
+    let ctx = context();
+    let guide_source =
+        graphit_data::knowledge_document_lifecycle::KnowledgeSourceIdentity::from_relative_path(
+            Path::new("docs/guide.md"),
+            None,
+            n(4096),
+        )
+        .unwrap();
+    let next_source =
+        graphit_data::knowledge_document_lifecycle::KnowledgeSourceIdentity::from_relative_path(
+            Path::new("docs/next.md"),
+            None,
+            n(4096),
+        )
+        .unwrap();
+    let mut guide = doc("guide");
+    guide.source_path = guide_source.source_path().into();
+    guide.body="---\ntitle: Guide\nnext: '[Next](next.md)'\nprevious: missing-guide\n---\n# Guide\n\nLiteral content.\n".into();
+    let mut next = doc("authored-next-id");
+    next.source_path = next_source.source_path().into();
+    next.title = "Next guide".into();
+    let plan = stage_export(&ctx, &[guide, next], modes(), limits()).unwrap();
+    let source = std::fs::read_to_string(plan.directory().join(format!(
+        "pages/p-{}.md",
+        hex::encode(Sha256::digest(b"guide"))
+    )))
+    .unwrap();
+    let navigation = graphit_knowledge::document::document_navigation(&ctx, &source).unwrap();
+    assert_eq!(navigation.next.as_deref(), Some("[Next](next.md)"));
+    assert_eq!(navigation.previous.as_deref(), Some("missing-guide"));
+    let expected = format!("p-{}.md", hex::encode(Sha256::digest(b"authored-next-id")));
+    let links = pulldown_cmark::Parser::new(&source)
+        .filter_map(|event| match event {
+            pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link { dest_url, .. }) => {
+                Some(dest_url.into_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(links.contains(&expected));
+    assert!(source.contains("missing-guide (unavailable)"));
+    assert!(!links.iter().any(|link| link.contains("missing-guide")));
+    assert!(source.ends_with("# Guide\n\nLiteral content.\n"));
+}

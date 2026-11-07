@@ -55,12 +55,7 @@ impl TaskComment {
         if self.body.trim().is_empty() {
             return Err("blank comment body");
         }
-        if self.actor.len() != 64
-            || !self
-                .actor
-                .bytes()
-                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-        {
+        if !crate::actor::valid_identifier(&self.actor) {
             return Err("comment actor");
         }
         if self.revision < 2 {
@@ -83,7 +78,7 @@ mod tests {
             sequence: NonZeroU64::new(1).unwrap(),
             kind: TaskCommentKind::Knowledge,
             body: "  **literal**\n\n    code\n".into(),
-            actor: "a".repeat(64),
+            actor: ulid::Ulid::from(10u128).to_string(),
             at: 10,
             revision: 3,
         };

@@ -7,13 +7,13 @@ use crate::local_files::{
     atomic_replace, canonical_directory, check_cancelled, directory_exists, invalid_input,
     read_regular, regular_metadata,
 };
-use crate::project_identity::ProjectIdentity;
+use crate::project_identity::{ProjectIdentity, project_document_lock};
 use crate::project_paths::{InstallationPaths, ProjectPaths};
 use secrecy::ExposeSecret;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fmt;
-use std::fs::{self, Permissions};
+use std::fs::{self, File, Permissions};
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -86,12 +86,21 @@ impl ConfigStore {
         if self.source == ConfigSource::Project {
             directory_exists(&self.parent)?;
         }
-        regular_metadata(&self.lock_path())?;
-        let lock = FileLock::acquire(self.lock_path(), timeout, cancellation)?;
+        let (lock, parent) = if self.source == ConfigSource::Project {
+            let (lock, parent) = project_document_lock(&self.parent, timeout, cancellation)?;
+            (lock, Some(parent))
+        } else {
+            regular_metadata(&self.lock_path())?;
+            (
+                FileLock::acquire(self.lock_path(), timeout, cancellation)?,
+                None,
+            )
+        };
         Ok(ConfigWriter {
             store: self.clone(),
             cancellation: cancellation.clone(),
             _lock: lock,
+            _parent: parent,
         })
     }
 
@@ -177,6 +186,7 @@ pub struct ConfigWriter {
     store: ConfigStore,
     cancellation: Cancellation,
     _lock: FileLock,
+    _parent: Option<File>,
 }
 impl ConfigWriter {
     pub fn load(&self) -> io::Result<ConfigDocument> {

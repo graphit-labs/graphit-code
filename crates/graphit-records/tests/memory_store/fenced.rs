@@ -752,9 +752,7 @@ fn assert_importance_delta(before: &Memory, after: &Memory, important: bool, act
     assert_eq!(after, &expected);
 }
 fn admitted_actor(write: &graphit_auth::ProjectWriteAdmission<'_>) -> String {
-    let mut bytes = [0; 64];
-    write.actor().unwrap().write_identifier(&mut bytes);
-    String::from_utf8(bytes.to_vec()).unwrap()
+    write.actor().unwrap().identifier().to_string()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

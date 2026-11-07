@@ -6,6 +6,7 @@ mod knowledge_manifest_fixture;
 mod knowledge_reference_fixture;
 
 mod ast_corpus_maintenance;
+mod code_identity;
 mod graph_search_sidecar;
 mod knowledge_branch_materialization;
 mod knowledge_document_projection;
@@ -36,6 +37,7 @@ mod lance_native_clone;
 mod lance_native_metadata;
 mod lance_native_snapshot;
 mod lance_nullable_vector;
+mod lance_scalar_append;
 mod lance_source_stream;
 mod native_storage_uri;
 mod vector_distance;

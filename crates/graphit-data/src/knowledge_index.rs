@@ -127,6 +127,11 @@ pub struct KnowledgeHead {
     pub title: String,
     pub updated_at: Option<SystemTime>,
 }
+#[derive(Clone, Copy)]
+pub(crate) enum KnowledgeHeadLookup<'a> {
+    Slug(&'a str),
+    SourcePath(&'a str),
+}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum KnowledgeHeadRead {
     NoCorpus,
@@ -155,6 +160,11 @@ pub struct KnowledgeDocument {
     pub stale_after: Option<Duration>,
     pub resolved_wiki_targets: Vec<String>,
 }
+
+/// A pure comparison of the observed old/new body under the operation's Original.
+/// This is content policy, never a grant or a replacement for CAS/admission checks.
+pub type KnowledgeBodyEquivalence =
+    fn(&SnapshotContext, &str, &str) -> Result<bool, KnowledgeIndexError>;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct KnowledgeRecipeParameters {
@@ -932,6 +942,66 @@ pub async fn read_native_knowledge_heads(
     admission: &ProjectReadAdmission<'_>,
     limits: KnowledgeHeadReadLimits,
 ) -> Result<KnowledgeHeadRead, KnowledgeIndexError> {
+    read_native_heads_selected(original, admission, limits, None).await
+}
+
+/// Point lookup of an authored source identity in the admitted PROJECT/version.
+/// Uses the existing head decoder and SDK predicate, without loading page bodies.
+pub async fn read_native_knowledge_head_by_source_path(
+    original: &Arc<SnapshotContext>,
+    admission: &ProjectReadAdmission<'_>,
+    source_path: &str,
+    limits: KnowledgeHeadReadLimits,
+) -> Result<KnowledgeHeadRead, KnowledgeIndexError> {
+    if source_path.is_empty()
+        || source_path.contains('\0')
+        || source_path.len() > limits.max_slug_bytes.get()
+    {
+        return Err(KnowledgeIndexError::InvalidField("source_path"));
+    }
+    let result = read_native_heads_selected(
+        original,
+        admission,
+        limits,
+        Some(KnowledgeHeadLookup::SourcePath(source_path)),
+    )
+    .await?;
+    if matches!(&result,KnowledgeHeadRead::Published {heads,..} if heads.len()>1) {
+        return Err(KnowledgeIndexError::InvalidField("ambiguous_source_path"));
+    }
+    Ok(result)
+}
+
+/// Point head/witness lookup by literal slug, without loading the destination body.
+pub async fn read_native_knowledge_head_by_slug(
+    original: &Arc<SnapshotContext>,
+    admission: &ProjectReadAdmission<'_>,
+    slug: &str,
+    limits: KnowledgeHeadReadLimits,
+) -> Result<KnowledgeHeadRead, KnowledgeIndexError> {
+    validate_slug(slug)?;
+    if slug.len() > limits.max_slug_bytes.get() {
+        return Err(KnowledgeIndexError::LimitExceeded("slug_bytes"));
+    }
+    let result = read_native_heads_selected(
+        original,
+        admission,
+        limits,
+        Some(KnowledgeHeadLookup::Slug(slug)),
+    )
+    .await?;
+    if matches!(&result,KnowledgeHeadRead::Published {heads,..} if heads.len()>1) {
+        return Err(KnowledgeIndexError::DuplicateSlug);
+    }
+    Ok(result)
+}
+
+async fn read_native_heads_selected(
+    original: &Arc<SnapshotContext>,
+    admission: &ProjectReadAdmission<'_>,
+    limits: KnowledgeHeadReadLimits,
+    selection: Option<KnowledgeHeadLookup<'_>>,
+) -> Result<KnowledgeHeadRead, KnowledgeIndexError> {
     use futures::TryStreamExt;
     let project = check_read_project(original, admission)?;
     let scope = project.scope.live;
@@ -957,6 +1027,16 @@ pub async fn read_native_knowledge_heads(
     };
     let generation = generation(&uri, &pin);
     let mut scanner = pin.scan();
+    if let Some(selection) = selection {
+        let (column, value) = match selection {
+            KnowledgeHeadLookup::Slug(value) => ("slug", value),
+            KnowledgeHeadLookup::SourcePath(value) => ("source_path", value),
+        };
+        scanner.filter_expr(
+            lance::deps::datafusion::logical_expr::col(column)
+                .eq(lance::deps::datafusion::logical_expr::lit(value)),
+        );
+    }
     scanner
         .project(&[
             "slug",
@@ -992,6 +1072,16 @@ pub async fn read_native_knowledge_heads(
             break;
         };
         let decoded = (|| -> Result<(), KnowledgeIndexError> {
+            if let Some(selection) = selection {
+                let (column, value) = match selection {
+                    KnowledgeHeadLookup::Slug(value) => (0, value),
+                    KnowledgeHeadLookup::SourcePath(value) => (3, value),
+                };
+                let origins: &StringArray = array(&batch, column)?;
+                if origins.iter().any(|origin| origin != Some(value)) {
+                    return Err(KnowledgeIndexError::InvalidField("selected_membership"));
+                }
+            }
             decode_head_batch(&batch, limits, &mut counts, &mut heads, || {
                 original.check().map_err(KnowledgeIndexError::from)
             })?;

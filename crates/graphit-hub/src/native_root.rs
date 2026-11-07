@@ -44,7 +44,6 @@ pub enum NativeSnapshot {
     },
     Icebug {
         manifest_path: String,
-        generation: String,
         #[serde(with = "digest")]
         manifest_sha256: [u8; 32],
     },
@@ -311,16 +310,8 @@ fn validate(
                     return Err(MetadataError::InvalidDocument);
                 }
             }
-            NativeSnapshot::Icebug {
-                manifest_path,
-                generation,
-                ..
-            } => {
-                scalar(generation, limits)?;
-                if component.role != NativeRole::Graph
-                    || manifest_path != "icebug.json"
-                    || generation.is_empty()
-                {
+            NativeSnapshot::Icebug { manifest_path, .. } => {
+                if component.role != NativeRole::Graph || manifest_path != "icebug.json" {
                     return Err(MetadataError::InvalidDocument);
                 }
             }

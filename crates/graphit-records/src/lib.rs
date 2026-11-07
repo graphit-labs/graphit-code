@@ -8,6 +8,7 @@
 #[cfg(test)]
 extern crate self as graphit_records;
 
+mod actor;
 pub mod gates;
 pub mod git_records;
 pub mod memory_attributes;

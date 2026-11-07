@@ -133,7 +133,7 @@ fn global_runtime_probe_is_read_only_and_storage_does_not_rebase_checkout_reads(
     assert_eq!(
         CapturedProjectDocumentDirectory::probe_runtime(
             &scope,
-            Path::new("memory/index.lance"),
+            &Path::new("memory").join("index.lance"),
             limits(),
             &current
         )
@@ -157,7 +157,7 @@ fn global_runtime_probe_is_read_only_and_storage_does_not_rebase_checkout_reads(
     .unwrap();
     let runtime = CapturedProjectDocumentDirectory::capture_runtime(
         &scope,
-        Path::new("memory/index.lance"),
+        &Path::new("memory").join("index.lance"),
         limits(),
         &current,
     )
@@ -173,7 +173,7 @@ fn global_runtime_probe_is_read_only_and_storage_does_not_rebase_checkout_reads(
     assert!(
         CapturedProjectDocumentDirectory::capture(
             &scope,
-            Path::new("memory/index.lance"),
+            &Path::new("memory").join("index.lance"),
             limits(),
             &current
         )
@@ -921,7 +921,7 @@ fn child_directory_probe_empty_root_handles_first_use_without_runtime_birth() {
     fs::create_dir(paths.root().join(".graphit/runtime")).unwrap();
     let runtime = CapturedProjectDocumentDirectory::capture(
         &scope,
-        Path::new(".graphit/runtime"),
+        &Path::new(".graphit").join("runtime"),
         limits(),
         &original,
     )
@@ -936,7 +936,7 @@ fn child_directory_probe_empty_root_handles_first_use_without_runtime_birth() {
     fs::create_dir(paths.root().join(".graphit/runtime/knowledge")).unwrap();
     let knowledge = CapturedProjectDocumentDirectory::capture(
         &scope,
-        Path::new(".graphit/runtime/knowledge"),
+        &Path::new(".graphit").join("runtime").join("knowledge"),
         limits(),
         &original,
     )
@@ -1190,14 +1190,50 @@ fn child_directory_probe_missing_chain_is_an_error_not_absent() {
     let (_temp, paths, _birth, scope) = fixture();
     let original = request();
     let captured = capture(&scope, &original);
-    fs::rename(paths.root().join(".graphit"), paths.root().join("retained")).unwrap();
-    assert_eq!(
-        captured
-            .probe_child_directory(OsStr::new("missing"), &original)
-            .unwrap_err()
-            .kind(),
-        io::ErrorKind::NotFound
-    );
+    #[cfg(windows)]
+    let identity = captured.chain.identity().unwrap().clone();
+    let retained = paths.root().join("retained");
+    let renamed = fs::rename(paths.root().join(".graphit"), &retained);
+    #[cfg(unix)]
+    {
+        renamed.unwrap();
+        assert_eq!(
+            captured
+                .probe_child_directory(OsStr::new("missing"), &original)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::NotFound
+        );
+    }
+    #[cfg(windows)]
+    {
+        assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
+        captured.revalidate(&original).unwrap();
+        assert!(
+            physical_id(
+                &paths.root().join(".graphit"),
+                &fs::symlink_metadata(paths.root().join(".graphit")).unwrap()
+            )
+            .unwrap()
+                == identity
+        );
+        assert_eq!(
+            captured
+                .probe_child_directory(OsStr::new("missing"), &original)
+                .unwrap(),
+            DirectoryPresence::Absent
+        );
+        assert_eq!(
+            fs::read(paths.root().join(".graphit/catalog")).unwrap(),
+            b"DATA"
+        );
+        assert_eq!(
+            fs::read(paths.root().join(".graphit/sibling")).unwrap(),
+            b"UNSELECTED-CANARY"
+        );
+        assert!(!retained.exists());
+        assert!(!paths.root().join(".graphit/missing").exists());
+    }
 }
 #[test]
 fn child_directory_probe_postvalidation_rejects_changed_parent_despite_child_notfound() {
@@ -1206,36 +1242,102 @@ fn child_directory_probe_postvalidation_rejects_changed_parent_despite_child_not
     let captured = capture(&scope, &original);
     let old = paths.root().join(".graphit");
     let retained = paths.root().join("retained");
+    #[cfg(windows)]
+    let identity = captured.chain.identity().unwrap().clone();
     test_hooks::BEFORE_OPEN.with(|hook| {
         *hook.borrow_mut() = Some(Box::new(move || {
-            fs::rename(old, retained).unwrap();
+            let renamed = fs::rename(old, retained);
+            #[cfg(unix)]
+            renamed.unwrap();
+            #[cfg(windows)]
+            assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
         }))
     });
+    #[cfg(unix)]
     assert!(
         captured
             .probe_child_directory(OsStr::new("missing"), &original)
             .is_err()
     );
+    #[cfg(windows)]
+    {
+        assert_eq!(
+            captured
+                .probe_child_directory(OsStr::new("missing"), &original)
+                .unwrap(),
+            DirectoryPresence::Absent
+        );
+        captured.revalidate(&original).unwrap();
+        assert!(
+            physical_id(
+                &paths.root().join(".graphit"),
+                &fs::symlink_metadata(paths.root().join(".graphit")).unwrap()
+            )
+            .unwrap()
+                == identity
+        );
+        assert_eq!(
+            fs::read(paths.root().join(".graphit/catalog")).unwrap(),
+            b"DATA"
+        );
+        assert_eq!(
+            fs::read(paths.root().join(".graphit/sibling")).unwrap(),
+            b"UNSELECTED-CANARY"
+        );
+        assert!(!paths.root().join("retained").exists());
+        assert!(!paths.root().join(".graphit/missing").exists());
+    }
 }
 #[test]
 fn child_directory_probe_postvalidation_rejects_replaced_owner_root() {
     let (temporary, paths, original, scope) = empty_project();
+    #[cfg(windows)]
+    fs::write(paths.root().join("canary"), b"OWNER-ROOT").unwrap();
     let captured =
         CapturedProjectDocumentDirectory::capture(&scope, Path::new(""), limits(), &original)
             .unwrap();
     let root = paths.root().to_owned();
     let old = temporary.path().join("retained-root");
+    #[cfg(windows)]
+    let identity = captured.chain.identity().unwrap().clone();
     test_hooks::BEFORE_OPEN.with(|hook| {
         *hook.borrow_mut() = Some(Box::new(move || {
-            fs::rename(&root, &old).unwrap();
-            fs::create_dir(root).unwrap();
+            let renamed = fs::rename(&root, &old);
+            #[cfg(unix)]
+            {
+                renamed.unwrap();
+                fs::create_dir(root).unwrap();
+            }
+            #[cfg(windows)]
+            assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
         }))
     });
+    #[cfg(unix)]
     assert!(
         captured
             .probe_child_directory(OsStr::new("missing"), &original)
             .is_err()
     );
+    #[cfg(windows)]
+    {
+        assert_eq!(
+            captured
+                .probe_child_directory(OsStr::new("missing"), &original)
+                .unwrap(),
+            DirectoryPresence::Absent
+        );
+        captured.revalidate(&original).unwrap();
+        assert!(
+            physical_id(paths.root(), &fs::symlink_metadata(paths.root()).unwrap()).unwrap()
+                == identity
+        );
+        assert_eq!(
+            fs::read(paths.root().join("canary")).unwrap(),
+            b"OWNER-ROOT"
+        );
+        assert!(!temporary.path().join("retained-root").exists());
+        assert!(!paths.root().join("missing").exists());
+    }
 }
 #[cfg(target_os = "linux")]
 #[test]

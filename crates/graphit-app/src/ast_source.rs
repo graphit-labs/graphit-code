@@ -169,6 +169,18 @@ pub struct SourceParameters {
         skip_serializing_if = "Option::is_none"
     )]
     pub entity: Option<String>,
+    /// Exact primary-key value, requiring entity_type and excluding entity name.
+    #[arg(long, conflicts_with = "entity", requires = "entity_type", allow_hyphen_values = true, value_parser = cli_entity_key)]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub entity_key: Option<crate::graph_server::GraphKey>,
+    /// Type of --entity-key (default: string); int64 must be explicit.
+    #[arg(long, value_enum, requires = "entity_key")]
+    #[serde(skip)]
+    pub entity_key_type: Option<crate::graph_entry::KeyType>,
     #[arg(long)]
     #[serde(
         default,
@@ -263,6 +275,105 @@ pub struct SourceArguments {
     pub project_version: Option<String>,
 }
 
+fn cli_entity_key(value: &str) -> Result<crate::graph_server::GraphKey, String> {
+    Ok(crate::graph_server::GraphKey::String(value.to_owned()))
+}
+
+#[cfg(test)]
+mod key_tests {
+    use super::*;
+    use clap::Parser;
+    use serde_json::json;
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        source: SourceParameters,
+    }
+
+    #[test]
+    fn source_cli_keys_use_literal_values_and_explicit_types() {
+        for (flags, expected) in [
+            (
+                vec!["--entity-key", "001"],
+                json!({"type":"string","value":"001"}),
+            ),
+            (
+                vec![
+                    "--entity-key",
+                    "9007199254740993",
+                    "--entity-key-type",
+                    "int64",
+                ],
+                json!({"type":"int64","value":"9007199254740993"}),
+            ),
+            (
+                vec![
+                    "--entity-key",
+                    "-9223372036854775808",
+                    "--entity-key-type",
+                    "int64",
+                ],
+                json!({"type":"int64","value":"-9223372036854775808"}),
+            ),
+            (
+                vec!["--entity-key", "{\"type\":\"int64\",\"value\":\"1\"}"],
+                json!({"type":"string","value":"{\"type\":\"int64\",\"value\":\"1\"}"}),
+            ),
+        ] {
+            let cli = Cli::try_parse_from(
+                ["source", "main.rs", "--entity-type", "Function"]
+                    .into_iter()
+                    .chain(flags),
+            )
+            .unwrap();
+            cli.source.validate().unwrap();
+            assert_eq!(
+                serde_json::to_value(cli.source.wire_key().unwrap()).unwrap(),
+                expected
+            );
+        }
+        assert!(Cli::try_parse_from(["source", "main.rs", "--entity-key", "x"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "source",
+                "main.rs",
+                "--entity-type",
+                "Function",
+                "--entity",
+                "name",
+                "--entity-key",
+                "x"
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn source_wire_rejects_invalid_key_selection_without_coercion() {
+        for value in [
+            json!({"path":"main.rs","entity_key":{"type":"string","value":"x"}}),
+            json!({"path":"main.rs","entity_type":"Function","entity":"name","entity_key":{"type":"string","value":"x"}}),
+            json!({"path":"main.rs","entity_type":"Function","entity_key":{"type":"int64","value":"9223372036854775808"}}),
+        ] {
+            let input: SourceParameters = serde_json::from_value(value).unwrap();
+            assert!(input.validate().is_err());
+        }
+        for key in [
+            json!(null),
+            json!({"type":"int64","value":9007199254740993i64}),
+            json!({"type":"string","value":"x","offset":0}),
+        ] {
+            assert!(
+                serde_json::from_value::<SourceParameters>(
+                    json!({"path":"main.rs","entity_type":"Function","entity_key":key})
+                )
+                .is_err()
+            );
+        }
+    }
+}
+
 impl SourceParameters {
     pub(crate) fn validate(&self) -> Result<(), &'static str> {
         let path = std::path::Path::new(&self.path);
@@ -283,11 +394,188 @@ impl SourceParameters {
                 .entity_type
                 .as_ref()
                 .is_some_and(|s| s.is_empty() || s.contains('\0'))
-            || self.entity_type.is_some() && self.entity.is_none()
+            || self.entity_type.is_some() && !self.has_entity()
         {
             return Err("Source entity name or type invalid");
         }
+        if self.entity.is_some() && self.entity_key.is_some() {
+            return Err("Source entity name and primary key are incompatible");
+        }
+        if self.entity_key_type.is_some() && self.entity_key.is_none() {
+            return Err("Source entity key type requires a primary key");
+        }
+        if self.entity_key.is_some() {
+            if self.entity_type.is_none() {
+                return Err("Source primary key requires entity_type");
+            }
+            if self.native_key().is_err() {
+                return Err("Source INT64 primary key is invalid");
+            }
+        }
         Ok(())
+    }
+    pub(crate) fn native_key(
+        &self,
+    ) -> Result<Option<graphit_data::GraphAnchorKey<'_>>, &'static str> {
+        use crate::{graph_entry::KeyType, graph_server::GraphKey};
+        let Some(key) = &self.entity_key else {
+            return Ok(None);
+        };
+        let value = match key {
+            GraphKey::String(value) | GraphKey::Int64(value) => value,
+        };
+        let int64 = match self.entity_key_type {
+            Some(KeyType::String) => false,
+            Some(KeyType::Int64) => true,
+            None => matches!(key, GraphKey::Int64(_)),
+        };
+        if int64 {
+            value
+                .parse()
+                .map(graphit_data::GraphAnchorKey::Int64)
+                .map(Some)
+                .map_err(|_| "Source INT64 primary key is invalid")
+        } else {
+            Ok(Some(graphit_data::GraphAnchorKey::String(value)))
+        }
+    }
+    fn wire_key(&self) -> Result<Option<crate::graph_server::GraphKey>, &'static str> {
+        Ok(self.native_key()?.map(|key| match key {
+            graphit_data::GraphAnchorKey::String(value) => {
+                crate::graph_server::GraphKey::String(value.to_owned())
+            }
+            graphit_data::GraphAnchorKey::Int64(value) => {
+                crate::graph_server::GraphKey::Int64(value.to_string())
+            }
+        }))
+    }
+    pub(crate) fn resolve_live_entity(
+        &self,
+        graph: &graphit_ast::live_graph::LiveGraph,
+        original: &std::sync::Arc<graphit_core::file_io::SnapshotContext>,
+        options: graphit_ast::icebug_query::QueryOptions,
+    ) -> Result<
+        graphit_ast::project_entity_source::ProjectEntitySource,
+        graphit_ast::imported_graph::EntitySourceError,
+    > {
+        use graphit_ast::imported_graph::EntitySourceError as E;
+        self.validate().map_err(|_| E::InvalidRequest)?;
+        if let Some(key) = self.native_key().map_err(|_| E::InvalidRequest)? {
+            graphit_ast::project_entity_source::resolve_live_project_entity_source_by_key(
+                graph,
+                original,
+                &self.path,
+                self.entity_type.as_deref().ok_or(E::InvalidRequest)?,
+                key,
+                options.max_rows.min(256),
+            )
+        } else {
+            graphit_ast::project_entity_source::resolve_live_project_entity_source(
+                graph,
+                original,
+                &self.path,
+                self.entity.as_deref().ok_or(E::InvalidRequest)?,
+                self.entity_type.as_deref(),
+                options,
+            )
+        }
+    }
+    pub(crate) fn resolve_project_entity(
+        &self,
+        graph: &std::sync::Arc<graphit_data::CapturedLocalGraph>,
+        original: &std::sync::Arc<graphit_core::file_io::SnapshotContext>,
+        runtime: &tokio::runtime::Handle,
+        options: graphit_ast::icebug_query::QueryOptions,
+    ) -> Result<
+        graphit_ast::project_entity_source::ProjectEntitySource,
+        graphit_ast::imported_graph::EntitySourceError,
+    > {
+        use graphit_ast::imported_graph::EntitySourceError as E;
+        self.validate().map_err(|_| E::InvalidRequest)?;
+        if let Some(key) = self.native_key().map_err(|_| E::InvalidRequest)? {
+            graphit_ast::project_entity_source::resolve_project_entity_source_by_key(
+                graph,
+                original,
+                &self.path,
+                self.entity_type.as_deref().ok_or(E::InvalidRequest)?,
+                key,
+                options.max_rows.min(256),
+            )
+        } else {
+            graphit_ast::project_entity_source::resolve_project_entity_source(
+                graph,
+                original,
+                runtime,
+                &self.path,
+                self.entity.as_deref().ok_or(E::InvalidRequest)?,
+                self.entity_type.as_deref(),
+                options,
+            )
+        }
+    }
+    pub(crate) fn resolve_imported_window(
+        &self,
+        graph: &std::sync::Arc<graphit_data::CapturedLocalGraph>,
+        original: &std::sync::Arc<graphit_core::file_io::SnapshotContext>,
+        runtime: &tokio::runtime::Handle,
+        options: graphit_ast::icebug_query::QueryOptions,
+    ) -> Result<(usize, usize), graphit_ast::imported_graph::EntitySourceError> {
+        use graphit_ast::imported_graph::EntitySourceError as E;
+        self.validate().map_err(|_| E::InvalidRequest)?;
+        if let Some(key) = self.native_key().map_err(|_| E::InvalidRequest)? {
+            graphit_ast::imported_graph::resolve_imported_entity_window_by_key(
+                graph,
+                original,
+                &self.path,
+                self.entity_type.as_deref().ok_or(E::InvalidRequest)?,
+                key,
+                options.max_rows.min(256),
+            )
+        } else {
+            graphit_ast::imported_graph::resolve_imported_entity_window(
+                graph,
+                original,
+                runtime,
+                &self.path,
+                self.entity.as_deref().ok_or(E::InvalidRequest)?,
+                self.entity_type.as_deref(),
+                options,
+            )
+        }
+    }
+    pub(crate) fn resolve_remote_window(
+        &self,
+        graph: &std::sync::Arc<graphit_data::remote_graph::RemoteIcebugGraph>,
+        original: &std::sync::Arc<graphit_core::file_io::SnapshotContext>,
+        runtime: &tokio::runtime::Handle,
+        options: graphit_ast::icebug_query::QueryOptions,
+    ) -> Result<(usize, usize), graphit_ast::imported_graph::EntitySourceError> {
+        use graphit_ast::imported_graph::EntitySourceError as E;
+        self.validate().map_err(|_| E::InvalidRequest)?;
+        if let Some(key) = self.native_key().map_err(|_| E::InvalidRequest)? {
+            graphit_ast::imported_graph::resolve_remote_entity_window_by_key(
+                graph,
+                original,
+                runtime,
+                &self.path,
+                self.entity_type.as_deref().ok_or(E::InvalidRequest)?,
+                key,
+                options.max_rows.min(256),
+            )
+        } else {
+            graphit_ast::imported_graph::resolve_remote_entity_window(
+                graph,
+                original,
+                runtime,
+                &self.path,
+                self.entity.as_deref().ok_or(E::InvalidRequest)?,
+                self.entity_type.as_deref(),
+                options,
+            )
+        }
+    }
+    pub(crate) fn has_entity(&self) -> bool {
+        self.entity.is_some() || self.entity_key.is_some()
     }
     pub(crate) fn selection(&self) -> graphit_core::text_slice::Request {
         graphit_core::text_slice::Request {
@@ -413,14 +701,21 @@ pub async fn call_source_result(
     limits: NativeDocumentFileLimits,
     original: &RequestContext<'_>,
 ) -> io::Result<CallToolResult> {
+    arguments
+        .source
+        .validate()
+        .map_err(|cause| io::Error::new(io::ErrorKind::InvalidInput, cause))?;
     let deadline = tokio::time::Instant::from_std(original.snapshot().required_deadline()?);
     let connection = connect_source(installation, address, client, limits, original, ()).await?;
 
     let result=async {
         original.snapshot().check()?;
-        let serde_json::Value::Object(arguments)=serde_json::to_value(arguments).map_err(io::Error::other)? else {unreachable!("Source struct serializes as an object")};
+        let serde_json::Value::Object(mut wire)=serde_json::to_value(arguments).map_err(io::Error::other)? else {unreachable!("Source struct serializes as an object")};
+        if let Some(key) = arguments.source.wire_key().map_err(|cause| io::Error::new(io::ErrorKind::InvalidInput, cause))? {
+            wire.insert("entity_key".into(), serde_json::to_value(key).map_err(io::Error::other)?);
+        }
         tokio::select! {
-            result=connection.peer().call_tool(CallToolRequestParams::new("graphit_ast_source").with_arguments(arguments))=>result.map_err(io::Error::other),
+            result=connection.peer().call_tool(CallToolRequestParams::new("graphit_ast_source").with_arguments(wire))=>result.map_err(io::Error::other),
             ()=original.cancellation().cancelled()=>Err(io::ErrorKind::Interrupted.into()),
             ()=tokio::time::sleep_until(deadline)=>Err(io::ErrorKind::TimedOut.into()),
         }

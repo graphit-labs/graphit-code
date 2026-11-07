@@ -21,6 +21,7 @@ pub(crate) struct FilePublication {
     pub oracle_file: Option<graphit_ast::semantic_graph::AstGraphNode>,
     pub search: Vec<RecordBatch>,
     pub projections: Vec<RecordBatch>,
+    pub identity_changes: Vec<graphit_ast::semantic_graph::scip_document::AstGraphIdentityChange>,
 }
 impl FilePublication {
     pub fn new(path: String, source_sha256: [u8; 32], raw_version: u64) -> Self {
@@ -32,6 +33,7 @@ impl FilePublication {
             edges: Vec::new(),
             search: Vec::new(),
             projections: Vec::new(),
+            identity_changes: Vec::new(),
             definitions: Vec::new(),
             references: Vec::new(),
             scip_document: None,

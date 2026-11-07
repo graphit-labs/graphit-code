@@ -198,6 +198,7 @@ async fn named_branch_keeps_source_nn_history_export_and_retirement_in_one_datas
                 read: read_limits(),
                 write: write_limits(),
             },
+            |_, old, new| Ok(old == new),
         )
         .await
         .unwrap();

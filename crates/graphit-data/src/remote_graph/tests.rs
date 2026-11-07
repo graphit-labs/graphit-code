@@ -86,7 +86,6 @@ async fn sdk_sample_preserves_global_edges_physical_rows_and_nullable_summaries(
     assert_eq!(full.nodes().len(), 5);
     assert_eq!(full.edges()[4].uid(), "loop");
     assert_eq!(full.edges()[4].from(), full.edges()[4].to());
-    assert_eq!(output.generation(), graph.generation());
 }
 
 #[tokio::test]
@@ -139,17 +138,17 @@ async fn originals_are_operation_scoped_and_store_drops_with_last_graph_owner() 
 }
 
 #[tokio::test]
-async fn immutable_prefixes_keep_separate_generations() {
+async fn immutable_prefixes_keep_separate_capture_owners() {
     let dir = fixture();
     let store = Arc::new(InMemory::new());
     let first = Path::from("releases/one");
     let first_digest = upload(store.as_ref(), &first, dir.path()).await;
-    let mut value: serde_json::Value =
-        serde_json::from_slice(&fs::read(dir.path().join("icebug.json")).unwrap()).unwrap();
-    value["generation"] = serde_json::json!("second-generation");
-    save(dir.path(), &value);
     let second = Path::from("releases/two");
     let second_digest = upload(store.as_ref(), &second, dir.path()).await;
+    assert_eq!(
+        first_digest, second_digest,
+        "identical manifest bytes do not merge captures from different release prefixes"
+    );
     let one = RemoteIcebugGraph::open(
         store.clone(),
         first,
@@ -168,11 +167,34 @@ async fn immutable_prefixes_keep_separate_generations() {
     )
     .await
     .unwrap();
-    assert_ne!(one.generation(), two.generation());
-    assert_ne!(
+    assert_eq!(
         one.sample_graph(sample(), context()).await.unwrap().nodes()[0].id(),
         two.sample_graph(sample(), context()).await.unwrap().nodes()[0].id()
     );
+    let limits = crate::GraphNeighborhoodLimits::new(1024, 16, 1000, 1000, 1000, 2).unwrap();
+    let anchor = one
+        .resolve_node(
+            "File",
+            crate::GraphAnchorKey::String("a.rs"),
+            limits,
+            context(),
+        )
+        .await
+        .unwrap();
+    let request = crate::GraphNeighborhoodRequest {
+        anchor_label: "File",
+        anchor_key: crate::GraphAnchorKey::String("a.rs"),
+        relationship: Some("CONTAINS"),
+        other_label: Some("Function"),
+        direction: Some(crate::GraphDirection::Outgoing),
+        limit: 1,
+        cursor: None,
+    };
+    assert!(matches!(
+        two.neighborhood_graph_at(&anchor, request, limits, context())
+            .await,
+        Err(RemoteGraphError::Data(DataReadError::InvalidAnchorKey))
+    ));
 }
 
 #[tokio::test]
@@ -253,7 +275,7 @@ async fn changed_object_after_open_is_not_silently_adopted() {
 
 #[tokio::test]
 async fn observed_target_uid_pointer_and_primary_key_integrity_are_checked() {
-    for variant in 0..6 {
+    for variant in 0..7 {
         let dir = fixture();
         match variant {
             0 | 1 => writer(
@@ -281,6 +303,14 @@ async fn observed_target_uid_pointer_and_primary_key_integrity_are_checked() {
                     &[0, 3, 3]
                 })],
             ),
+            6 => writer(
+                &dir.path().join("a.indices"),
+                "message graph { required int64 target (UINT_64); required binary uid (UTF8); }",
+                &[
+                    Values::Int(&[0, 0, 2, 1]),
+                    Values::String(&["", "edge1", "edge2", "edge3"]),
+                ],
+            ),
             _ => writer(
                 &dir.path().join("Function.parquet"),
                 "message graph { optional binary uid (UTF8); required binary name (UTF8); }",
@@ -295,11 +325,17 @@ async fn observed_target_uid_pointer_and_primary_key_integrity_are_checked() {
             ),
         }
         let (_, graph) = open_fixture(dir.path()).await;
+        if variant == 1 {
+            let page = graph.sample_graph(all(), context()).await.unwrap();
+            assert_eq!(page.edges()[0].uid(), "same");
+            assert_eq!(page.edges()[1].uid(), "same");
+            assert_ne!(page.edges()[0].id(), page.edges()[1].id());
+            continue;
+        }
         assert!(matches!(
             failure(graph.sample_graph(all(), context()).await),
             RemoteGraphError::Data(
                 DataReadError::InvalidCsr(_)
-                    | DataReadError::DuplicateEdgeUid
                     | DataReadError::DuplicatePrimaryKey
                     | DataReadError::InvalidParquet("nonnull primary key")
             )
@@ -411,6 +447,169 @@ async fn sdk_io_cancel_and_deadline_do_not_cancel_sibling_queries() {
 }
 
 #[tokio::test]
+async fn remote_slice_footers_reject_bounds_partial_groups_and_multiple_pointer_groups() {
+    for case in crate::storage_tests::INVALID_PHYSICAL_SLICES {
+        let dir = crate::storage_tests::invalid_physical_slice_fixture(case);
+        let store = Arc::new(InMemory::new());
+        let prefix = Path::from("release/invalid-slice");
+        let digest = upload(store.as_ref(), &prefix, dir.path()).await;
+        assert!(
+            matches!(
+                failure(
+                    RemoteIcebugGraph::open(
+                        store,
+                        prefix,
+                        digest,
+                        LocalGraphPolicy::new(policy()).unwrap(),
+                        context(),
+                    )
+                    .await
+                ),
+                RemoteGraphError::Data(DataReadError::InvalidParquet(_))
+            ),
+            "accepted or misclassified {case}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn shared_row_group_slices_keep_sparse_ids_nullable_properties_and_local_csr() {
+    let dir = crate::storage_tests::physical_slice_fixture();
+    let (_, graph) = open_fixture(dir.path()).await;
+    let output = graph
+        .sample_graph(
+            GraphSampleLimits::new(6, 6, 18, 1024, 10000, 10000, 2).unwrap(),
+            context(),
+        )
+        .await
+        .unwrap();
+    let mut rows = output
+        .nodes()
+        .iter()
+        .map(|node| node.id().row())
+        .collect::<Vec<_>>();
+    rows.sort_unstable();
+    assert_eq!(rows, [10, 11, 100, 101, 102, 300]);
+    let next = output
+        .nodes()
+        .iter()
+        .find(|node| node.label() == "Function" && node.id().row() == 300)
+        .unwrap();
+    assert_eq!(next.uid(), Some("f3"));
+    assert_eq!(next.name(), Some("delta"));
+    assert_eq!(output.edges().len(), 6);
+    let page = graph
+        .neighborhood_graph(
+            crate::GraphNeighborhoodRequest {
+                anchor_label: "File",
+                anchor_key: crate::GraphAnchorKey::String("a.rs"),
+                relationship: Some("CONTAINS"),
+                other_label: Some("Function"),
+                direction: Some(crate::GraphDirection::Outgoing),
+                limit: 10,
+                cursor: None,
+            },
+            crate::GraphNeighborhoodLimits::new(1024, 16, 10000, 100000, 10000, 2).unwrap(),
+            context(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.anchor().row(), 10);
+    assert_eq!(page.edges().len(), 4);
+    assert!(page.edges().iter().all(|edge| edge.from().row() == 10));
+    for node in page
+        .nodes()
+        .iter()
+        .filter(|node| node.label() == "Function")
+    {
+        assert!(node.properties().iter().any(|property| {
+            property.name() == "added" && property.value() == crate::GraphPropertyValueRef::Null
+        }));
+    }
+}
+
+#[tokio::test]
+async fn fanout_objects_preserve_queries_and_captured_range_boundaries() {
+    let dir = crate::storage_tests::fanout_fixture();
+    let store = Arc::new(InMemory::new());
+    let prefix = Path::from("release/fanout");
+    let digest = upload(store.as_ref(), &prefix, dir.path()).await;
+    let graph = RemoteIcebugGraph::open(
+        store.clone(),
+        prefix.clone(),
+        digest,
+        LocalGraphPolicy::new(policy()).unwrap(),
+        context(),
+    )
+    .await
+    .unwrap();
+    let sampled = graph.sample_graph(all(), context()).await.unwrap();
+    assert_eq!(sampled.nodes().len(), 5);
+    assert_eq!(sampled.edges().len(), 6);
+    assert!(
+        sampled
+            .nodes()
+            .iter()
+            .any(|node| node.name() == Some("ação 🚀"))
+    );
+    let name = graph
+        .schema()
+        .node_tables()
+        .next()
+        .unwrap()
+        .shards()
+        .next()
+        .unwrap()
+        .storage_file()
+        .to_owned();
+    let expected = fs::read(dir.path().join(&name)).unwrap();
+    let file = graph.open_query_file(&name).unwrap();
+    assert_eq!(file.len(), expected.len() as u64);
+    assert_eq!(
+        file.read_range(1, 3, &context()).await.unwrap().as_ref(),
+        &expected[1..4]
+    );
+    assert!(matches!(
+        failure(file.read_range(file.len(), 1, &context()).await),
+        RemoteGraphError::Data(DataReadError::InvalidParquet("object range"))
+    ));
+    assert!(matches!(
+        failure(file.read_range(u64::MAX, 1, &context()).await),
+        RemoteGraphError::Data(DataReadError::InvalidParquet("object range"))
+    ));
+    for uncaptured in [
+        "../outside.parquet",
+        "/outside.parquet",
+        "shards/ab/unpublished",
+    ] {
+        assert!(matches!(
+            failure(graph.open_query_file(uncaptured)),
+            RemoteGraphError::Data(DataReadError::InvalidManifest("uncaptured query file"))
+        ));
+    }
+    drop(graph);
+    let cancelled = context();
+    cancelled.cancellation().cancel();
+    assert!(matches!(
+        failure(file.read_range(0, 4, &cancelled).await),
+        RemoteGraphError::Original(error) if error.kind() == io::ErrorKind::Interrupted
+    ));
+    let expired = SnapshotContext::new(Instant::now(), Cancellation::default());
+    assert!(matches!(
+        failure(file.read_range(0, 4, &expired).await),
+        RemoteGraphError::Original(error) if error.kind() == io::ErrorKind::TimedOut
+    ));
+    store
+        .put(&object_path(&prefix, &name), Bytes::from(expected).into())
+        .await
+        .unwrap();
+    assert!(matches!(
+        failure(file.read_range(0, 4, &context()).await),
+        RemoteGraphError::ObjectStore(object_store::Error::Precondition { .. })
+    ));
+}
+
+#[tokio::test]
 async fn nested_paths_and_declared_reverse_metadata_use_canonical_release() {
     let dir = fixture();
     fs::create_dir(dir.path().join("nodes")).unwrap();
@@ -480,9 +679,9 @@ async fn file_shards_use_the_same_sparse_ids_and_csr_ranges_over_object_storage(
     let request = crate::GraphNeighborhoodRequest {
         anchor_label: "File",
         anchor_key: crate::GraphAnchorKey::String("a.rs"),
-        relationship: "CONTAINS",
-        other_label: "Function",
-        direction: crate::GraphDirection::Outgoing,
+        relationship: Some("CONTAINS"),
+        other_label: Some("Function"),
+        direction: Some(crate::GraphDirection::Outgoing),
         limit: 10,
         cursor: None,
     };

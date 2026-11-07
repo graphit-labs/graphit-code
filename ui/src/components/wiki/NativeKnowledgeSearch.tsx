@@ -1,15 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { nativeKnowledgeApi, type ImportedKnowledgeSource, type NativeKnowledgeSearch as SearchReply, type NativeKnowledgeSearchInput, type NativeKnowledgeSearchMetric, type NativeKnowledgeSearchMode } from '@/api/nativeKnowledge'
 import { importedSourceKey, nativeSelectionKey } from '@/api/nativeRecordNavigation'
 import { parseNativeJson, stringifyNativeJson, type NativeInteger } from '@/api/nativeJson'
 import type { TaskContext } from '@/api/task'
 import { usePageRefresh } from '@/components/layout/WorkspaceRefresh'
-import { FactList, RecordLink, WorkEmpty, WorkNotice, WorkSection } from '@/components/shared/EngineeringUI'
+import { FactList, WorkEmpty, WorkNotice, WorkSection } from '@/components/shared/EngineeringUI'
 import { StyledSelect } from '@/components/shared/StyledSelect'
+import { KnowledgePageCatalogue } from './KnowledgePageCatalogue'
 
 type Scope = { kind: 'project'; selection: TaskContext } | { kind: 'imported'; source: ImportedKnowledgeSource }
 
-export function NativeKnowledgeSearch({ scope, openPage }: { scope: Scope; openPage: (slug: string) => void }) {
+export function NativeKnowledgeSearch({ scope, openPage, reader }: {
+  scope: Scope; openPage: (slug: string) => void
+  reader?: { slug: string | null; content: ReactNode; label: string; close: () => void }
+}) {
   const binding = scope.kind === 'project' ? nativeSelectionKey(scope.selection) : importedSourceKey(scope.source)
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<NativeKnowledgeSearchMode>('fts')
@@ -64,6 +68,7 @@ export function NativeKnowledgeSearch({ scope, openPage }: { scope: Scope; openP
   const failure = error?.binding === binding ? error.message : ''
   const pending = loading === binding
   const page = current && 'generation' in current ? current : null
+  const resultHeads = useMemo(() => page?.hits.map(hit => ({slug:hit.focused_source.slug,title:hit.focused_source.title,updated_at:null})) ?? null, [page])
 
   return <WorkSection title="Search Knowledge">
     <form className="work-actions" onSubmit={event => { event.preventDefault(); search() }}>
@@ -87,13 +92,18 @@ export function NativeKnowledgeSearch({ scope, openPage }: { scope: Scope; openP
       {page.state === 'no_hits' && <WorkEmpty title="No Knowledge matches" />}
       {page.state === 'unavailable' && <WorkNotice title="Knowledge search unavailable">{page.reason}</WorkNotice>}
       {page.state === 'partial' && <WorkNotice title="Partial Knowledge search results">The server returned the available part of this search. {page.reason}</WorkNotice>}
-      <nav aria-label="Knowledge search results">{page.hits.map(hit => <div key={stringifyNativeJson(hit.focused_source)}>
-        <RecordLink title={hit.focused_source.title || hit.focused_source.slug} meta={hit.focused_source.slug} onClick={() => openPage(hit.focused_source.slug)} />
-        {hit.preview && <><p>{hit.preview.text}</p>{hit.preview.truncated && <small>Preview truncated</small>}</>}
-        <FactList items={[["Lexical score", hit.lexical_score], ["Semantic distance", hit.semantic_distance], ["Combined score", hit.rrf_score], ...(hit.rerank_score !== undefined ? [["Rerank score", hit.rerank_score] as [string, number]] : [])]} />
-      </div>)}</nav>
-      {page.next_cursor !== null && captured?.binding === binding && <button className="work-button" onClick={() => void run({ ...captured.input, cursor: page.next_cursor })}>More search results</button>}
     </>}
+    <KnowledgePageCatalogue heads={resultHeads}
+      slug={reader?.slug ?? null} label="Knowledge search results" readerLabel={reader?.label ?? 'Knowledge document'} showUpdatedAt={false} restoreFocus={reader !== undefined}
+      onSelect={slug => slug === null ? reader?.close() : openPage(slug)}
+      renderMetadata={head => {
+        const hit = page?.hits.find(hit => hit.focused_source.slug === head.slug)
+        return hit ? <>
+          {hit.preview && <><p>{hit.preview.text}</p>{hit.preview.truncated && <small>Preview truncated</small>}</>}
+          <FactList items={[["Lexical score", hit.lexical_score], ["Semantic distance", hit.semantic_distance], ["Combined score", hit.rrf_score], ...(hit.rerank_score !== undefined ? [["Rerank score", hit.rerank_score] as [string, number]] : [])]} />
+        </> : <p className="work-help">The opened page is outside these search results.</p>
+      }}>{reader?.content}</KnowledgePageCatalogue>
+    {page && page.next_cursor !== null && captured?.binding === binding && <button className="work-button" onClick={() => void run({ ...captured.input, cursor: page.next_cursor })}>More search results</button>}
     {current && <details className="work-disclosure"><summary>Search publication details</summary><pre className="work-code">{stringifyNativeJson(current, 2)}</pre></details>}
   </WorkSection>
 }

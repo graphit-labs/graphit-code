@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { nativeAstApi, astSelection } from './nativeAst'
 import { NativeRecordReadError } from './nativeRecordRead'
 import { parseNativeJson, stringifyNativeJson } from './nativeJson'
-import { selection, nativeQuery, generation, searchReply } from '@/components/ast/nativeAst.test-fixtures'
+import { selection, nativeQuery, searchReply, neighborhoodPage } from '@/components/ast/nativeAst.test-fixtures'
 afterEach(() => vi.unstubAllGlobals())
 describe('native AST Web client', () => {
  it('reads only the installation catalogue and exact imported native readers', async () => {
   const fetcher = vi.fn().mockImplementation(() => Promise.resolve(new Response('{}'))); vi.stubGlobal('fetch', fetcher)
   const source = { id: 'app/@literal', version: 'release/1' }, installed = { ...source, context: 'observed', backend: 'native' }, abort = new AbortController()
-  const cursor = { generation, fingerprint: [...generation].reverse(), last_uid: 'literal/?' }
+  const cursor = { fingerprint: [7,2,9], position: neighborhoodPage().edges[0].position }
   const neighborhood = { anchor_label: 'Function', anchor_key: { type: 'int64' as const, value: '9007199254740993' }, relationship: 'CALLS', other_label: 'Function', direction: 'incoming' as const, limit: 10, cursor }
   const input = { path: ' literal/main.rs ', entity: 'Alpha', entity_type: 'Function', start_line: 9007199254740993n, line_numbers: true }
   await nativeAstApi.imports(abort.signal)
@@ -84,7 +84,7 @@ describe('native AST Web client', () => {
   await nativeAstApi.schema(physical, controller.signal)
   await nativeAstApi.sample(physical, controller.signal)
   await nativeAstApi.query(physical, 'RETURN $n', { n: 9007199254740993n }, controller.signal)
-  const cursor = { generation, fingerprint: [...generation].reverse(), last_uid: ' literal/?uid ' }
+  const cursor = { fingerprint: [9,2,7], position: neighborhoodPage().edges[0].position }
   const input = { anchor_label: 'Function', anchor_key: { type: 'string' as const, value: 'real-key' }, relationship: 'CALLS', other_label: 'Function', direction: 'incoming' as const, limit: 100, cursor }
   await nativeAstApi.neighborhood(physical, input, controller.signal)
   expect(fetcher.mock.calls.map(([url]) => url)).toEqual(['/api/ast/contexts','/api/ast/schema','/api/ast/sample','/api/ast/query','/api/ast/neighborhood'])
@@ -103,4 +103,32 @@ describe('native AST Web client', () => {
   try { await nativeAstApi.schema(astSelection(selection)) } catch (cause) { expect(cause).toBeInstanceOf(NativeRecordReadError) }
   expect(fetcher).toHaveBeenCalledTimes(2)
  })
+})
+
+it('omits neighborhood filters for a combined page and round-trips the server cursor without interpretation', async () => {
+ const cursor={fingerprint:Array(32).fill(7),position: neighborhoodPage().edges[0].position};
+ const reply={anchor:{table:1,row:'9'},nodes:[],edges:[],next_cursor:cursor};
+ const fetcher=vi.fn().mockImplementation(async()=>new Response(stringifyNativeJson(reply)));vi.stubGlobal('fetch',fetcher);
+ const physical=astSelection(selection),source={id:'observed',version:'literal/version'},controller=new AbortController();
+ const first={anchor_label:'Function',anchor_key:{type:'string' as const,value:'opaque-key'},limit:100};
+ const project=await nativeAstApi.neighborhood(physical,first,controller.signal);
+ await nativeAstApi.importedNeighborhood(source,{...first,cursor:project.next_cursor},controller.signal);
+ const bodies=fetcher.mock.calls.map(([,options])=>parseNativeJson(options.body));
+ expect(bodies).toEqual([{selection:physical,neighborhood:first},{source,neighborhood:{...first,cursor}}]);
+ expect(project).toEqual(reply);expect(project).not.toHaveProperty('generation');
+ expect(fetcher.mock.calls.map(([url])=>url)).toEqual(['/api/ast/neighborhood','/api/ast/imported/neighborhood']);
+});
+
+it.each([
+ { type: 'string' as const, value: 'literal/"entity-key"' },
+ { type: 'int64' as const, value: '-9223372036854775808' },
+])('preserves typed Source PK $type for PROJECT and imported readers', async entity_key => {
+ const reply = { origin: 'indexed' as const, source_sha256: 'backend-only-fingerprint', selection: { source: 'selected literal code', total_lines: 12, start_line: 8, end_line: 9 } }
+ const fetcher = vi.fn().mockImplementation(async () => new Response(stringifyNativeJson(reply))); vi.stubGlobal('fetch', fetcher)
+ const physical = astSelection(selection), imported = { id: 'literal/context', version: 'exact' }, controller = new AbortController()
+ const input = { path: ' literal/ß.rs ', entity_key, entity_type: 'Function' }
+ expect(await nativeAstApi.source(physical, input, controller.signal)).toEqual(reply)
+ expect(await nativeAstApi.importedSource(imported, input, controller.signal)).toEqual(reply)
+ expect(fetcher.mock.calls.map(([, options]) => parseNativeJson(options.body))).toEqual([{ selection: physical, source: input }, { source: imported, input }])
+ for (const [, options] of fetcher.mock.calls) expect(options.signal).toBe(controller.signal)
 })

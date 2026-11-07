@@ -70,6 +70,11 @@ impl LiveGraph {
             visit_node_shard(
                 &portable::owned_path(&self.directory, &part.shard.file)?,
                 &part.shard.label,
+                part.row_offset
+                    ..part
+                        .row_offset
+                        .checked_add(part.shard.rows)
+                        .ok_or_else(|| invalid("FILE physical range overflow"))?,
                 original,
                 |node| {
                     if let Some((label, uid, data_key)) = keys.remove(node.key.as_str())

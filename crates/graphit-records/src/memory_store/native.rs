@@ -203,7 +203,7 @@ pub(super) async fn read_pin_with_check(
         let branch = project.version.lance_branch();
         let pin = crate::storage::read(
             original,
-            store.capture_target((!branch.is_empty()).then_some(branch.as_str())),
+            store.into_target((!branch.is_empty()).then_some(branch.as_str())),
         )
         .await??;
         check()?;
@@ -246,7 +246,7 @@ pub(super) async fn read_pin_with_check(
     let branch = project.version.lance_branch();
     let pin = crate::storage::read(
         original,
-        store.capture_target((!branch.is_empty()).then_some(branch.as_str())),
+        store.into_target((!branch.is_empty()).then_some(branch.as_str())),
     )
     .await??;
     before()?;

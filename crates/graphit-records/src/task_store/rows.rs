@@ -544,11 +544,7 @@ pub(super) fn decode(
         Ok(())
     };
     let validate_actor = |actor: &str| -> Result<(), TaskStoreError> {
-        if actor.len() != 64
-            || !actor
-                .bytes()
-                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-        {
+        if !crate::actor::valid_identifier(actor) {
             Err(TaskStoreError::Invalid("creation actor"))
         } else {
             Ok(())

@@ -526,8 +526,8 @@ mod tests {
                 important: false,
             },
             reference_generation: 7,
-            created_by: "1".repeat(64),
-            updated_by: "1".repeat(64),
+            created_by: ulid::Ulid::from(1u128).to_string(),
+            updated_by: ulid::Ulid::from(1u128).to_string(),
             created_at: 1,
             updated_at: 2,
         }
@@ -614,8 +614,8 @@ mod tests {
                 important: false,
             },
             reference_generation: 7,
-            created_by: "1".repeat(64),
-            updated_by: "1".repeat(64),
+            created_by: ulid::Ulid::from(1u128).to_string(),
+            updated_by: ulid::Ulid::from(1u128).to_string(),
             created_at: 1,
             updated_at: 2,
         };
@@ -678,8 +678,8 @@ mod tests {
                 important: false,
             },
             reference_generation: 1,
-            created_by: "1".repeat(64),
-            updated_by: "1".repeat(64),
+            created_by: ulid::Ulid::from(1u128).to_string(),
+            updated_by: ulid::Ulid::from(1u128).to_string(),
             created_at: 1,
             updated_at: 1,
         };

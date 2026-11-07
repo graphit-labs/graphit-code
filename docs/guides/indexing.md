@@ -4,6 +4,7 @@ description: Progressive availability, compatible embedding reuse, full/incremen
 content-type: guide
 audience: developers
 updated: 2026-10-29
+previous: getting_started.md
 ---
 
 # Indexing, incremental updates and versions

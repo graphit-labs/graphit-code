@@ -1,8 +1,6 @@
 //! Web imports use installation AST authority, independently of PROJECT grants.
 use super::*;
-use graphit_ast::imported_graph::{
-    installed_ast_contexts, open_imported_graph_admitted, resolve_imported_entity_window,
-};
+use graphit_ast::imported_graph::{installed_ast_contexts, open_imported_graph_admitted};
 use graphit_ast::imported_source::{ImportedSourceInput, inspect_imported_source_web};
 use graphit_auth::broker::{BrokerVerifier, oauth::web::AuthenticatedWebCaller};
 
@@ -169,7 +167,7 @@ impl GraphServer {
         {
             return Ok(bytes);
         }
-        let needs_graph = source.as_ref().is_none_or(|source| source.entity.is_some());
+        let needs_graph = source.as_ref().is_none_or(|source| source.has_entity());
         let graph = if needs_graph {
             Some(open_imported_graph_admitted(
                 &read,
@@ -190,17 +188,13 @@ impl GraphServer {
         };
         let output = if let Some(graph) = &graph {
             let reader = Arc::clone(graph.reader()?);
+            let scope = imported_scope(state, &id, &version)?;
             let snapshot = Arc::clone(original.snapshot());
             let owner = Arc::clone(state);
-            let entity = source.as_ref().and_then(|source| {
-                source.entity.as_ref().map(|name| {
-                    (
-                        source.path.clone(),
-                        name.clone(),
-                        source.entity_type.clone(),
-                    )
-                })
-            });
+            let entity = source
+                .as_ref()
+                .filter(|source| source.has_entity())
+                .cloned();
             let (send, receive) = oneshot::channel();
             let deadline = snapshot
                 .required_deadline()
@@ -213,23 +207,22 @@ impl GraphServer {
                 };
                 while jobs.try_join_next().is_some() {}
                 jobs.spawn_blocking(move || {
-                    let result = if let Some((path, name, kind)) = entity {
+                    let result = if let Some(entity) = entity {
                         let runtime = tokio::runtime::Handle::current();
-                        resolve_imported_entity_window(
-                            &reader,
-                            &snapshot,
-                            &runtime,
-                            &path,
-                            &name,
-                            kind.as_deref(),
-                            owner.policy.graph_query,
-                        )
-                        .map(JobOutput::Extent)
-                        .map_err(ReadFailure::Entity)
+                        entity
+                            .resolve_imported_window(
+                                &reader,
+                                &snapshot,
+                                &runtime,
+                                owner.policy.graph_query,
+                            )
+                            .map(JobOutput::Extent)
+                            .map_err(ReadFailure::Entity)
                     } else if let BrowserOperation::Imported(op) = operation {
                         render_operation(
                             &owner,
                             &GraphView::WebInstalled(reader, snapshot),
+                            &scope,
                             op,
                             query,
                             neighborhood,

@@ -192,11 +192,7 @@ pub(crate) fn nonblank(text: &str) -> Result<(), MemoryStoreError> {
     }
 }
 pub(crate) fn valid_actor(text: &str) -> Result<(), MemoryStoreError> {
-    if text.len() == 64
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-    {
+    if crate::actor::valid_identifier(text) {
         Ok(())
     } else {
         Err(MemoryStoreError::Invalid("actor encoding"))

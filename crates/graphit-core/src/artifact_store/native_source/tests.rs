@@ -343,7 +343,7 @@ fn invalid_link_policy_and_raw_selection_fail_without_native_payload() {
     drop(temporary);
 }
 #[test]
-fn file_and_range_owner_keep_native_root_alive_until_last_owner() {
+fn captured_file_survives_reader_drop_and_owned_range_survives_file_drop() {
     let (temporary, paths, birth, scope) = fixture();
     let current = request();
     let reader = capture(&scope, "Memory", NodeKind::Directory, &current).unwrap();
@@ -367,7 +367,7 @@ fn file_and_range_owner_keep_native_root_alive_until_last_owner() {
 }
 #[cfg(windows)]
 #[test]
-fn windows_no_delete_root_closes_after_last_range_owner() {
+fn windows_owned_range_does_not_pin_root_after_reader_drop() {
     let (temporary, paths, birth, scope) = fixture();
     let current = request();
     let reader = capture(&scope, "Memory", NodeKind::Directory, &current).unwrap();
@@ -379,16 +379,20 @@ fn windows_no_delete_root_closes_after_last_range_owner() {
     drop(reader);
     drop(scope);
     drop(paths);
-    assert!(std::fs::rename(&root, &moved).is_err());
-    drop(bytes);
     std::fs::rename(&root, &moved).unwrap();
+    assert_eq!(bytes.as_ref(), b"memory");
+    assert_eq!(
+        std::fs::read(moved.join("Memory").join("data")).unwrap(),
+        b"memory"
+    );
+    drop(bytes);
     drop(birth);
     drop(current);
     drop(temporary);
 }
 
 #[test]
-fn descendant_directory_latches_outlive_reader_until_last_range() {
+fn owned_range_survives_nested_reader_drop() {
     let (temporary, paths, birth, scope) = fixture();
     let nested = paths.root().join("Memory").join("nested").join("deep");
     std::fs::create_dir_all(&nested).unwrap();
@@ -990,7 +994,7 @@ fn installation_unreadable_body_denies_for_nonprivileged_host_and_never_repairs(
 
 #[cfg(windows)]
 #[test]
-fn installation_windows_root_share_policy_lasts_until_last_range() {
+fn installation_windows_owned_range_does_not_pin_root_after_reader_drop() {
     let f = InstallationFixture::new();
     let current = request();
     let reader = f.reader(&current).unwrap();
@@ -1010,10 +1014,21 @@ fn installation_windows_root_share_policy_lasts_until_last_range() {
     drop(reader);
     drop(scope);
     drop(paths);
-    assert!(std::fs::rename(&root, &saved).is_err());
-    drop(bytes);
     std::fs::rename(&root, &saved).unwrap();
-    // Keep the birth request alive through the native lifetime assertions.
+    assert_eq!(bytes.as_ref(), b"native");
+    assert_eq!(
+        std::fs::read(
+            saved
+                .join("runtime")
+                .join("native")
+                .join("branch")
+                .join("data")
+        )
+        .unwrap(),
+        b"native-data"
+    );
+    drop(bytes);
+    // Keep the birth request alive while proving that returned bytes own no handles.
     drop(fixture_birth);
     drop(temporary);
 }

@@ -515,6 +515,7 @@ impl<'profile: 'o, 'o, 'v, 'request> ParsedAntlrDocument<'profile, 'o, 'v, 'requ
                 }
             }
             assembly.associate_diagnostics()?;
+            assembly.finalize_identities()?;
             let mut owner_indices: HashMap<&str, Vec<usize>> = HashMap::new();
             for (index, entity) in assembly.entities.iter().enumerate() {
                 self.original.check()?;
@@ -1015,6 +1016,72 @@ struct Assembly<'doc, 'profile, 'o, 'v, 'request> {
     indices: HashMap<(String, &'doc str), usize>,
 }
 impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'request> {
+    fn finalize_identities(&mut self) -> Result<(), AntlrModelError> {
+        let mut types = std::collections::BTreeMap::<String, Option<&'o str>>::new();
+        for entity in &self.entities {
+            self.parsed.original.check()?;
+            let conflict = entity.diagnostic_indices.iter().any(|index| {
+                matches!(
+                    &self.diagnostics[*index].issue,
+                    AntlrIssue::TypeConflict { .. }
+                )
+            });
+            let mut observations =
+                entity
+                    .contributions
+                    .iter()
+                    .map(|contribution| match contribution.declared_type {
+                        AntlrTypeObservation::Present { raw, .. } => Some(raw.text()),
+                        _ => None,
+                    });
+            let candidate = observations.next().flatten().filter(|candidate| {
+                !conflict && observations.all(|observation| observation == Some(*candidate))
+            });
+            let observed = types
+                .entry(entity.identity.uid().as_str().to_owned())
+                .or_insert(candidate);
+            if *observed != candidate {
+                *observed = None;
+            }
+        }
+        let document = &self.parsed.identity;
+        for entity in &mut self.entities {
+            self.parsed.original.check()?;
+            let declared_type = types.get(entity.identity.uid().as_str()).copied().flatten();
+            let mut owners = Vec::new();
+            for namespace in &entity.namespace {
+                let owner_type = types
+                    .get(namespace.identity.uid().as_str())
+                    .copied()
+                    .flatten();
+                owners.push(document.symbol(
+                    namespace.identity.label(),
+                    *namespace.identity.subject(),
+                    &owners.iter().collect::<Vec<_>>(),
+                    crate::symbols::LogicalDeclaration {
+                        name: &namespace.name,
+                        declared_type: owner_type,
+                        anonymous: false,
+                    },
+                )?);
+            }
+            entity.identity = document.symbol(
+                entity.identity.label(),
+                *entity.identity.subject(),
+                &owners.iter().collect::<Vec<_>>(),
+                crate::symbols::LogicalDeclaration {
+                    name: &entity.name,
+                    declared_type,
+                    anonymous: false,
+                },
+            )?;
+            for (namespace, identity) in entity.namespace.iter_mut().zip(owners) {
+                namespace.identity = identity;
+            }
+        }
+        Ok(())
+    }
+
     fn diagnostic(
         &mut self,
         occurrence_index: usize,
@@ -1366,7 +1433,12 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
                 );
             }
             let preceding: Vec<_> = namespace.iter().map(|frame| &frame.identity).collect();
-            let identity = self.parsed.identity.symbol(label, anchor, &preceding)?;
+            let identity = self.parsed.identity.symbol(
+                label,
+                anchor,
+                &preceding,
+                crate::symbols::LogicalDeclaration::named(&name),
+            )?;
             namespace.push(AntlrNamespace {
                 identity,
                 name,
@@ -1622,7 +1694,12 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
             return Ok(());
         };
         let frames: Vec<_> = namespace.iter().map(|owner| &owner.identity).collect();
-        let identity = self.parsed.identity.symbol(label, anchor, &frames)?;
+        let identity = self.parsed.identity.symbol(
+            label,
+            anchor,
+            &frames,
+            crate::symbols::LogicalDeclaration::named(&name),
+        )?;
         let extent = match &occurrence.span {
             CaptureBinding::NotConfigured => self.parsed.extent(extent_node)?,
             CaptureBinding::Missing => {
@@ -2225,7 +2302,12 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
                 );
             }
             let preceding: Vec<_> = namespace.iter().map(|frame| &frame.identity).collect();
-            let identity = self.parsed.identity.symbol(label, *anchor, &preceding)?;
+            let identity = self.parsed.identity.symbol(
+                label,
+                *anchor,
+                &preceding,
+                crate::symbols::LogicalDeclaration::named(&name),
+            )?;
             namespace.push(AntlrNamespace {
                 identity,
                 name,

@@ -5,6 +5,8 @@ import userEvent from "@testing-library/user-event";
 import type { GraphNode } from "@/api/ast";
 import type { Neighborhood, NeighborhoodLoader } from "./neighborhood";
 import { RelationshipExplorer } from "./RelationshipExplorer";
+import {nativeNeighborhoodView} from "./nativeGraphView";
+import {neighborhoodPage} from "./nativeAst.test-fixtures";
 import { boundaries, groupGraph, observedGraph } from "./relationshipModel";
 
 const nodes: GraphNode[] = [
@@ -26,7 +28,7 @@ it("keeps an absent UID distinct from a native primary key and a source path", a
   const user = userEvent.setup();
   const onInspect = vi.fn();
   const alpha: GraphNode = { id: "renderer-alpha", name: "Alpha", label: "Function", type: "Function", file: "main.rs",
-    nativeIdentity: { generation: Array(32).fill(1), table: 1, row: "2" },
+    nativeIdentity: { table: 1, row: "2" },
     nativeKey: { type: "string", value: "fn:alpha" }, properties: { path: "main.rs" } };
   const view = render(<RelationshipExplorer nodes={[alpha]} links={[]} onInspect={onInspect} />);
   await user.click(screen.getByRole("button", { name: /^Alpha main.rs/ }));
@@ -120,7 +122,7 @@ it("refuses local selection without indexed identity instead of using the render
   expect(loader).not.toHaveBeenCalled();
 });
 
-const neighborhoodFor = (anchor: GraphNode, neighbor = nodes[1]): Neighborhood => ({ anchor, nodes: [anchor, neighbor], links: [{ source: anchor.id, target: neighbor.id, type: "CALLS" }], partitions: [] });
+const neighborhoodFor = (anchor: GraphNode, neighbor = nodes[1]): Neighborhood => ({ anchor, nodes: [anchor, neighbor], links: [{ source: anchor.id, target: neighbor.id, type: "CALLS" }], nextCursor: null });
 it("loads neighbors outside the result, follows them and returns without changing the catalogue", async () => {
   const user = userEvent.setup();
   const loader = vi.fn<NeighborhoodLoader>().mockImplementation(async node => neighborhoodFor(node, node.id === "b" ? nodes[2] : nodes[1]));
@@ -163,4 +165,37 @@ it("reports failed neighborhood lookup and retries without an empty-success mess
   expect(screen.queryByText(/No incoming relationships found/)).toBeNull();
   await user.click(screen.getByRole("button", { name: "Retry neighborhood" }));
   expect(await screen.findByRole("button", { name: /^ReserveStock inventory/ })).toBeTruthy();
+});
+
+it('keeps loaded evidence visible while more pages load, fail and retry without claiming an empty direction', async () => {
+ const user = userEvent.setup();
+ const page: Neighborhood = {...neighborhoodFor(nodes[0]),nextCursor:{opaque:'next-page'}};
+ let fail!: (error: Error) => void;
+ const loader = vi.fn<NeighborhoodLoader>().mockResolvedValueOnce(page).mockImplementationOnce(() => new Promise((_resolve,reject) => { fail = reject; })).mockResolvedValueOnce({...page,nextCursor:null});
+ render(<RelationshipExplorer nodes={[nodes[0]]} links={[]} onInspect={vi.fn()} loadNeighborhood={loader} />);
+ await user.click(screen.getByRole('button',{name:/^CreateOrder orders/}));
+ await screen.findByRole('button',{name:/^ReserveStock inventory/});
+ expect(screen.getByText('Incoming relationships have not been fully loaded.')).toBeTruthy();
+ await user.click(screen.getByRole('button',{name:'Load more relationships'}));
+ expect(screen.getByRole('button',{name:/^ReserveStock inventory/})).toBeTruthy();
+ expect(screen.getByText('Loading more relationships…')).toBeTruthy();
+ expect(screen.getByText('1 relationship loaded. Evidence is partial.')).toBeTruthy();
+ await act(async () => fail(new Error('Next page unavailable')));
+ expect(await screen.findByRole('alert')).toHaveProperty('textContent','Next page unavailable');
+ expect(screen.getByRole('button',{name:/^ReserveStock inventory/})).toBeTruthy();
+ expect(screen.queryByText('No incoming relationships found in the queried index.')).toBeNull();
+ await user.click(screen.getByRole('button',{name:'Retry neighborhood'}));
+ await screen.findByText('No incoming relationships found in the queried index.');
+ expect(loader.mock.calls[1][1]).toBe(page);
+ expect(loader.mock.calls[2][1]).toBe(page);
+ expect(document.activeElement).toBe(screen.getByRole('region',{name:'Relationship evidence'}));
+});
+
+it('renders equal-UID parallel relationships with distinct public occurrence positions',async()=>{
+ const page=neighborhoodPage();page.edges[1].uid=page.edges[0].uid;page.edges[1].position={...page.edges[0].position,occurrence:'1'};
+ const view=nativeNeighborhoodView(page),user=userEvent.setup();render(<RelationshipExplorer nodes={view.nodes} links={view.links} onInspect={vi.fn()}/>);
+ await user.click(screen.getByRole('button',{name:/^Anchor src\/file.rs/}));
+ expect(screen.getByRole('heading',{name:'Outgoing 2'})).toBeTruthy();
+ const relationships=document.querySelectorAll('[data-relationship-uid="'+page.edges[0].uid+'"]');expect(relationships).toHaveLength(2);
+ expect(new Set([...relationships].map(e=>e.getAttribute('data-native-relation-id'))).size).toBe(2);
 });

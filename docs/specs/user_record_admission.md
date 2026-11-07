@@ -173,6 +173,11 @@ after both permissions pass: Native uses the actual caller's Actor, and
 Incoming and Web use server-minted attribution of the installation and verified
 literal principal, with their respective actor domains.
 It never derives a principal or grant from an input Actor.
+`Actor::identifier()` exposes canonical 26-character ULID attribution from the
+first 128 digest bits. Records authorship, idempotency and caller binding use
+that identity. It neither encodes the full SHA-256 value nor a creation time;
+USER's installation/issuer/subject namespace and current admission checks remain
+separate and mandatory.
 
 Every barrier checks the original cancellation/deadline, caller proof and
 permissions, literal identity, captured configuration and USER physical binding.

@@ -359,8 +359,8 @@ mod tests {
             tags: vec![],
             references: vec![],
             reference_generation: 1,
-            created_by: "a".repeat(64),
-            updated_by: "a".repeat(64),
+            created_by: ulid::Ulid::from(10u128).to_string(),
+            updated_by: ulid::Ulid::from(10u128).to_string(),
             created_at: 1,
             updated_at: 1,
             attributes: crate::memory_attributes::MemoryAttributes {

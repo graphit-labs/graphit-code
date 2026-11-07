@@ -81,6 +81,225 @@ fn document_batch(
 }
 
 #[tokio::test]
+async fn scoped_generation_rebase_preserves_identity_selected_conflicts_and_real_failures()
+-> Result<(), Box<dyn Error>> {
+    let cancel = Cancellation::default();
+    let ctx = request(&cancel);
+    let f = Fixture::new(&ctx);
+    let issuer = f.issuer(&ctx);
+    let caller = issuer.authenticate_runtime(&f.secret(), &ctx)?;
+    let admin = issuer.bootstrap_admin(&caller)?;
+    let parent = issuer.admin_parent(&caller, &admin)?;
+    let (bearer, reference) = f.issue(&issuer, &parent);
+    let grant = issuer.verify(bearer.expose_for_transport(), &reference, f.scope(), &ctx)?;
+    let auth = ProjectRecordAuthority::new(&issuer);
+    let read = auth.admit_read(&grant, &ctx, ProjectReadModule::Knowledge)?;
+    let write = auth.admit_write(&grant, &ctx, ProjectWriteOperation::Knowledge)?;
+    let mut other = page("b", &[]);
+    other.source_path = "knowledge-source/t/646f6373/622e6d64";
+    let initial = h::prepare(ctx.snapshot(), &[managed_page(), other], &[], hlimits())?;
+    let first = index::publish_native_authored(ctx.snapshot(), &write, &initial, write_limits())
+        .await?
+        .default;
+    let path = f.project.owner_root().join("docs/a.md");
+    std::fs::create_dir_all(path.parent().unwrap())?;
+    std::fs::write(&path, managed_page().body.unwrap())?;
+    let mut source = capture(&f, ctx.snapshot());
+    for field in ["uri", "physical_branch", "inherited_target"] {
+        let mut wrong = first.clone();
+        match field {
+            "uri" => wrong.corpus_uri.push_str("-outside-admitted-corpus"),
+            "physical_branch" => wrong.physical_branch = Some("unselected".into()),
+            _ => wrong.inherited_target = Some("unselected".into()),
+        }
+        assert!(
+            matches!(
+                reconcile_native_knowledge_source_file(
+                    ctx.snapshot(),
+                    &read,
+                    &write,
+                    &wrong,
+                    &source,
+                    document_batch(&ctx, &write, managed_page()),
+                    limits(),
+                    |_, old, new| Ok(old == new),
+                )
+                .await,
+                Err(KnowledgeDocumentLifecycleError::GenerationChanged { .. })
+            ),
+            "must not adopt a different {field}"
+        );
+    }
+    std::fs::write(&path, "changed physical FILE")?;
+    let error = reconcile_native_knowledge_source_file(
+        ctx.snapshot(),
+        &read,
+        &write,
+        &first,
+        &source,
+        document_batch(&ctx, &write, managed_page()),
+        limits(),
+        |_, old, new| Ok(old == new),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        error.source().is_some(),
+        "physical Source error retains its cause"
+    );
+    assert!(!matches!(
+        error,
+        KnowledgeDocumentLifecycleError::GenerationChanged { .. }
+    ));
+    std::fs::write(&path, managed_page().body.unwrap())?;
+    source = capture(&f, ctx.snapshot());
+    other.body = Some("unrelated concurrent FILE");
+    let rows = h::prepare(ctx.snapshot(), &[other], &[], hlimits())?;
+    let KnowledgeDocumentUpdateResult::Updated {
+        generation: unrelated,
+        ..
+    } = crate::knowledge_document_update::update_existing_native_knowledge_documents(
+        ctx.snapshot(),
+        &read,
+        &write,
+        &first,
+        &rows,
+        &[KnowledgeDocumentReferenceUpdate {
+            slug: "b",
+            authored: KnowledgeDocumentAuthoredUpdate::Preserve,
+        }],
+        crate::knowledge_document_update::KnowledgeDocumentUpdateLimits {
+            read: read_limits(),
+            write: write_limits(),
+        },
+        |_, old, new| Ok(old == new),
+    )
+    .await?
+    else {
+        panic!("unrelated FILE changed")
+    };
+    let KnowledgeDocumentUpdateResult::Unchanged {
+        generation: rebased,
+    } = reconcile_native_knowledge_source_file(
+        ctx.snapshot(),
+        &read,
+        &write,
+        &first,
+        &source,
+        document_batch(&ctx, &write, managed_page()),
+        limits(),
+        |_, old, new| Ok(old == new),
+    )
+    .await?
+    else {
+        panic!("unrelated FILE does not cause an extra source commit")
+    };
+    assert_eq!(rebased, unrelated);
+    let mut competing = managed_page();
+    competing.body = Some("concurrent selected documentary content");
+    let rows = h::prepare(ctx.snapshot(), &[competing], &[], hlimits())?;
+    let KnowledgeDocumentUpdateResult::Updated { generation, .. } =
+        crate::knowledge_document_update::update_existing_native_knowledge_documents(
+            ctx.snapshot(),
+            &read,
+            &write,
+            &unrelated,
+            &rows,
+            &changes(),
+            crate::knowledge_document_update::KnowledgeDocumentUpdateLimits {
+                read: read_limits(),
+                write: write_limits(),
+            },
+            |_, old, new| Ok(old == new),
+        )
+        .await?
+    else {
+        panic!("competitor changed selected FILE")
+    };
+    assert!(matches!(
+        reconcile_native_knowledge_source_file(
+            ctx.snapshot(),
+            &read,
+            &write,
+            &first,
+            &source,
+            document_batch(&ctx, &write, managed_page()),
+            limits(),
+            |_, old, new| Ok(old == new),
+        )
+        .await,
+        Err(KnowledgeDocumentLifecycleError::GenerationChanged { .. })
+    ));
+    let retained = BranchSnapshot::capture_observed(&first.corpus_uri, None, None).await?;
+    assert_eq!(retained.version(), generation.version);
+    let other_row = stream::lookup(&retained, "b", ctx.snapshot(), &|| Ok(())).await?;
+    assert_eq!(
+        index::array::<StringArray>(&other_row, 2)?.value(0),
+        other.body.unwrap()
+    );
+    let row = stream::lookup(&retained, "a", ctx.snapshot(), &|| Ok(())).await?;
+    assert_eq!(
+        index::array::<StringArray>(&row, 2)?.value(0),
+        competing.body.unwrap()
+    );
+    std::fs::remove_file(&path)?;
+    let absent = capture(&f, ctx.snapshot());
+    let origins = HashSet::from([managed_page().source_path.to_owned()]);
+    let KnowledgeDocumentUpdateResult::Updated {
+        generation: removed,
+        ..
+    } = remove_native_knowledge_source_origins(
+        ctx.snapshot(),
+        &read,
+        &write,
+        &generation,
+        &absent,
+        &origins,
+        limits(),
+    )
+    .await?
+    else {
+        panic!("selected removal committed")
+    };
+    assert!(
+        matches!(
+            remove_native_knowledge_source_origins(
+                ctx.snapshot(),
+                &read,
+                &write,
+                &generation,
+                &absent,
+                &origins,
+                limits(),
+            )
+            .await,
+            Err(KnowledgeDocumentLifecycleError::GenerationChanged { .. })
+        ),
+        "Removed rows remain part of the selected documentary comparison"
+    );
+    cancel.cancel();
+    let error = remove_native_knowledge_source_origins(
+        ctx.snapshot(),
+        &read,
+        &write,
+        &removed,
+        &absent,
+        &origins,
+        limits(),
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(error,
+            KnowledgeDocumentLifecycleError::Data(KnowledgeIndexError::Request(ref cause))
+                if cause.kind() == io::ErrorKind::Interrupted
+        ),
+        "actual cancellation is propagated: {error:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
 async fn progressive_file_publication_preserves_intact_origins_and_explicit_removals()
 -> Result<(), Box<dyn Error>> {
     let cancel = Cancellation::default();
@@ -123,6 +342,7 @@ async fn progressive_file_publication_preserves_intact_origins_and_explicit_remo
         &source,
         document_batch(&ctx, &write, changed),
         limits(),
+        |_, old, new| Ok(old == new),
     )
     .await?;
     let generation = match updated {
@@ -191,7 +411,8 @@ async fn progressive_file_publication_preserves_intact_origins_and_explicit_remo
             &first,
             &source,
             document_batch(&ctx, &write, managed_page()),
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentLifecycleError::GenerationChanged { .. })
@@ -212,6 +433,7 @@ async fn progressive_file_publication_preserves_intact_origins_and_explicit_remo
         &renamed_source,
         document_batch(&ctx, &write, moved),
         limits(),
+        |_, old, new| Ok(old == new),
     )
     .await?;
     let moved_generation = match moved_result {
@@ -238,7 +460,8 @@ async fn progressive_file_publication_preserves_intact_origins_and_explicit_remo
             &moved_generation,
             &colliding_source,
             document_batch(&ctx, &write, changed),
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentLifecycleError::ForeignSlugConflict { .. })
@@ -321,6 +544,7 @@ async fn scoped_rename_requires_authoritative_old_origin_coverage() -> Result<()
             &unrelated,
             document_batch(&ctx, &write, moved),
             limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentLifecycleError::ForeignSlugConflict { .. })
@@ -348,6 +572,7 @@ async fn scoped_rename_requires_authoritative_old_origin_coverage() -> Result<()
             &unrelated,
             document_batch(&ctx, &write, moved),
             limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentLifecycleError::ForeignSlugConflict { .. })
@@ -365,6 +590,7 @@ async fn scoped_rename_requires_authoritative_old_origin_coverage() -> Result<()
             &renamed,
             document_batch(&ctx, &write, moved),
             limits(),
+            |_, old, new| Ok(old == new),
         )
         .await?
     else {
@@ -436,7 +662,8 @@ async fn first_file_checks_its_captured_bytes_without_rehashing_changed_siblings
             &publication.default,
             &source,
             document_batch(&ctx, &write, a),
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await
         .is_err()
@@ -523,6 +750,7 @@ async fn scoped_file_reference_states_preserve_witnesses_foreign_rows_and_reacti
         &source,
         document_batch(&ctx, &write, a),
         limits(),
+        |_, old, new| Ok(old == new),
     )
     .await?
     else {
@@ -602,6 +830,7 @@ async fn scoped_file_reference_states_preserve_witnesses_foreign_rows_and_reacti
         &returned_source,
         document_batch(&ctx, &write, a),
         limits(),
+        |_, old, new| Ok(old == new),
     )
     .await?
     else {
@@ -636,6 +865,7 @@ async fn scoped_file_reference_states_preserve_witnesses_foreign_rows_and_reacti
         &returned_source,
         empty.clone(),
         limits(),
+        |_, old, new| Ok(old == new),
     )
     .await?
     else {
@@ -645,7 +875,7 @@ async fn scoped_file_reference_states_preserve_witnesses_foreign_rows_and_reacti
     let completed_a = stream::lookup(&pin, "a", ctx.snapshot(), &|| Ok(())).await?;
     assert!(!index::array::<StructArray>(&completed_a, 17)?.is_null(0));
     assert!(
-        matches!(reconcile_native_knowledge_source_file(ctx.snapshot(), &read, &write, &completed, &returned_source, empty, limits()).await?, KnowledgeDocumentUpdateResult::Unchanged { generation } if generation == completed)
+        matches!(reconcile_native_knowledge_source_file(ctx.snapshot(), &read, &write, &completed, &returned_source, empty, limits(), |_, old, new| Ok(old == new)).await?, KnowledgeDocumentUpdateResult::Unchanged { generation } if generation == completed)
     );
     let mut colliding = a;
     colliding.slug = Some("foreign");
@@ -669,7 +899,8 @@ async fn scoped_file_reference_states_preserve_witnesses_foreign_rows_and_reacti
             &completed,
             &returned_source,
             batch,
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentLifecycleError::ForeignSlugConflict { .. })

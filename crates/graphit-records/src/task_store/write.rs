@@ -32,9 +32,7 @@ pub(super) fn now() -> Result<u64, TaskStoreError> {
     .map_err(|_| TaskStoreError::Invalid("timestamp overflow"))
 }
 pub(super) fn actor(admission: &ProjectWriteAdmission<'_>) -> Result<String, TaskStoreError> {
-    let mut bytes = [0; 64];
-    admission.task_actor()?.write_identifier(&mut bytes);
-    String::from_utf8(bytes.to_vec()).map_err(|_| TaskStoreError::Invalid("actor identifier"))
+    Ok(admission.task_actor()?.identifier().to_string())
 }
 fn literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))

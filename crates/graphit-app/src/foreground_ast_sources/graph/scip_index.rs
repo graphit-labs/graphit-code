@@ -4,7 +4,10 @@ use ::scip::types::{Document, SymbolInformation};
 use graphit_ast::{
     scip_stream::IndexRecord,
     scip_syntax::{AstScipSyntaxInput, produce_scip_syntax_document},
-    semantic_graph::{AstGraphParts, scip_document::apply_scip_document},
+    semantic_graph::{
+        AstGraphParts,
+        scip_document::{AstScipDocumentOrigin, apply_scip_document},
+    },
 };
 use protobuf::Message;
 
@@ -143,7 +146,14 @@ impl ScipIndex {
         .map_err(err)?;
         let bytes = document.write_to_bytes().map_err(err)?;
         Ok((
-            apply_scip_document(parts, &document, text, original).map_err(err)?,
+            apply_scip_document(
+                parts,
+                &document,
+                text,
+                AstScipDocumentOrigin::Syntax,
+                original,
+            )
+            .map_err(err)?,
             bytes,
         ))
     }
@@ -298,7 +308,7 @@ impl ScipIndex {
             )
             .map_err(err)
         };
-        let document = match compiler {
+        let (document, origin) = match compiler {
             Some((hash, bytes)) => {
                 if hash.as_slice() != parts.association.source_sha256() {
                     return Err(io::Error::new(
@@ -320,14 +330,15 @@ impl ScipIndex {
                         "AST SCIP {} has ambiguous column encoding; using syntax SCIP",
                         document.relative_path
                     );
-                    syntax()?
+                    (syntax()?, AstScipDocumentOrigin::Syntax)
                 } else {
-                    document
+                    (document, AstScipDocumentOrigin::Compiler)
                 }
             }
-            None => syntax()?,
+            None => (syntax()?, AstScipDocumentOrigin::Syntax),
         };
-        let consumed = apply_scip_document(parts, &document, text, original).map_err(err)?;
+        let consumed =
+            apply_scip_document(parts, &document, text, origin, original).map_err(err)?;
         if let Some((source, limits)) = nn_source.filter(|_| consumed.parts.nodes.iter().any(|node| {
             matches!(node.properties().get("data_key"),Some(AstGraphValue::String(key)) if key=="scip_definitions")
         })) {
@@ -343,6 +354,7 @@ impl ScipIndex {
         original.check()?;
         live.scip_document = Some(bytes);
         live.definitions.extend(consumed.definitions);
+        live.identity_changes.extend(consumed.identity_changes);
         let oracle_outcomes = oracle_rows
             .into_iter()
             .flat_map(|rows| rows.references())

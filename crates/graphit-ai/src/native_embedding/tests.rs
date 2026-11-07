@@ -123,6 +123,102 @@ fn small_source(
         sha256: digest,
     }
 }
+
+const LOG_METADATA_CANARY: &str = "private-input-and-credential-canary";
+
+#[test]
+fn native_logging_fixture() {
+    if std::env::var_os("GRAPHIT_NATIVE_LOGGING_FIXTURE").as_deref()
+        != Some(std::ffi::OsStr::new("1"))
+    {
+        return;
+    }
+    use sha2::{Digest, Sha256};
+    // Real GGUF metadata and one scalar I32 entry make the upstream loader
+    // warn about its file type, then fail its required hyperparameters.
+    // No model weights, inference or accelerator allocation are involved.
+    let mut bytes = b"GGUF".to_vec();
+    bytes.extend_from_slice(&3_u32.to_le_bytes());
+    bytes.extend_from_slice(&1_u64.to_le_bytes());
+    bytes.extend_from_slice(&2_u64.to_le_bytes());
+    for (key, value) in [
+        ("general.architecture", "gemma-embedding2"),
+        ("general.name", LOG_METADATA_CANARY),
+    ] {
+        bytes.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(key.as_bytes());
+        bytes.extend_from_slice(&8_u32.to_le_bytes()); // GGUF string value.
+        bytes.extend_from_slice(&(value.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(value.as_bytes());
+    }
+    let tensor = "fixture.scalar";
+    bytes.extend_from_slice(&(tensor.len() as u64).to_le_bytes());
+    bytes.extend_from_slice(tensor.as_bytes());
+    bytes.extend_from_slice(&1_u32.to_le_bytes()); // One tensor dimension.
+    bytes.extend_from_slice(&1_u64.to_le_bytes());
+    bytes.extend_from_slice(&26_u32.to_le_bytes()); // Pinned SDK GGML_TYPE_I32.
+    bytes.extend_from_slice(&0_u64.to_le_bytes()); // Tensor data offset.
+    bytes.resize(bytes.len().div_ceil(32) * 32, 0);
+    bytes.extend_from_slice(&0_i32.to_le_bytes());
+    let bundle = tempfile::tempdir().unwrap();
+    std::fs::write(bundle.path().join("fixture.gguf"), &bytes).unwrap();
+    let (_snapshot_root, snapshot_parent) = crate::model_artifact::test_snapshot_parent();
+    let _root = NativeSdkRoot::new().unwrap();
+    let signal = Cancellation::default();
+    let error = NativeEmbeddingClient::load(
+        &snapshot_parent,
+        small_source(
+            bundle.path(),
+            "fixture.gguf",
+            Sha256::digest(&bytes).into(),
+            bytes.len() as u64,
+        ),
+        options(768, 1),
+        limits(1024),
+        context(&signal),
+    )
+    .err()
+    .expect("metadata-only GGUF must fail native model loading");
+    assert_eq!(error.kind(), NativeEmbeddingErrorKind::Native);
+}
+
+#[test]
+fn native_error_logging_preserves_failure_and_filters_verbose_metadata() {
+    for verbose in [false, true] {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .env_clear()
+            .env("GRAPHIT_NATIVE_LOGGING_FIXTURE", "1")
+            .args([
+                "--exact",
+                "native_embedding::tests::native_logging_fixture",
+                "--nocapture",
+            ]);
+        for key in ["SYSTEMROOT", "LD_LIBRARY_PATH", "TMPDIR", "TMP", "TEMP"] {
+            if let Some(value) = std::env::var_os(key) {
+                command.env(key, value);
+            }
+        }
+        if verbose {
+            command.env("GGML_SCHED_DEBUG", "1");
+        }
+        let output = command.output().unwrap();
+        assert!(output.status.success(), "native logging child failed");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains("error loading model"),
+            "native error was discarded"
+        );
+        assert!(stderr.contains("key not found"));
+        assert!(
+            stderr.contains("unknown type i32"),
+            "native warning was discarded"
+        );
+        assert_eq!(stderr.contains(LOG_METADATA_CANARY), verbose);
+        assert_eq!(stderr.contains("Dumping metadata keys/values"), verbose);
+    }
+}
+
 #[test]
 fn preflight_uses_existing_budgets_before_native_admission() {
     let signal = Cancellation::default();

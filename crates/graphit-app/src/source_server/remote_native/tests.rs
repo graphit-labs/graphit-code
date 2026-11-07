@@ -14,10 +14,15 @@ use std::{
 
 #[test]
 fn remote_engine_queries_pinned_ranges_and_rejects_replacement_and_cancel() {
-    exercise_remote_engine(Arc::new(InMemory::new()));
+    exercise_remote_engine(Arc::new(InMemory::new()), false);
 }
 
-fn exercise_remote_engine(store: Arc<dyn ObjectStore>) {
+#[test]
+fn remote_engine_queries_consolidated_slices_and_rejects_replacement_and_cancel() {
+    exercise_remote_engine(Arc::new(InMemory::new()), true);
+}
+
+fn exercise_remote_engine(store: Arc<dyn ObjectStore>, consolidated: bool) {
     let original = Arc::new(SnapshotContext::new(
         Instant::now() + Duration::from_secs(60),
         Cancellation::default(),
@@ -35,27 +40,72 @@ fn exercise_remote_engine(store: Arc<dyn ObjectStore>) {
             ("end_line".into(), GraphValue::Int64(line + 2)),
         ]),
     };
-    let output = IcebugWriter::new(Arc::clone(&original))
-        .unwrap()
-        .push_file(
-            [node("one", "ação", 2), node("two", "second", 7)],
-            [GraphEdge {
-                kind: "CALLS".into(),
-                source_key: "one".into(),
-                target_key: "two".into(),
-                uid: "edge".into(),
-            }],
-        )
-        .unwrap()
-        .finish()
-        .unwrap();
+    let edge = GraphEdge {
+        kind: "CALLS".into(),
+        source_key: "one".into(),
+        target_key: "two".into(),
+        uid: "edge".into(),
+    };
+    let ordinary = (!consolidated).then(|| {
+        IcebugWriter::new(Arc::clone(&original))
+            .unwrap()
+            .push_file(
+                [node("one", "ação", 2), node("two", "second", 7)],
+                [edge.clone()],
+            )
+            .unwrap()
+            .finish()
+            .unwrap()
+    });
+    let temporary = tempfile::tempdir().unwrap();
+    let output_directory = if consolidated {
+        use graphit_ast::live_graph::{LiveFileInput, LiveGraph};
+        let directory = temporary.path().join("graph");
+        let live =
+            LiveGraph::open_path_owned(directory.clone(), &original, [72; 32], true).unwrap();
+        for (path, mut value, edges) in [
+            ("first.any", node("one", "ação", 2), vec![edge]),
+            ("second.any", node("two", "second", 7), vec![]),
+        ] {
+            if value.key == "one" {
+                value
+                    .properties
+                    .insert("only_first".into(), GraphValue::String("é".into()));
+            }
+            live.replace_file(
+                LiveFileInput {
+                    path,
+                    source_sha256: [1; 32],
+                    raw_version: 1,
+                    nodes: &[value],
+                    edges: &edges,
+                    definitions: &[],
+                    references: &[],
+                    scip_document: None,
+                    oracle: &[],
+                    oracle_file: None,
+                    pending_compiler: None,
+                    scip_compiler: None,
+                },
+                &original,
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            live.maintain_shards(&original).unwrap().consolidated_files,
+            2
+        );
+        directory
+    } else {
+        ordinary.as_ref().unwrap().directory()
+    };
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()
         .unwrap();
     let prefix = Path::from("immutable/version-one/graph");
-    let mut pending = vec![output.directory().to_owned()];
+    let mut pending = vec![output_directory.clone()];
     while let Some(directory) = pending.pop() {
         for entry in std::fs::read_dir(&directory).unwrap() {
             let entry = entry.unwrap();
@@ -65,7 +115,7 @@ fn exercise_remote_engine(store: Arc<dyn ObjectStore>) {
             }
             let relative = entry
                 .path()
-                .strip_prefix(output.directory())
+                .strip_prefix(&output_directory)
                 .unwrap()
                 .to_owned();
             let path = Path::parse(format!("{prefix}/{}", relative.to_str().unwrap())).unwrap();
@@ -73,7 +123,7 @@ fn exercise_remote_engine(store: Arc<dyn ObjectStore>) {
             runtime.block_on(store.put(&path, bytes.into())).unwrap();
         }
     }
-    let manifest = std::fs::read(output.directory().join("icebug.json")).unwrap();
+    let manifest = std::fs::read(output_directory.join("icebug.json")).unwrap();
     let config =
         graphit_core::config::ConfigSnapshot::new(&graphit_core::brand::Brand::default(), [])
             .unwrap();
@@ -110,6 +160,50 @@ fn exercise_remote_engine(store: Arc<dyn ObjectStore>) {
     assert_eq!(result.rows[0][0]["value"], "ação");
     assert_eq!(result.rows[0][1]["value"], "edge");
     assert_eq!(result.rows[0][2]["value"], "second");
+    let primary_key = graph
+        .schema()
+        .node_tables()
+        .find(|table| table.label() == "Function")
+        .unwrap()
+        .primary_key()
+        .replace('`', "``");
+    let lookup_query = format!("MATCH(n:Function) WHERE n.`{primary_key}`=$key RETURN n.name");
+    for (key, expected) in [("one", Some("ação")), ("absent", None)] {
+        let result = graphit_ast::icebug_query::execute_remote(
+            &graph,
+            &original,
+            runtime.handle(),
+            &lookup_query,
+            &BTreeMap::from([("key".into(), serde_json::Value::String(key.into()))]),
+            options,
+        )
+        .unwrap();
+        if let Some(expected) = expected {
+            assert_eq!(result.rows.len(), 1);
+            assert_eq!(result.rows[0][0]["value"], expected);
+        } else {
+            assert!(
+                result.rows.is_empty(),
+                "an absent PK is a successful empty result"
+            );
+        }
+    }
+    if consolidated {
+        let values = graphit_ast::icebug_query::execute_remote(
+            &graph,
+            &original,
+            runtime.handle(),
+            "MATCH(n:Function) RETURN n.uid,n.only_first,n.start_line,n.end_line ORDER BY n.uid",
+            &BTreeMap::new(),
+            options,
+        )
+        .unwrap();
+        assert_eq!(values.rows[0][0]["value"], "one");
+        assert_eq!(values.rows[0][1]["value"], "é");
+        assert_eq!(values.rows[0][2]["value"], "2");
+        assert_eq!(values.rows[0][3]["value"], "4");
+        assert!(values.rows[1][1]["value"].is_null());
+    }
     let extent = graphit_ast::imported_graph::resolve_remote_entity_window(
         &graph,
         &original,
@@ -121,6 +215,41 @@ fn exercise_remote_engine(store: Arc<dyn ObjectStore>) {
     )
     .unwrap();
     assert_eq!(extent, (2, 4));
+    let keyed = graphit_ast::imported_graph::resolve_remote_entity_window_by_key(
+        &graph,
+        &original,
+        runtime.handle(),
+        "example.any",
+        "Function",
+        graphit_data::GraphAnchorKey::String("one"),
+        16,
+    )
+    .unwrap();
+    assert_eq!(keyed, extent);
+    assert!(matches!(
+        graphit_ast::imported_graph::resolve_remote_entity_window_by_key(
+            &graph,
+            &original,
+            runtime.handle(),
+            "other.any",
+            "Function",
+            graphit_data::GraphAnchorKey::String("one"),
+            16,
+        ),
+        Err(graphit_ast::imported_graph::EntitySourceError::Unavailable)
+    ));
+    assert!(matches!(
+        graphit_ast::imported_graph::resolve_remote_entity_window_by_key(
+            &graph,
+            &original,
+            runtime.handle(),
+            "example.any",
+            "Function",
+            graphit_data::GraphAnchorKey::Int64(1),
+            16,
+        ),
+        Err(graphit_ast::imported_graph::EntitySourceError::InvalidRequest)
+    ));
     assert!(
         graphit_ast::icebug_query::execute_remote(
             &graph,
@@ -141,7 +270,7 @@ fn exercise_remote_engine(store: Arc<dyn ObjectStore>) {
         .unwrap()["shards"][0]["file"]
         .as_str()
         .unwrap();
-    let changed = Path::from("immutable/version-one/graph").join(function_file);
+    let changed = Path::parse(format!("immutable/version-one/graph/{function_file}")).unwrap();
     let bytes = runtime.block_on(store.get(&changed)).unwrap();
     let bytes = runtime.block_on(bytes.bytes()).unwrap();
     let mut changed_bytes = bytes.to_vec();
@@ -149,6 +278,18 @@ fn exercise_remote_engine(store: Arc<dyn ObjectStore>) {
     runtime
         .block_on(store.put(&changed, changed_bytes.into()))
         .unwrap();
+    assert!(
+        graphit_ast::icebug_query::execute_remote(
+            &graph,
+            &original,
+            runtime.handle(),
+            &lookup_query,
+            &BTreeMap::from([("key".into(), serde_json::Value::String("one".into()))]),
+            options,
+        )
+        .is_err(),
+        "a changed ETag must remain an error rather than a missing PK"
+    );
     assert!(
         graphit_ast::icebug_query::execute_remote(
             &graph,
@@ -198,7 +339,7 @@ fn official_ladybug_progressive_publication_and_remote_queries_s3() {
             .build()
             .unwrap(),
     );
-    exercise_remote_engine(Arc::clone(&store));
+    exercise_remote_engine(Arc::clone(&store), true);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -320,6 +461,10 @@ fn official_ladybug_progressive_publication_and_remote_queries_s3() {
         &[node("b", "before")],
         std::slice::from_ref(&self_edge),
     );
+    assert_eq!(
+        graph.maintain_shards(&original).unwrap().consolidated_files,
+        2
+    );
     let full = snapshot("two");
     assert_eq!(
         query(&full, "MATCH(a)-[r:CALLS]->(b) RETURN a.name,b.name").rows[0][1]["value"],
@@ -331,6 +476,7 @@ fn official_ladybug_progressive_publication_and_remote_queries_s3() {
         &[node("b", "changed")],
         std::slice::from_ref(&self_edge),
     );
+    graph.maintain_shards(&original).unwrap();
     let changed = snapshot("three");
     assert_eq!(
         query(

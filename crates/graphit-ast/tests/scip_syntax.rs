@@ -602,3 +602,90 @@ async fn empty_source_hash_unicode_ranges_and_cancellation_are_checked() -> Test
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn syntax_then_compiler_reuses_the_original_projection_identity_map() -> TestResult {
+    use graphit_ast::semantic_graph::{
+        AstGraphValue,
+        scip_document::{AstScipDocumentOrigin, apply_scip_document},
+    };
+    fn identities(parts: &AstGraphParts) -> Vec<(String, String, String, String)> {
+        parts
+            .nodes
+            .iter()
+            .map(|node| {
+                let value = |key: &str| match &node.properties()[key] {
+                    AstGraphValue::String(value) => value.clone(),
+                    _ => panic!("string identity property"),
+                };
+                (
+                    node.label().to_owned(),
+                    value("uid"),
+                    value("data_key"),
+                    node.key().to_owned(),
+                )
+            })
+            .collect()
+    }
+    let original = original();
+    let body = "pub fn target(x: i32) -> i32 { x }\npub fn caller() -> i32 { target(1) }\n";
+    let profile = include_bytes!("../profiles/queries/rust.yaml");
+    let fallback = graph(profile, "src/producer.rs", body, Adapter::Typed, &original).await?;
+    let before = identities(&fallback);
+    let syntax_document = produce_scip_syntax_document(input(&fallback, body), &original)?;
+    let syntax = apply_scip_document(
+        fallback,
+        &syntax_document,
+        body,
+        AstScipDocumentOrigin::Syntax,
+        &original,
+    )?;
+    assert_eq!(syntax.origin, AstScipDocumentOrigin::Syntax);
+    assert!(syntax.identity_changes.is_empty());
+    assert_eq!(identities(&syntax.parts), before);
+    assert!(!syntax.definitions.is_empty());
+    let start = i32::try_from(body.find("target").unwrap())?;
+    // The scheme is intentionally the same as the syntax formatter. Explicit
+    // producer origin, rather than a symbol-prefix heuristic, controls promotion.
+    let compiler_document = types::Document {
+        relative_path: "src/producer.rs".into(),
+        language: "rust".into(),
+        position_encoding: types::PositionEncoding::UTF8CodeUnitOffsetFromLineStart.into(),
+        occurrences: vec![types::Occurrence {
+            symbol: "graphit-syntax cargo compiler-fixture 1.0.0 target().".into(),
+            symbol_roles: types::SymbolRole::Definition as i32,
+            range: vec![0, start, start + 6],
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let promoted = apply_scip_document(
+        syntax.parts,
+        &compiler_document,
+        body,
+        AstScipDocumentOrigin::Compiler,
+        &original,
+    )?;
+    assert!(!promoted.identity_changes.is_empty());
+    for change in &promoted.identity_changes {
+        assert!(
+            before
+                .iter()
+                .any(|(label, uid, key, pk)| label == &change.label
+                    && uid == &change.previous_uid
+                    && key == &change.data_key
+                    && pk == &change.previous_key)
+        );
+    }
+    assert_eq!(promoted.parts.nodes.len(), before.len());
+    let direct = graph(profile, "src/producer.rs", body, Adapter::Typed, &original).await?;
+    let direct = apply_scip_document(
+        direct,
+        &compiler_document,
+        body,
+        AstScipDocumentOrigin::Compiler,
+        &original,
+    )?;
+    assert_eq!(identities(&promoted.parts), identities(&direct.parts));
+    Ok(())
+}

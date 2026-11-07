@@ -32,7 +32,9 @@ use graphit_core::{
 };
 use graphit_daemon::{auth_startup::DaemonAuth, supervisor::ProjectContext, watcher::ChangeBatch};
 use graphit_data::{
-    lance_branch_store::{BranchSnapshot, DeltaRecoveryKey, LanceBranchStore, col, lit},
+    lance_branch_store::{
+        AST_INDEX_BATCH, BranchSnapshot, DeltaRecoveryKey, LanceBranchStore, col, lit,
+    },
     lance_module_store::{
         DataFusionError, LanceModuleStore, PreparedCreate, RecordBatchStreamAdapter, RecoveryKey,
         SendableRecordBatchStream,
@@ -924,6 +926,14 @@ impl ForegroundAstSources {
         };
         recheck()?;
         directory.revalidate(request.snapshot())?;
+        let recheck_source = || {
+            profiles.revalidate(request.snapshot())?;
+            directory.revalidate(request.snapshot())?;
+            recheck()
+        };
+        // Repair an existing segmented lookup before every FILE reads it.
+        // The SDK preserves Source rows/history and fences this metadata commit.
+        current = index_source_paths(current, effects, &recheck_source).await?;
         let mut previous = if rescan {
             branch_source_paths(&current, request.snapshot())
                 .await
@@ -1036,6 +1046,7 @@ impl ForegroundAstSources {
             .map(|graph| graph::ScipIndex::new(graph, selected))
             .transpose()?;
         let mut published = effects.published_version;
+        let mut source_changes_since_maintenance = 0;
         for relative_path in paths {
             recheck()?;
             if rescan
@@ -1048,6 +1059,24 @@ impl ForegroundAstSources {
                     io::ErrorKind::Interrupted,
                     "AST full publication yielded between FILEs",
                 ));
+            }
+            if source_changes_since_maintenance >= AST_INDEX_BATCH {
+                // The previous FILE's Source and graph are already published.
+                current = index_source_paths(current, effects, &recheck_source).await?;
+                published = effects.published_version.or(published);
+                progressive::clean_corpus_history(
+                    &path,
+                    &directory,
+                    current,
+                    request.snapshot(),
+                    &recheck_source,
+                )
+                .await?;
+                current = BranchSnapshot::capture_ast_corpus(&path, branch, request.snapshot())
+                    .await
+                    .map_err(err)?;
+                recheck_source()?;
+                source_changes_since_maintenance = 0;
             }
             let literal = literal_path(&relative_path)?;
             previous.remove(&literal);
@@ -1119,21 +1148,8 @@ impl ForegroundAstSources {
                     .push(RawKey::Delta(prepared.recovery_key().clone()));
                 current = prepared.commit().await.map_err(err)?;
                 effects.published_version = Some(current.version());
-                current = index_source_paths(current, effects, &recheck).await?;
                 published = Some(current.version());
-                progressive::clean_corpus_history(
-                    &path,
-                    &directory,
-                    current,
-                    request.snapshot(),
-                    &recheck,
-                )
-                .await?;
-                current = BranchSnapshot::capture_ast_corpus(&path, branch, request.snapshot())
-                    .await
-                    .map_err(err)?;
-                recheck()?;
-                directory.revalidate(request.snapshot())?;
+                source_changes_since_maintenance += 1;
             }
             if let Some(live) = live.as_mut() {
                 // Unchanged Raw does not imply a missing/obsolete derived FILE
@@ -1296,11 +1312,26 @@ impl ForegroundAstSources {
             let retained = retained.iter().map(String::as_str).collect();
             live.retain_paths(&retained, &recheck).await?;
         }
+        if let Some(live) = live.as_mut() {
+            live.finish_maintenance(
+                &recheck,
+                progressive_mode.map(|(source_preemption, _, _)| *source_preemption),
+            )
+            .await?;
+        }
         profiles.revalidate(request.snapshot())?;
         directory.revalidate(request.snapshot())?;
         recheck()?;
-        progressive::clean_corpus_history(&path, &directory, current, request.snapshot(), &recheck)
-            .await?;
+        current = index_source_paths(current, effects, &recheck_source).await?;
+        published = effects.published_version.or(published);
+        progressive::clean_corpus_history(
+            &path,
+            &directory,
+            current,
+            request.snapshot(),
+            &recheck_source,
+        )
+        .await?;
         Ok(published)
     }
 }

@@ -46,7 +46,7 @@ from moto.server import DomainDispatcherApplication, create_backend_app
 from werkzeug.serving import run_simple
 backend = DomainDispatcherApplication(create_backend_app)
 def app(environ, start_response):
-    if environ.get("REQUEST_METHOD") in ("GET", "PUT") and environ.get("PATH_INFO", "").endswith(".parquet"):
+    if environ.get("REQUEST_METHOD") in ("GET", "PUT") and environ.get("PATH_INFO", "").endswith((".parquet", ".indices", ".indptr")):
         with open(sys.argv[2], "a") as log:
             log.write(json.dumps({"method": environ["REQUEST_METHOD"], "path": environ["PATH_INFO"],
                                   "range": environ.get("HTTP_RANGE"), "size": environ.get("CONTENT_LENGTH")}) + "\n")
@@ -124,6 +124,11 @@ run_simple("127.0.0.1", int(sys.argv[1]), app, threaded=True)
                     ranges = [call for _, call in reads if call["range"]]
                     if not ranges or any(not call["range"].startswith("bytes=") for call in ranges):
                         raise RuntimeError("Icebug must read Parquet with HTTP ranges, without full GET")
+                    if args.filter == corruption_test:
+                        observed = {Path(call["path"]).suffix for call in ranges}
+                        missing = {".parquet", ".indices", ".indptr"} - observed
+                        if missing:
+                            raise RuntimeError(f"missing node/CSR Parquet HTTP Range reads: {sorted(missing)}")
                     print(f"Verified {len(ranges)} Parquet query HTTP Range requests; "
                           f"{len(full)} separately verified corruption-fixture full GET")
                 return status

@@ -122,6 +122,10 @@ fn check_authority(
 /// transaction; changed inherited targets require a separate materialization effect.
 /// A confirmed commit followed by failed delivery checks returns `Published` with
 /// its actual generation/key. Preparation may leave unpublished SDK fragments.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "existing admissions, CAS and observed-body comparison stay explicit"
+)]
 pub async fn update_existing_native_knowledge_documents(
     original: &Arc<SnapshotContext>,
     read: &ProjectReadAdmission<'_>,
@@ -130,6 +134,7 @@ pub async fn update_existing_native_knowledge_documents(
     rows: &PreparedKnowledgeDocumentRows<'_, '_>,
     references: &[KnowledgeDocumentReferenceUpdate<'_>],
     limits: KnowledgeDocumentUpdateLimits,
+    body_equivalent: index::KnowledgeBodyEquivalence,
 ) -> Result<KnowledgeDocumentUpdateResult, KnowledgeDocumentUpdateError> {
     update_documents_inner(
         UpdateObservation {
@@ -142,6 +147,7 @@ pub async fn update_existing_native_knowledge_documents(
         rows,
         references,
         limits,
+        body_equivalent,
     )
     .await
 }
@@ -163,6 +169,10 @@ struct UpdateObservation<'a> {
     original: &'a Arc<SnapshotContext>,
     phase: &'a (dyn Fn(UpdatePhase) + Sync),
 }
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the same producer preserves explicit admissions and content comparison"
+)]
 async fn update_documents_inner(
     observation: UpdateObservation<'_>,
     read: &ProjectReadAdmission<'_>,
@@ -171,6 +181,7 @@ async fn update_documents_inner(
     rows: &PreparedKnowledgeDocumentRows<'_, '_>,
     references: &[KnowledgeDocumentReferenceUpdate<'_>],
     limits: KnowledgeDocumentUpdateLimits,
+    body_equivalent: index::KnowledgeBodyEquivalence,
 ) -> Result<KnowledgeDocumentUpdateResult, KnowledgeDocumentUpdateError> {
     let original = observation.original;
     check_authority(original, read, write)?;
@@ -362,7 +373,12 @@ async fn update_documents_inner(
         columns[17] = projection;
         let replacement = RecordBatch::try_new(index::physical_schema(), columns)
             .map_err(KnowledgeIndexError::from)?;
-        let replacement = index::semantic::replace_document(&replacement, &old.slice(row, 1))?;
+        let replacement = index::semantic::replace_document(
+            &replacement,
+            &old.slice(row, 1),
+            original,
+            body_equivalent,
+        )?;
         if replacement != old.slice(row, 1) {
             reserve(&mut sync_changes.updated, 1)?;
             sync_changes.updated.push(header.slug.to_owned());

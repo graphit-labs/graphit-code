@@ -426,7 +426,25 @@ fn no_roots_bad_paths_zero_limits_cancel_and_expired_capture_create_nothing() {
         io::ErrorKind::InvalidInput
     );
     assert!(capture(vec![PathBuf::from("relative")], &native_capture_request()).is_err());
-    assert!(capture(vec![f.allowed.join("../escape")], &native_capture_request()).is_err());
+    // PathBuf::join normalizes parent components under a Windows verbatim root.
+    let mut parent_syntax = f.allowed.clone().into_os_string();
+    parent_syntax.push(std::path::MAIN_SEPARATOR_STR);
+    parent_syntax.push("..");
+    parent_syntax.push(std::path::MAIN_SEPARATOR_STR);
+    parent_syntax.push("escape");
+    let parent_syntax = PathBuf::from(parent_syntax);
+    assert!(
+        parent_syntax
+            .components()
+            .any(|part| part == std::path::Component::ParentDir)
+    );
+    assert_eq!(
+        capture(vec![parent_syntax], &native_capture_request())
+            .err()
+            .unwrap()
+            .kind(),
+        io::ErrorKind::InvalidInput
+    );
     assert!(
         capture(
             vec![f.allowed.clone(), f.allowed.clone()],

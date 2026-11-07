@@ -4,7 +4,11 @@ use graphit_auth::{
     AuthError, ImportedAstReadAdmission, ImportedKnowledgeReadAdmission, ScopeCapture,
     ServiceBindingView, ServiceCredentialLease, ServicePurpose, ServiceUseError,
 };
-use graphit_core::{artifact_store::StoreOwner, file_io::SnapshotContext};
+use graphit_core::{
+    artifact_store::StoreOwner,
+    file_io::SnapshotContext,
+    native_document_file::{CapturedDocumentDirectory, NativeDocumentFileLimits},
+};
 use graphit_data::lance_module_store::{LanceModuleStore, ModuleSnapshot, StoreError};
 use graphit_hub::{
     ArtifactId, ArtifactType, ConcreteVersion, InstallationTarget, SourceOrigin,
@@ -90,6 +94,19 @@ impl ErrorKind {
         use crate::native_storage_credentials::StorageCredentialsError as C;
         use axum::http::StatusCode as S;
         match self {
+            Self::Knowledge(graphit_data::knowledge_index::KnowledgeIndexError::Request(error))
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::Interrupted | io::ErrorKind::TimedOut
+                ) =>
+            {
+                S::REQUEST_TIMEOUT
+            }
+            Self::Knowledge(graphit_data::knowledge_index::KnowledgeIndexError::Request(error))
+                if error.kind() == io::ErrorKind::InvalidData =>
+            {
+                S::INTERNAL_SERVER_ERROR
+            }
             Self::Auth(AuthError::Request) => S::REQUEST_TIMEOUT,
             Self::Auth(AuthError::State | AuthError::Io) => S::INTERNAL_SERVER_ERROR,
             Self::Auth(_) | Self::Service(_) => S::FORBIDDEN,
@@ -111,6 +128,19 @@ impl ErrorKind {
     }
     pub(crate) fn code(&self) -> &'static str {
         match self {
+            Self::Knowledge(graphit_data::knowledge_index::KnowledgeIndexError::Request(error))
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::Interrupted | io::ErrorKind::TimedOut
+                ) =>
+            {
+                "request_cancelled_or_expired"
+            }
+            Self::Knowledge(graphit_data::knowledge_index::KnowledgeIndexError::Request(error))
+                if error.kind() == io::ErrorKind::InvalidData =>
+            {
+                "invalid_knowledge_corpus"
+            }
             Self::Auth(AuthError::Request) => "request_cancelled_or_expired",
             Self::Auth(AuthError::State | AuthError::Io) => "authentication_store_failure",
             Self::Auth(_) | Self::Service(_) => "authentication_or_permission_denied",
@@ -197,6 +227,7 @@ impl From<ServiceUseError> for ErrorKind {
 pub(crate) struct Selection<'a> {
     read: ReadAdmission<'a>,
     registry: &'a HubRegistry,
+    registry_parent: CapturedDocumentDirectory,
     installed: Installation,
 }
 impl<'a> Selection<'a> {
@@ -206,10 +237,16 @@ impl<'a> Selection<'a> {
         registry: &'a HubRegistry,
         id: &ArtifactId,
         version: &ConcreteVersion,
+        native: NativeDocumentFileLimits,
     ) -> Result<Option<Self>, ErrorKind> {
         read.recheck()?;
-        validate_registry(read, registry)?;
-        let document = registry.load()?;
+        let registry_parent = CapturedDocumentDirectory::capture(
+            read.installation().live.owner_root(),
+            native,
+            read.request().snapshot(),
+        )?;
+        validate_registry(read, registry, &registry_parent)?;
+        let document = registry.load_captured(&registry_parent, read.request().snapshot())?;
         read.recheck()?;
         let Some(artifact) = document.get_version(read.kind(), id.as_str(), version) else {
             return Ok(None);
@@ -231,7 +268,7 @@ impl<'a> Selection<'a> {
                 }
             )
             || installed.original_source.origin() != SourceOrigin::HubCache
-            || installed.original_source.root().as_path() != read.installation().live.owner_root()
+            || Some(installed.original_source.root().as_path()) != registry.path().parent()
             || installed.original_source.physical_id() != id
         {
             return Err(ErrorKind::InvalidInstallation);
@@ -239,6 +276,7 @@ impl<'a> Selection<'a> {
         let selection = Self {
             read,
             registry,
+            registry_parent,
             installed: installed.clone(),
         };
         selection.recheck()?;
@@ -258,8 +296,10 @@ impl<'a> Selection<'a> {
     }
     pub(crate) fn recheck(&self) -> Result<(), ErrorKind> {
         self.read.recheck()?;
-        validate_registry(self.read, self.registry)?;
-        let document = self.registry.load()?;
+        validate_registry(self.read, self.registry, &self.registry_parent)?;
+        let document = self
+            .registry
+            .load_captured(&self.registry_parent, self.request().snapshot())?;
         self.read.recheck()?;
         let source = self.source();
         let current = document
@@ -296,14 +336,25 @@ impl<'a> Selection<'a> {
     }
 }
 
-fn validate_registry(read: ReadAdmission<'_>, registry: &HubRegistry) -> Result<(), ErrorKind> {
+fn validate_registry(
+    read: ReadAdmission<'_>,
+    registry: &HubRegistry,
+    parent: &CapturedDocumentDirectory,
+) -> Result<(), ErrorKind> {
     let scope = read.installation();
     let StoreOwner::Installation { installation_id } = scope.live.owner() else {
         return Err(ErrorKind::InvalidInstallation);
     };
     if !matches!(registry.scope(), HubScope::Global { installation_id: id } if id == installation_id.as_str())
-        || registry.path().parent() != Some(scope.live.owner_root())
+        || parent.canonical_path() != scope.live.owner_root()
     {
+        return Err(ErrorKind::InvalidInstallation);
+    }
+    let path = registry.path();
+    let logical_parent = path.parent().ok_or(ErrorKind::InvalidInstallation)?;
+    let current = graphit_core::local_files::canonical_directory(logical_parent);
+    read.request().snapshot().check()?;
+    if current? != parent.canonical_path() {
         return Err(ErrorKind::InvalidInstallation);
     }
     Ok(())
@@ -532,7 +583,6 @@ impl Mount {
             .ok_or(ErrorKind::UnsupportedComponent)?;
         let NativeSnapshot::Icebug {
             manifest_path,
-            generation,
             manifest_sha256,
         } = &component.snapshot
         else {
@@ -551,9 +601,6 @@ impl Mount {
         .await
         .map_err(ErrorKind::Graph)?;
         selected.check(lease)?;
-        if graph.schema().manifest_generation() != generation {
-            return Err(ErrorKind::ManifestDigest);
-        }
         Ok(Arc::new(graph))
     }
     async fn open_lance(
@@ -736,3 +783,6 @@ impl ObjectStoreProvider for AdmittedStore {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -362,10 +362,7 @@ impl Ownership {
         ) {
             (None, None, None, None) => Ok(()),
             (Some(owner), Some(claimed), Some(heartbeat), Some(expires))
-                if owner.len() == 64
-                    && owner
-                        .bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+                if crate::actor::valid_identifier(owner)
                     && self.claim_epoch > 0
                     && claimed <= heartbeat
                     && heartbeat < expires =>

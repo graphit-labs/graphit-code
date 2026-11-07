@@ -184,7 +184,7 @@ async fn persisted_dates_dependencies_creation_and_session_heads() {
         .unwrap();
         assert_eq!(detail.task, task);
         assert_eq!(detail.creation.record, task);
-        assert_eq!(detail.creation.actor.len(), 64);
+        assert_eq!(detail.creation.actor.len(), 26);
     }
     let TaskReadView::Published {
         generation,

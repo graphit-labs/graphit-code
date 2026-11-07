@@ -51,6 +51,46 @@ artifact selection and its own authorization. They do not rebuild it or
 substitute the current PROJECT directory. Local links preserve their origin
 identity rather than turning a copied payload into a new source project.
 
+## Authored page identity
+
+For an authorized agent creating a new Knowledge page without an explicit ID,
+the authoring sequence is:
+
+1. Call `graphit_knowledge_id` with the actual relative page path. Root accepts
+   `{"path":"docs/guide.md"}`; Role uses the existing selection envelope with
+   `{"input":{"path":"docs/guide.md"}}`. Optional `ai_optimized` stays at the
+   envelope root.
+2. Receive the ULID from the tool. Do not invent an ID or use an empty placeholder.
+3. Save that value as YAML frontmatter `id` together with the document. The agent
+   writes the authorized page; neither the tool nor the indexer writes its ID.
+
+Preserve a supplied valid `id` literally when editing or indexing an existing
+page. A unique explicit ID preserves identity across a rename. If the tool or
+authoring permission is unavailable, report the gap; do not silently skip the
+identity step for a new agent-authored page. No CLI generator is required.
+
+Knowledge also accepts external documents and sources without frontmatter.
+During publication the existing source-identity factory supplies a deterministic
+26-character ULID when no explicit ID is present, without modifying the source.
+The MCP tool resolves this exact same default. It uses the first 128 bits of
+SHA-256 over the domain `graphit.knowledge.default-slug.v1` plus a NUL byte followed
+by the existing canonical relative `source_path`, encoded by the mature ULID
+library. The same validated origin retains its fallback on reindexing and content
+revisions; a rename changes it unless an explicit ID is retained. Unicode and
+component boundaries remain significant. Its time component is hash-derived,
+not the page's creation time.
+
+The origin key and its reversible path encoding remain unchanged. Project,
+version and source authorization continue to scope publication and readers;
+the derived ID is data, not a global registry entry or an access grant.
+
+Normal reconciliation can carry certified semantic fields to a changed slug
+through the same unique active source origin when the effective model-input
+fields remain equivalent. The old slug follows ordinary retirement, without an
+alias. Input changes invalidate reuse, and the selected model and projection
+recipe retain their existing compatibility checks; changing only an ID does not
+require inference for an otherwise compatible stored vector.
+
 ## References and document metadata
 
 Wiki links can point at absent pages. Cross-reference inspection must preserve

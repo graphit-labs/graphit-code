@@ -3,9 +3,13 @@ title: Project Identity
 description: The lifecycle and invariants of the stable project ULID and mutable globally unique project name.
 status: current
 created: 2026-09-05
-updated: 2026-10-30
+updated: 2026-11-06
 tags: [project, identity, ulid, lockfile, hub]
 references:
+  - target: {type: task, id: 01M666RGGWZ1EFRFR1Z4N4Y8PN}
+    relation: implements
+  - target: {type: task, id: 6017MN1RVS69PVF71AC4DMPGFX}
+    relation: derived_from
   - target:
       type: task
       id: tsk-28d2
@@ -193,8 +197,13 @@ links and retains its File for the non-Clone RAII writer's whole lifetime.
 The existing brand parent may remain public. The stable adjacent
 `.<brand>/.project.json.lock` is opened relative to that held parent without
 following links, then acquired by the existing FileLock owned-file route.
-Acquisition cannot recreate a disappeared parent. A new lock uses mode 0600
-on Unix. Identity initialization creates no runtime or module store.
+Acquisition cannot recreate a disappeared parent. Both Project ConfigStore and
+ProjectIdentityStore use this same relative private-lock acquisition, retaining
+the parent for the writer lifetime regardless of which producer creates the
+lock first. A new lock is empty and uses mode 0600 on Unix or the protected
+explicit-owner private profile on Windows. An existing incompatible lock is
+rejected without permission repair, unlinking or replacement. Identity
+initialization creates no runtime or module store.
 The parent handle and lock do not establish artifact/Stage ownership. Mutable
 `ensure(metadata)` validates input and rereads under that lock: it creates a new
 ULID only when absent and otherwise preserves the existing ID and metadata.
@@ -229,6 +238,15 @@ before writer acquisition creates no directories; timeout bounds lock waiting,
 not filesystem I/O. Atomic old/new visibility does not guarantee ACL/owner/xattr
 preservation, directory fsync, power-loss durability, abrupt-kill cleanup,
 external-editor coordination or hostile filesystem race protection.
+
+On Windows the same-directory scratch is created with normal file attributes,
+synced, then published by `std::fs::rename`. This uses the standard library's
+native POSIX rename semantics when replacing a file held by a share-delete
+reader; the reader keeps its previous bytes while new opens see the replacement.
+Temporary pathname cleanup is disabled only after successful publication. Failure
+or cancellation before publication retains temporary cleanup and the previous
+destination. This does not change caller locking, access checks or cancellation,
+and does not add retries. See the [Rust concurrency fix](https://github.com/rust-lang/rust/issues/123985).
 
 `resolve_project_root(directory, &Brand)` discovers boundaries using
 only a valid `.<brand>/project.json` or an observed regular-file/directory `.git`

@@ -298,12 +298,12 @@ async fn imported(
         provider,
         r.auth.installation(),
     )?;
-    let registry = &r
+    let imported_policy = r
         .policy
         .imported_knowledge
         .as_ref()
-        .ok_or_else(|| invalid("selected_context_unavailable"))?
-        .registry;
+        .ok_or_else(|| invalid("selected_context_unavailable"))?;
+    let registry = &imported_policy.registry;
     let (id, version) = selected
         .imported
         .as_ref()
@@ -313,6 +313,7 @@ async fn imported(
         registry,
         id,
         version,
+        imported_policy.directory,
     )
     .map_err(io::Error::other)?;
     let output = if let Some(selection_remote) = remote {

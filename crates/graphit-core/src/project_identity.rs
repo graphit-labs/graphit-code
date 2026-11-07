@@ -260,21 +260,7 @@ impl ProjectIdentityStore {
         check_cancelled(cancellation)?;
         let brand = self.project.brand_directory();
         ensure_directory(&brand)?;
-        let parent = graphit_fs::read_directory::open_root_readonly(&brand, &mut || {
-            check_cancelled(cancellation)
-        })?;
-        let lock_path = brand.join(".project.json.lock");
-        regular_metadata(&lock_path)?;
-        let deadline = Instant::now()
-            .checked_add(timeout)
-            .ok_or_else(|| invalid_input("timeout is too large"))?;
-        let file = graphit_fs::write_relative::open_private_lock_relative(
-            &parent,
-            std::ffi::OsStr::new(".project.json.lock"),
-            DOCUMENT_LIMIT,
-            &mut || check_cancelled(cancellation),
-        )?;
-        let lock = FileLock::acquire_owned_file(file, lock_path, Some(deadline), cancellation)?;
+        let (lock, parent) = project_document_lock(&brand, timeout, cancellation)?;
         Ok(ProjectIdentityWriter {
             store: self.clone(),
             cancellation: cancellation.clone(),
@@ -282,6 +268,31 @@ impl ProjectIdentityStore {
             _parent: parent,
         })
     }
+}
+
+// Both producers retain the same private lock entry and its parent handle.
+// Parent preparation remains the caller's responsibility.
+pub(crate) fn project_document_lock(
+    parent_path: &Path,
+    timeout: Duration,
+    cancellation: &Cancellation,
+) -> io::Result<(FileLock, File)> {
+    let parent = graphit_fs::read_directory::open_root_readonly(parent_path, &mut || {
+        check_cancelled(cancellation)
+    })?;
+    let lock_path = parent_path.join(".project.json.lock");
+    regular_metadata(&lock_path)?;
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .ok_or_else(|| invalid_input("timeout is too large"))?;
+    let file = graphit_fs::write_relative::open_private_lock_relative(
+        &parent,
+        std::ffi::OsStr::new(".project.json.lock"),
+        DOCUMENT_LIMIT,
+        &mut || check_cancelled(cancellation),
+    )?;
+    let lock = FileLock::acquire_owned_file(file, lock_path, Some(deadline), cancellation)?;
+    Ok((lock, parent))
 }
 
 /// A single owned writer; drop releases its stable lock without unlinking it.

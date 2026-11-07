@@ -7,11 +7,12 @@ import { nativeKnowledgeApi, type ImportedKnowledgeEnvelope, type ImportedKnowle
 import { importedKnowledgeHref, importedSourceKey } from '@/api/nativeRecordNavigation'
 import { stringifyNativeJson } from '@/api/nativeJson'
 import { usePageRefresh } from '@/components/layout/WorkspaceRefresh'
-import { FactList, RecordLink, WorkEmpty, WorkHeader, WorkNotice, WorkPage, WorkSection } from '@/components/shared/EngineeringUI'
+import { FactList, WorkEmpty, WorkHeader, WorkNotice, WorkPage, WorkSection } from '@/components/shared/EngineeringUI'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
 import { StyledSelect } from '@/components/shared/StyledSelect'
 import { NativeKnowledgeDocument } from './NativeKnowledgeDocument'
 import { NativeKnowledgeSearch } from './NativeKnowledgeSearch'
+import { KnowledgePageCatalogue } from './KnowledgePageCatalogue'
 
 export function ImportedKnowledge({ source: capturedSource, slug }: { source: ImportedKnowledgeSource | null; slug: string | null }) {
   const [source] = useState(capturedSource)
@@ -84,7 +85,17 @@ export function ImportedKnowledge({ source: capturedSource, slug }: { source: Im
   const referenceBinding = currentEnvelope ? knowledgeReferenceBinding(null, currentEnvelope.source, currentEnvelope.focused_source) : null
   const destinationError = referenceDestinationError(location.search, referenceBinding, current?.state === 'published' && current.page.state === 'found')
   const error = pageError?.slug === slug ? pageError.message : ''
-  const openPage = (target: string) => { if (source) navigate(importedKnowledgeHref(source, target)) }
+  const readerOrigin = location.state?.knowledgeReaderOrigin === 'search' ? 'search' : 'catalogue'
+  const openPage = (target: string, origin = readerOrigin) => { if (source) navigate(importedKnowledgeHref(source, target), {state:{knowledgeReaderOrigin:origin}}) }
+  const libraryHref = (origin = readerOrigin) => navigate(importedKnowledgeHref(source), {state:{knowledgeReaderOrigin:origin}})
+  const reader = <>
+{destinationError ? <WorkNotice title="Reference destination unavailable" tone="error">{destinationError}</WorkNotice> : error ? <WorkNotice title="Unable to read imported document" tone="error">{error}<button className="work-button" onClick={() => void loadPage()}>Retry document</button></WorkNotice>
+          : !current ? <LoadingSpinner label="Loading imported Knowledge document…" />
+          : current.state === 'registry_absent' ? <WorkEmpty title="Knowledge artifact is not registered">{source && <>{source.artifact.id} @ {source.artifact.version}</>}</WorkEmpty>
+          : current.page.state === 'published_empty' ? <WorkEmpty title="The Knowledge publication is empty" />
+          : current.page.state === 'page_absent' ? <WorkEmpty title="Knowledge page not found">{slug}</WorkEmpty>
+          : <><NativeKnowledgeDocument key={slug} publication={current} openPage={target => openPage(target, readerOrigin)} /><RecordReferences binding={referenceBinding} /></>}
+  </>
   return <WorkPage className="knowledge-library">
     <WorkHeader title="Imported Knowledge" description="Browse and read published pages from installed Knowledge artifacts." actions={<button className="work-button" onClick={() => navigate('/knowledge/explorer')}>Project Knowledge</button>} />
     <WorkSection title="Installed artifacts">
@@ -98,26 +109,23 @@ export function ImportedKnowledge({ source: capturedSource, slug }: { source: Im
           }}><option value="" disabled>Select an artifact</option>{source && !available && <option value={sourceKey}>{source.artifact.id} @ {source.artifact.version} (not in inventory)</option>}{contexts.map(value => <option key={importedSourceKey(value)} value={importedSourceKey(value)}>{value.artifact.id} @ {value.artifact.version}{value.artifact.context_alias === undefined ? '' : ' · ' + value.artifact.context_alias}</option>)}</StyledSelect></label>
         </>}
       {source && <><FactList items={[["Artifact", source.artifact.id], ["Version", source.artifact.version], ["Context alias", source.artifact.context_alias]]} />
-        <ImportedPageForm key={slug} slug={slug} read={openPage} />
+        <ImportedPageForm key={slug} slug={slug} read={target => openPage(target, 'catalogue')} />
         <details className="work-disclosure"><summary>Exact imported source</summary><pre className="work-code">{stringifyNativeJson(source, 2)}</pre></details></>}
     </WorkSection>
-    {source && <NativeKnowledgeSearch scope={{ kind: 'imported', source }} openPage={openPage} />}
+    {source && <NativeKnowledgeSearch scope={{ kind: 'imported', source }} openPage={target => openPage(target, 'search')} reader={readerOrigin === 'search' ? {slug,content:reader,label:'Imported Knowledge document',close:() => libraryHref('search')} : undefined} />}
     {source && <WorkSection title="Published imported pages">
       {headsError ? <WorkNotice title="Unable to read imported library" tone="error">{headsError}<button className="work-button" onClick={() => void loadHeads()}>Retry imported library</button></WorkNotice>
         : !heads ? <LoadingSpinner label="Loading imported pages…" />
         : heads.state === 'registry_absent' ? <WorkEmpty title="Imported library is not registered" />
         : <><FactList items={[["Publication version", heads.generation.version], ["Physical branch", heads.generation.physical_branch], ["Inherited target", heads.generation.inherited_target]]} />
-          {heads.heads.length === 0 ? <WorkEmpty title="The imported library is empty" /> : <nav aria-label="Published imported Knowledge pages">{heads.heads.map(head => <RecordLink key={head.slug} title={head.title || head.slug} meta={head.slug} selected={slug === head.slug} onClick={() => openPage(head.slug)}><span>{head.updated_at ?? '—'}</span></RecordLink>)}</nav>}</>}
+          {heads.heads.length === 0 && <WorkEmpty title="The imported library is empty" />}</>}
+      <KnowledgePageCatalogue heads={heads?.state === 'published' ? heads.heads : null} slug={readerOrigin === 'catalogue' ? slug : null} restoreFocus={slug === null}
+        onSelect={target => target === null ? libraryHref('catalogue') : openPage(target, 'catalogue')}
+        label="Published imported Knowledge pages" readerLabel="Imported Knowledge document">
+        {reader}
+      </KnowledgePageCatalogue>
     </WorkSection>}
-    {!source ? <WorkEmpty title="Select an installed artifact" /> : slug === null ? null
-      : <article className="knowledge-reader" aria-label="Imported Knowledge document">
-        {destinationError ? <WorkNotice title="Reference destination unavailable" tone="error">{destinationError}</WorkNotice> : error ? <WorkNotice title="Unable to read imported document" tone="error">{error}<button className="work-button" onClick={() => void loadPage()}>Retry document</button></WorkNotice>
-          : !current ? <LoadingSpinner label="Loading imported Knowledge document…" />
-          : current.state === 'registry_absent' ? <WorkEmpty title="Knowledge artifact is not registered">{source.artifact.id} @ {source.artifact.version}</WorkEmpty>
-          : current.page.state === 'published_empty' ? <WorkEmpty title="The Knowledge publication is empty" />
-          : current.page.state === 'page_absent' ? <WorkEmpty title="Knowledge page not found">{slug}</WorkEmpty>
-          : <><NativeKnowledgeDocument key={slug} publication={current} openPage={openPage} /><RecordReferences binding={referenceBinding} /></>}
-      </article>}
+    {!source && <WorkEmpty title="Select an installed artifact" />}
   </WorkPage>
 }
 

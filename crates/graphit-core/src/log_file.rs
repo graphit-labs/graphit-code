@@ -360,7 +360,11 @@ impl LogFile {
             ));
         }
         let mut options = OpenOptions::new();
-        options.read(true).append(true).create(true).truncate(false);
+        options.read(true).create(true).truncate(false);
+        #[cfg(windows)]
+        options.write(true); // Recovery and failed-write rollback require FILE_WRITE_DATA.
+        #[cfg(not(windows))]
+        options.append(true);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
@@ -422,9 +426,22 @@ impl LogFile {
             use std::os::unix::fs::PermissionsExt;
             builder.permissions(fs::Permissions::from_mode(0o600));
         }
-        builder
-            .tempfile_in(&self.paths.directory)
-            .map_err(|e| LogError::from_io(Stage::Compact, e))
+        #[cfg(windows)]
+        let result = {
+            use std::os::windows::fs::OpenOptionsExt;
+            use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
+            builder.make_in(&self.paths.directory, |path| {
+                OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create_new(true)
+                    .attributes(FILE_ATTRIBUTE_NORMAL)
+                    .open(path)
+            })
+        };
+        #[cfg(not(windows))]
+        let result = builder.tempfile_in(&self.paths.directory);
+        result.map_err(|e| LogError::from_io(Stage::Compact, e))
     }
     pub fn append(&self, bytes: &[u8]) -> Result<AppendOutcome, LogError> {
         if bytes.is_empty() {
@@ -552,6 +569,14 @@ fn persist(temporary: tempfile::NamedTempFile, paths: &LogPaths) -> Result<(), L
             io::ErrorKind::PermissionDenied.into(),
         ));
     }
+    #[cfg(windows)]
+    {
+        let mut temporary = temporary;
+        fs::rename(temporary.path(), paths.path())
+            .map_err(|e| LogError::from_io(Stage::Compact, e))?;
+        temporary.disable_cleanup(true);
+    }
+    #[cfg(not(windows))]
     temporary
         .persist(paths.path())
         .map_err(|e| LogError::from_io(Stage::Compact, e.error))?;
@@ -599,6 +624,7 @@ fn recover(file: &mut File, max_record: usize) -> Result<u64, LogError> {
         return Err(LogError::Corrupt);
     }
     file.set_len(boundary)
+        .and_then(|()| file.seek(SeekFrom::Start(boundary)).map(|_| ()))
         .map_err(|e| LogError::from_io(Stage::Recover, e))?;
     Ok(recovered)
 }
@@ -630,6 +656,24 @@ fn retained_suffix(
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn recovery_positions_a_read_write_handle_at_the_repaired_eof() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("log");
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"kept\npartial").unwrap();
+        assert_eq!(recover(&mut file, 16).unwrap(), 7);
+        assert_eq!(file.stream_position().unwrap(), 5);
+        file.write_all(b"new\n").unwrap();
+        drop(file);
+        assert_eq!(fs::read(&path).unwrap(), b"kept\nnew\n");
+    }
 
     thread_local! {
         static BEFORE_LOCK: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const {

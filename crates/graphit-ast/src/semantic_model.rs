@@ -855,20 +855,28 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
         &self,
         label: &str,
         anchor: SourceRange<'o>,
+        name: &str,
         namespace: &[JsonNamespace<'doc, 'o>],
     ) -> Result<SyntaxIdentity<'doc, 'o, 'request>, SemanticModelError> {
         let mut owners = Vec::new();
         for owner in namespace {
             self.parsed.original.check()?;
             let preceding: Vec<_> = owners.iter().collect();
-            let identity = self
-                .parsed
-                .identity
-                .symbol(owner.label, owner.anchor, &preceding)?;
+            let identity = self.parsed.identity.symbol(
+                owner.label,
+                owner.anchor,
+                &preceding,
+                crate::symbols::LogicalDeclaration::named(&owner.name),
+            )?;
             owners.push(identity);
         }
         let frames: Vec<_> = owners.iter().collect();
-        Ok(self.parsed.identity.symbol(label, anchor, &frames)?)
+        Ok(self.parsed.identity.symbol(
+            label,
+            anchor,
+            &frames,
+            crate::symbols::LogicalDeclaration::named(name),
+        )?)
     }
 
     fn associate_diagnostics(&mut self) -> Result<(), SemanticModelError> {
@@ -1124,7 +1132,12 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
             let Some(namespace) = self.namespace(lexical, pair, parent, occurrence)? else {
                 continue;
             };
-            let identity = self.identity(query.graph_label().value(), name.raw(), &namespace)?;
+            let identity = self.identity(
+                query.graph_label().value(),
+                name.raw(),
+                &name.name(),
+                &namespace,
+            )?;
             let mut spans = Vec::new();
             match &matched.bindings.span {
                 CaptureBinding::NotConfigured => spans.push(Some(delimiter)),
@@ -1242,7 +1255,14 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
                         _ => JsonValueObservation::Missing,
                     };
                     let identity = first_identity.take().map_or_else(
-                        || self.identity(query.graph_label().value(), name.raw(), &namespace),
+                        || {
+                            self.identity(
+                                query.graph_label().value(),
+                                name.raw(),
+                                &name.name(),
+                                &namespace,
+                            )
+                        },
                         Ok,
                     )?;
                     let own_namespace = self.namespace(lexical, pair, parent, occurrence)?.ok_or(
@@ -1282,6 +1302,7 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
                             let child_identity = self.identity(
                                 query.value_label().value(),
                                 anchor,
+                                &child_name,
                                 &child_namespace,
                             )?;
                             let child_extent = self.parsed.extent(node)?;

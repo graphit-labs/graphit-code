@@ -135,14 +135,17 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
                     &namespace.label,
                     namespace.anchor,
                     &references,
+                    LogicalDeclaration::named(&namespace.name),
                 )?);
                 namespaces.push(self.copy_value_namespace(namespace)?);
             }
             let references = owner_symbols.iter().collect::<Vec<_>>();
-            let parent = self
-                .parsed
-                .identity
-                .symbol(owner_target.label, owner.raw, &references)?;
+            let parent = self.parsed.identity.symbol(
+                owner_target.label,
+                owner.raw,
+                &references,
+                LogicalDeclaration::named(&owner.name),
+            )?;
             if parent.uid().as_str() != owner.identity.uid().as_str() {
                 return Err(TreeSitterModelError::NativeContract(
                     "derived value owner differs from actual declaration",
@@ -150,7 +153,12 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
             }
             owner_symbols.push(parent);
             let references = owner_symbols.iter().collect::<Vec<_>>();
-            let identity = self.parsed.identity.symbol(label, raw, &references)?;
+            let identity = self.parsed.identity.symbol(
+                label,
+                raw,
+                &references,
+                LogicalDeclaration::named((raw).text()),
+            )?;
             namespaces.push(TsNamespace {
                 node_index: contribution.declaration_node_index,
                 context_index: None,

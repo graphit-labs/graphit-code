@@ -120,6 +120,8 @@ ksni = { version = "=0.3.6", default-features = false, features = ["tokio"] }
 zbus = { version = "=5.13.2", default-features = false, features = ["tokio"] }
 
 [dev-dependencies]
+graphit-ast = { path = "../graphit-ast", features = ["test-support"] }
+lance-index = { version = "=14.0.2", default-features = false }
 tarpc = { version = "=0.38.0", default-features = false }
 tree-sitter-rust = "=0.24.2"
 tree-sitter-json = "=0.24.8"

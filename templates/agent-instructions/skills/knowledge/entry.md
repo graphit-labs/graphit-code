@@ -1,7 +1,7 @@
 {% if tool_transport | default("root") == "role" -%}
 # {{ brand_display }} Knowledge for an authenticated Role
 
-Knowledge explains maintained business and technical contracts. Read the selected PROJECT/version through the tools actually announced to this run. The closed envelope is `{selection?, input, ai_optimized?}`. Top-level `ai_optimized` is an optional strict boolean: omitted/`true` returns TOON text without duplicate JSON `structuredContent`; `false` selects JSON. This Role interface has no path/context/wikis/hub_refs fields and does not grant an imported, USER or foreign corpus.
+Knowledge explains maintained business and technical contracts. Read the selected PROJECT/version through the tools actually announced to this run. The closed envelope is `{selection?, input, ai_optimized?}`. Top-level `ai_optimized` is an optional strict boolean: omitted/`true` returns TOON text without duplicate JSON `structuredContent`; `false` selects JSON. The Role envelope has no top-level path/context/wikis/hub_refs fields and does not grant an imported, USER or foreign corpus.
 
 {% include "shared/persistence-boundary.md" %}
 
@@ -47,6 +47,23 @@ Before a domain coverage review, read [documentation design](references/document
 
 `DOCS_ROOT` means {% if publication_scope | default("project") == "global" %}the authoritative documentation directory of the active PROJECT. Resolve its current guidance through `{{ mcp_tool_module_skill }}` with `module: knowledge` before authoring or indexing{% else %}the actual authoritative `{{ docs_dir }}/` or maintained alternative{% endif %}. Separate supported behavior, intended behavior, assumptions and gaps. Use AST to verify code claims when Read(Ast) is granted and the tool is announced. Task retains the owner's scope/evidence; Memory retains durable constraints. This Role does not acquire coordinator claims or silently expand permissions.
 
+For each new Knowledge page you are authorized to create without an explicit
+ID, call `{{ mcp_tool_knowledge_id }}` with
+`{"input":{"path":"docs/guide.md"}}`, using the actual relative page path and
+current selection. Receive the real ULID, then save it as YAML frontmatter `id`
+together with the document. Do not invent an ID, leave an empty placeholder or
+omit this step. If the tool or authoring permission is unavailable, report the
+missing capability instead of pretending the page was created with an ID.
+Preserve a supplied explicit ID; editing or indexing an existing page does not
+regenerate it. A saved ID preserves identity across a rename.
+
+External documents and sources without frontmatter can still be published with
+an automatic deterministic ULID derived from their validated relative origin.
+The same origin keeps that fallback on reindex; a rename changes it unless an
+explicit ID is retained. Its time component is not a creation timestamp.
+Neither the tool nor the indexer writes the page or grants authoring access;
+the authorized author saves the returned ID. There is no CLI generator.
+
 For each authorized work unit, reconcile relevant source/test behavior and the documentation in both directions. Preserve exact user conditions, meaningful errors and examples that match the current DTOs. A read-only Role reports a proposed correction and its evidence; authoring requires actual granted tools and scope. Documentation maintenance does not itself publish a Hub artifact.
 {%- else -%}
 # {{ brand_display }} Knowledge
@@ -89,6 +106,24 @@ Titles and previews locate evidence; read the selected page. Reuse enough source
 At any stage, new questions may need Memory facts/lessons or Task investigations/decisions/results. Reuse sufficient context; read its skill and retrieve the missing topic. For Task, known ID → `{{ mcp_tool_task_get }}`; otherwise `{{ mcp_tool_task_search }}` → selected records. Check history against current docs/code; do not query both stores mechanically. State gaps if a needed source is unavailable.
 
 ## Design and write maintained documentation
+
+For each new Knowledge page you are authorized to create without an explicit
+ID, call `{{ mcp_tool_knowledge_id }}` with
+`{"path":"docs/guide.md"}`, using the actual relative page path. Receive the real ULID, then save it as YAML frontmatter `id`
+together with the document. Do not invent an ID, leave an empty placeholder or
+omit this step. If the tool or authoring permission is unavailable, report the
+missing capability instead of pretending the page was created with an ID.
+Preserve a supplied explicit ID; editing or indexing an existing page does not
+regenerate it. A saved ID preserves identity across a rename.
+
+External documents and sources without frontmatter can still be published with
+an automatic deterministic ULID derived from their validated relative origin.
+The same origin keeps that fallback on reindex; a rename changes it unless an
+explicit ID is retained. Its time component is not a creation timestamp.
+Neither the tool nor the indexer writes the page or grants authoring access;
+the authorized author saves the returned ID. There is no CLI generator.
+
+When guides have a genuine reading sequence, fill optional root YAML `previous`/`next` with the existing local slug or relative Markdown destination. Keep current IDs and other links. No field is required for an independent page, and reciprocal links are not a global invariant. Follow destinations only within the page's authorized PROJECT/version or imported artifact; preserve an unavailable-target diagnostic instead of selecting another source.
 
 Map domains, actors/journeys, rules/contracts, implementation evidence and page targets in Task before writing. Extend existing navigation: root → domain → user/technical/operation pages as needed. File count/headings do not prove coverage; no empty skeletons or generic overview replacing unrelated domains.
 Write in {% if publication_scope | default("project") == "global" %}the active PROJECT's resolved `DOCS_ROOT`{% else %}`{{ docs_dir }}/` or the authoritative source{% endif %}, never the generated wiki/store. Users need prerequisites, steps, outcomes and errors/recovery; consumers need contracts, boundaries, data/state, source/version, operations and provenance. Link shared facts; keep examples consistent. Label proposed behavior, assumptions and unverified findings. Resolve scope in Task without inventing rules. Authorized docs maintenance needs no extra approval.

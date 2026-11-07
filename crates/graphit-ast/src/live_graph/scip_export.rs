@@ -82,15 +82,6 @@ impl LiveGraph {
         );
         portable::publish(&self.directory, &next, original)?;
         state.catalog = next;
-        portable::prune(&self.directory, &state.catalog).map_err(|error| {
-            io::Error::new(
-                error.kind(),
-                format!(
-                    "SCIP family committed at graph revision {}; cleanup failed: {error}",
-                    state.catalog.schema.revision
-                ),
-            )
-        })?;
         original.check().map_err(|error| {
             io::Error::new(
                 error.kind(),
@@ -117,9 +108,10 @@ impl LiveGraph {
             if !record.scip_document {
                 continue;
             }
-            let payload = portable::read_facts(&self.directory, &record.facts, original)?
-                .scip_document
-                .ok_or_else(|| invalid("official SCIP document disappeared"))?;
+            let payload =
+                portable::read_facts(&self.directory, &record.facts, record.facts_row, original)?
+                    .scip_document
+                    .ok_or_else(|| invalid("official SCIP document disappeared"))?;
             let document =
                 Document::parse_from_bytes(&STANDARD.decode(payload).map_err(io::Error::other)?)
                     .map_err(io::Error::other)?;
@@ -143,6 +135,7 @@ impl LiveGraph {
         for file in state.catalog.externals.values() {
             visit_fact_rows(
                 &portable::owned_path(&self.directory, file)?,
+                ..,
                 original,
                 |payload| {
                     let (name, payload): (String, String) = decoded(payload)?;

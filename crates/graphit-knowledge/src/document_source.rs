@@ -29,6 +29,7 @@ pub struct DocumentSourceLimits {
 
 #[derive(Debug)]
 pub enum DocumentSourceError {
+    Parse(Box<crate::document::DocumentParseError>),
     Request(io::Error),
     Serialization(serde_saphyr::SerializeError),
     Selection(String),
@@ -38,9 +39,18 @@ pub enum DocumentSourceError {
     Allocation(TryReserveError),
     Encoding(std::string::FromUtf8Error),
 }
+impl From<crate::document::DocumentParseError> for DocumentSourceError {
+    fn from(error: crate::document::DocumentParseError) -> Self {
+        match error {
+            crate::document::DocumentParseError::Request(error) => Self::Request(error),
+            error => Self::Parse(Box::new(error)),
+        }
+    }
+}
 impl fmt::Display for DocumentSourceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Parse(_) => f.write_str("Knowledge source navigation metadata invalid"),
             Self::Request(_) => f.write_str("Knowledge source request failed"),
             Self::Serialization(_) => f.write_str("Knowledge source YAML encoding failed"),
             Self::Selection(e) => write!(f, "Knowledge source selection: {e}"),
@@ -55,6 +65,7 @@ impl fmt::Display for DocumentSourceError {
 impl Error for DocumentSourceError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Parse(error) => Some(error.as_ref()),
             Self::Request(e) => Some(e),
             Self::Serialization(e) => Some(e),
             Self::Allocation(e) => Some(e),
@@ -83,6 +94,10 @@ struct Header<'a> {
     stale_since: Option<String>,
     stale_after_ns: Option<u64>,
     resolved_wiki_targets: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    previous: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next: Option<String>,
 }
 #[derive(Serialize)]
 struct Recipe<'a> {
@@ -142,6 +157,8 @@ pub(crate) fn native_metadata<'a>(
     document: &'a KnowledgeDocument,
 ) -> Result<impl Serialize + 'a> {
     original.check().map_err(DocumentSourceError::Request)?;
+    let navigation = crate::document::document_navigation(original, &document.body)
+        .map_err(DocumentSourceError::from)?;
     let header = Header {
         id: &document.slug,
         title: &document.title,
@@ -175,6 +192,8 @@ pub(crate) fn native_metadata<'a>(
             })
             .transpose()?,
         resolved_wiki_targets: &document.resolved_wiki_targets,
+        previous: navigation.previous,
+        next: navigation.next,
     };
     Ok(header)
 }

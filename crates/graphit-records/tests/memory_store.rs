@@ -64,6 +64,114 @@ fn published(value: MemoryHeadRead) -> (MemoryGeneration, Vec<MemoryActivityHead
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn current_reads_switch_projects_without_pinning_old_commits() {
+    #[cfg(target_os = "linux")]
+    fn footprint() -> (u64, u64) {
+        let text = std::fs::read_to_string("/proc/self/smaps_rollup").unwrap();
+        let mut pss = 0;
+        let mut private = 0;
+        for line in text.lines() {
+            let mut fields = line.split_whitespace();
+            let name = fields.next().unwrap_or_default();
+            if matches!(name, "Pss:" | "Private_Clean:" | "Private_Dirty:") {
+                let bytes = fields.next().unwrap().parse::<u64>().unwrap() * 1024;
+                if name == "Pss:" {
+                    pss = bytes;
+                } else {
+                    private += bytes;
+                }
+            }
+        }
+        (pss, private)
+    }
+    #[cfg(target_os = "linux")]
+    let before_owners = footprint();
+    {
+        let cancel = Cancellation::default();
+        let ctx = request(&cancel);
+        let a = Fixture::new(&ctx, "main");
+        let b = Fixture::new_for(&ctx, "main", "01KSH1CRFFG8Z74B5ZS78WW809");
+        admissions!(a, ctx, ia, aa, ga, ra, wa, ba, refa, _admina);
+        admissions!(b, ctx, ib, ab, gb, rb, wb, bb, refb, _adminb);
+        let first = NativeMemoryStore::create(ctx.snapshot(), &wa, input("first"), write_limits())
+            .await
+            .unwrap();
+        let other = NativeMemoryStore::create(ctx.snapshot(), &wb, input("other"), write_limits())
+            .await
+            .unwrap();
+        for read in [&ra, &rb] {
+            assert_eq!(
+                published(
+                    NativeMemoryStore::observe_heads(ctx.snapshot(), read, head_limits())
+                        .await
+                        .unwrap()
+                )
+                .1
+                .len(),
+                1
+            );
+        }
+        #[cfg(target_os = "linux")]
+        let before = footprint();
+        let started = Instant::now();
+        for index in 0..32 {
+            let (read, expected) = if index % 2 == 0 {
+                (&ra, first.id)
+            } else {
+                (&rb, other.id)
+            };
+            let (_, heads) = published(
+                NativeMemoryStore::observe_heads(ctx.snapshot(), read, head_limits())
+                    .await
+                    .unwrap(),
+            );
+            assert_eq!(heads.len(), 1);
+            assert_eq!(heads[0].id, expected);
+        }
+        let elapsed = started.elapsed();
+        #[cfg(target_os = "linux")]
+        let after = footprint();
+        let added = NativeMemoryStore::create(ctx.snapshot(), &wa, input("later"), write_limits())
+            .await
+            .unwrap();
+        let (_, fresh) = published(
+            NativeMemoryStore::observe_heads(ctx.snapshot(), &ra, head_limits())
+                .await
+                .unwrap(),
+        );
+        assert_eq!(fresh.len(), 2);
+        assert!(fresh.iter().any(|head| head.id == added.id));
+        assert_eq!(
+            published(
+                NativeMemoryStore::observe_heads(ctx.snapshot(), &rb, head_limits())
+                    .await
+                    .unwrap()
+            )
+            .1
+            .len(),
+            1
+        );
+        eprintln!(
+            "memory_current_reads iterations=32 elapsed_us={}",
+            elapsed.as_micros()
+        );
+        #[cfg(target_os = "linux")]
+        eprintln!(
+            "memory_current_reads pss_before={} pss_after={} private_before={} private_after={}",
+            before.0, after.0, before.1, after.1
+        );
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let released = footprint();
+        eprintln!(
+            "memory_current_reads pss_before_owners={} pss_released={} private_before_owners={} private_released={}",
+            before_owners.0, released.0, before_owners.1, released.1
+        );
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn concurrent_same_attempt_one_pair_literal_input_and_fresh_reobservation() {
     let cancel = Cancellation::default();
     let ctx = request(&cancel);

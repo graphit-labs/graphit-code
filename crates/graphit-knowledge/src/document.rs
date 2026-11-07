@@ -11,6 +11,9 @@ use std::{
     str::Utf8Error,
 };
 
+mod navigation;
+pub use navigation::{AuthoredNavigation, document_navigation, without_document_navigation};
+
 #[derive(Clone, Copy, Debug)]
 pub struct DocumentParseLimits {
     pub max_document_bytes: NonZeroUsize,
@@ -34,6 +37,9 @@ pub struct ParsedDocument<'a> {
     pub title: String,
     pub summary: String,
     pub summary_truncated: bool,
+    /// Optional authored guide destinations. Resolution belongs to the admitted reader.
+    pub previous: Option<String>,
+    pub next: Option<String>,
     pub stats: ParseStats,
 }
 
@@ -221,6 +227,12 @@ pub fn parse_document<'a>(
     };
     let explicit_title = editorial_field(context, &metadata, "title")?;
     let explicit_summary = editorial_field(context, &metadata, "description")?;
+    let previous = editorial_field(context, &metadata, "previous")?
+        .map(|value| budget.copy(value))
+        .transpose()?;
+    let next = editorial_field(context, &metadata, "next")?
+        .map(|value| budget.copy(value))
+        .transpose()?;
     let (markdown, editorial) = parse_markdown(
         context,
         source,
@@ -252,6 +264,8 @@ pub fn parse_document<'a>(
         title,
         summary,
         summary_truncated,
+        previous,
+        next,
         stats,
     })
 }
@@ -630,7 +644,7 @@ fn editorial_field<'a>(
         let MetadataKind::Scalar { value, style } = &metadata.nodes[value.0].kind else {
             return Err(DocumentParseError::InvalidFieldType(name));
         };
-        return Ok((!is_null(value, *style) && !value.trim().is_empty()).then_some(value.trim()));
+        return Ok((!is_null(value, *style) && !value.trim().is_empty()).then_some(value.as_ref()));
     }
     Ok(None)
 }
@@ -1123,6 +1137,85 @@ mod tests {
                 .unwrap()
                 .title,
             "fallback"
+        );
+    }
+
+    #[test]
+    fn navigation_scalars_preserve_authored_text_and_use_existing_null_rules() {
+        let source = "---\nnext: \"  [[próxima]]  \"\nprevious: >-\n  guide.md\n---\n# Guide\n";
+        let parsed = parse(source);
+        assert_eq!(parsed.next.as_deref(), Some("  [[próxima]]  "));
+        assert_eq!(parsed.previous.as_deref(), Some("guide.md"));
+        assert_eq!(
+            document_navigation(&context(), source).unwrap(),
+            AuthoredNavigation {
+                next: parsed.next,
+                previous: parsed.previous
+            }
+        );
+        for value in ["null", "~", "''", "'  '"] {
+            let source = format!("---\nnext: {value}\nprevious: {value}\n---\nbody\n");
+            assert_eq!(
+                document_navigation(&context(), &source).unwrap(),
+                AuthoredNavigation::default()
+            );
+        }
+        for value in ["[]", "{}"] {
+            let source = format!("---\nnext: {value}\n---\nbody\n");
+            assert!(matches!(
+                parse_document(&context(), source.as_bytes(), "", limits()),
+                Err(DocumentParseError::InvalidFieldType("next"))
+            ));
+        }
+    }
+
+    #[test]
+    fn navigation_projection_preserves_other_bytes_across_yaml_styles() {
+        let original = "---\ntitle: Guide\ndescription: Useful\n---\n# Body\n";
+        for source in [
+            "---\nnext: '[[first]]'\ntitle: Guide\nprevious: before\ndescription: Useful\n---\n# Body\n",
+            "---\ntitle: Guide\nnext: >-\n  guide.md\ndescription: Useful\nprevious: \"esca\\u0070ed\"\n---\n# Body\n",
+        ] {
+            assert_eq!(
+                without_document_navigation(&context(), source).unwrap(),
+                original
+            );
+        }
+        for source in [
+            "---\n{next: x, title: Guide, previous: y, description: Useful}\n---\n# Body\n",
+            "---\n{title: Guide, description: Useful, next: x, previous: y}\n---\n# Body\n",
+        ] {
+            assert_eq!(
+                without_document_navigation(&context(), source).unwrap(),
+                "---\n{title: Guide, description: Useful}\n---\n# Body\n"
+            );
+        }
+        for source in [
+            "---\nnext: x\nprevious: y\n---\n# Body\n",
+            "---\n{next: x, previous: y}\n---\n# Body\n",
+        ] {
+            assert_eq!(
+                without_document_navigation(&context(), source).unwrap(),
+                "# Body\n"
+            );
+        }
+        assert!(
+            matches!(without_document_navigation(&context(),original).unwrap(),Cow::Borrowed(value) if value==original)
+        );
+        let crlf = "\u{feff}---\r\ntitle: Guide\r\nnext: x\r\n---\r\n# Body\r\n";
+        assert_eq!(
+            without_document_navigation(&context(), crlf).unwrap(),
+            "\u{feff}---\r\ntitle: Guide\r\n---\r\n# Body\r\n"
+        );
+        let empty_envelope = "---\n---\n# Body\n";
+        assert_eq!(
+            without_document_navigation(&context(), empty_envelope).unwrap(),
+            empty_envelope
+        );
+        assert_ne!(
+            without_document_navigation(&context(), "---\nnext: x\n---\n# Body\n").unwrap(),
+            empty_envelope,
+            "a formerly empty envelope cannot be inferred from navigation-only source"
         );
     }
 

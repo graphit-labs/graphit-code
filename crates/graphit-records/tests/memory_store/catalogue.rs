@@ -60,7 +60,7 @@ async fn catalogue_full_content_flags_filters_and_current_order() {
     for (i, m) in values.iter_mut().enumerate() {
         m.revision = 2;
         m.updated_at = base + offsets[i];
-        m.updated_by = "c".repeat(64);
+        m.updated_by = ulid::Ulid::from(12u128).to_string();
     }
     let row_memory = |r: usize| {
         values

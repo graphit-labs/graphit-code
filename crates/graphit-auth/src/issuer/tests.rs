@@ -372,10 +372,24 @@ fn authority_result(
     )
 }
 
-fn actor_bytes(actor: &Actor) -> [u8; 64] {
-    let mut bytes = [0; 64];
-    actor.write_identifier(&mut bytes);
-    bytes
+fn actor_bytes(actor: &Actor) -> [u8; 16] {
+    actor.identifier().to_bytes()
+}
+
+#[test]
+fn actor_identifier_is_stable_ulid128_from_the_originating_digest_prefix() {
+    let first = Actor::from_digest([0xa5; 32]);
+    let mut changed_tail = [0xa5; 32];
+    changed_tail[31] ^= 1;
+    let second = Actor::from_digest(changed_tail);
+    assert!(first == second);
+    assert_eq!(actor_bytes(&first), actor_bytes(&second));
+    assert_eq!(first.identifier(), second.identifier());
+    assert_eq!(first.identifier().to_bytes(), [0xa5; 16]);
+    let text = first.identifier().to_string();
+    assert_eq!(text.len(), 26);
+    assert_eq!(ulid::Ulid::from_string(&text).unwrap(), first.identifier());
+    assert_eq!(text, first.identifier().to_string());
 }
 
 #[test]

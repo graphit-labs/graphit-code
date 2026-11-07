@@ -103,11 +103,46 @@ fn cleaned_terminal_survives_drop_and_fresh_recovery_until_real_journal_release(
         .unwrap()
         .with_io_context(ctx.clone())
         .unwrap();
-    let resolution = writer
+    let stage = writer
         .prepare_native_document(id, &key, &parent, &old, b"{\"owned\":true}")
-        .unwrap_or_else(|f| panic!("{:?}", f.error()))
-        .publish()
         .unwrap_or_else(|f| panic!("{:?}", f.error()));
+    #[cfg(windows)]
+    let prepared = serde_json::to_value(stage.receipt()).unwrap();
+    let resolution = stage.publish().unwrap_or_else(|f| {
+        #[cfg(windows)]
+        {
+            // Report only mismatch categories, never IDs, SIDs, hashes or bodies.
+            let observed = parent
+                .read("agent.json".as_ref(), &ctx)
+                .unwrap_or_else(|e| {
+                    panic!("{:?}; destination observation: {:?}", f.error(), e.kind())
+                });
+            let observed = serde_json::to_value(
+                observed
+                    .receipt()
+                    .unwrap_or_else(|| panic!("{:?}; destination absent", f.error())),
+            )
+            .unwrap();
+            let previous = serde_json::to_value(previous.as_ref().unwrap()).unwrap();
+            let stage_absent = matches!(
+                fs::symlink_metadata(root.join(format!(".graphit-doc-{id}")).join("document")),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound
+            );
+            panic!(
+                "{:?}; stage_absent={stage_absent}, stage_volume={}, stage_index={}, previous_creation={}, stage_length={}, stage_content={}, previous_access={}, stage_access={}",
+                f.error(),
+                observed["file_id"]["volume"] == prepared["file_id"]["volume"],
+                observed["file_id"]["index"] == prepared["file_id"]["index"],
+                observed["file_id"]["created"] == previous["file_id"]["created"],
+                observed["length"] == prepared["length"],
+                observed["content"] == prepared["content"],
+                observed["access"] == previous["access"],
+                observed["access"] == prepared["access"],
+            );
+        }
+        #[cfg(not(windows))]
+        panic!("{:?}", f.error());
+    });
     assert_eq!(resolution.outcome(), NativeDocumentOutcome::Applied);
     let actual = resolution.destination_receipt().unwrap().clone();
     let second = guard

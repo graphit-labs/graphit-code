@@ -2,8 +2,10 @@
 title: Local Role MCP toolbox
 type: reference
 status: partial
-updated: 2026-10-18
+updated: 2026-11-06
 references:
+  - target: {type: task, id: 01M5C6B85MCWH5HX932YVEKN3Z}
+    relation: implements
   - target: {type: task, id: tsk-cab0}
     relation: implements
   - target: {type: task, id: tsk-e6b2}
@@ -156,6 +158,7 @@ Names derive from validated Brand. This table uses graphit.
 | memory_insert/update/delete/mark_mandatory/unmark_mandatory/promote/demote | NativeMemoryStore, WriteMemory, revision/idempotency checks |
 | knowledge_list | Complete admitted native Knowledge heads |
 | wiki_source | Selected native page after EOF validation and document_source rendering |
+| knowledge_id | Pure default ID from KnowledgeSourceIdentity::from_relative_path(path, None, current scalar limit); Read(Knowledge), no document/corpus access or write |
 | knowledge_schema | Actual producer physical Knowledge schema under Read(Knowledge); no row scan/count implied |
 | knowledge_search | Same-pin native lexical Knowledge search and borrowed Markdown preview, Read(Knowledge) |
 | knowledge_references | Native Knowledge source edges, literal backlinks and incomplete coverage, Read(Knowledge); no USER/foreign target resolution |
@@ -163,6 +166,17 @@ Names derive from validated Brand. This table uses graphit.
 | ast_source | inspect_source_role with local index/physical Source, Read(Ast) |
 | ast_schema, ast_query, ast_search | Admitted PROJECT graph/SDK pin with Read(Ast); readonly Cypher, FTS and shared-service semantic/hybrid search |
 | module_skill | Read(selected module), captured overrides, shared MiniJinja renderer |
+
+`knowledge_id` takes `{input:{path:<relative Unicode string>}}` in the normal
+selection envelope and returns exactly `{id}`. It uses the publisher's default
+identity factory and never opens the supplied path. It needs no Knowledge corpus,
+model, external account or provider. Absolute/escaping/NUL paths and existing
+content limits are rejected. The output is ordinary data, not a PROJECT grant;
+explicit frontmatter IDs remain the publisher's input and are not overwritten.
+Catalog filtering, run/selection verification, Knowledge admission and the final
+rechecks are the same as other Knowledge handlers. `ai_optimized` stays top-level:
+omitted/true yields TOON and false yields JSON, with no JSON-only outputSchema.
+`mcp_tool_knowledge_id` is resolved by the existing dynamic Brand template expansion.
 
 The native Role catalog selects handlers on Linux, Windows and macOS, using the corresponding native producers.
 
@@ -634,3 +648,11 @@ then matches identity, checkout and version exactly. Empty projections remain
 valid. The hint supplies no permission and only wakes the actual owner after
 Ok or Confirmed; reads and pre-effect errors do not wake it. Poisoned state
 fails before the write, and known committed metadata survives late denial.
+
+Global Hub reads compare the retained physical installation directory with the
+existing registry parent under the same Original, then use
+`HubRegistry::load_captured`. Registry paths and SourceRef metadata keep their
+logical spelling. Selected Hub skills capture their source directory before
+checking confinement and reading templates; the source directory, registry
+selection and ReadHub grant are rechecked before delivery. Existing native
+consumer bounds and Hub document bounds apply to their respective reads.

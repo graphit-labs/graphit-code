@@ -757,7 +757,7 @@ impl<'a> UserWriteAdmission<'a> {
                     hash.update((part.len() as u64).to_be_bytes());
                     hash.update(part.as_bytes());
                 }
-                let actor = Actor(hash.finalize().into());
+                let actor = Actor::from_digest(hash.finalize().into());
                 self.admission.check()?;
                 Ok(actor)
             }

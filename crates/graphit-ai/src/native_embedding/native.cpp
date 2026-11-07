@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <limits>
 #include <mutex>
@@ -10,7 +11,14 @@
 #include <vector>
 namespace graphit::embedding {
 namespace {
-void quiet_log(ggml_log_level, const char*, void*) {}
+void diagnostic_log(ggml_log_level level, const char* message, void*) {
+    // Keep upstream failure details, including CUDA errors before GGML_ABORT.
+    // Verbose model metadata remains behind the explicit SDK debug setting.
+    if ((level == GGML_LOG_LEVEL_ERROR || level == GGML_LOG_LEVEL_WARN) && message) {
+        std::fputs(message, stderr);
+        std::fflush(stderr);
+    }
+}
 struct Publication {
     std::mutex mutex;
     std::weak_ptr<Kernel> kernel;
@@ -32,8 +40,8 @@ public:
     Kernel() {
         const char* scheduler_debug = std::getenv("GGML_SCHED_DEBUG");
         const bool debug = scheduler_debug && std::atoi(scheduler_debug) > 0;
-        llama_log_set(debug ? nullptr : quiet_log, nullptr);
-        ggml_log_set(debug ? nullptr : quiet_log, nullptr);
+        llama_log_set(debug ? nullptr : diagnostic_log, nullptr);
+        ggml_log_set(debug ? nullptr : diagnostic_log, nullptr);
         llama_backend_init();
     }
     ~Kernel() { llama_backend_free(); }

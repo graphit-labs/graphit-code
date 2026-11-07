@@ -336,6 +336,7 @@ pub(crate) async fn update_preserving(
             read: read_limits,
             write: limits,
         },
+        |_, old, new| Ok(old == new),
     )
     .await
     .unwrap();

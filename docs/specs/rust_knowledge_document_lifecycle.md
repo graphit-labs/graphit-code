@@ -35,11 +35,19 @@ são substituídos por uma atualização de outro arquivo.
 
 ```text
 reconcile_native_knowledge_source_file(original, read, write, expected,
-                                       source, batch, limits)
+                                       source, batch, limits, body_equivalent)
 remove_native_knowledge_source_origins(original, read, write, expected,
                                        source, origins, limits)
 read_native_knowledge_source_origins(original, read, read_limits)
 ```
+
+`body_equivalent` é uma função pura que recebe o Original e os corpos antigo e
+novo efetivamente observados sob CAS; ela não concede autoridade. Consumidores
+Data passam igualdade exata. Knowledge fornece sua projeção YAML de
+[continuidade de guias](rust_knowledge_guide_navigation.md), mantendo os demais
+guards de identidade, Active e campos editoriais antes de conservar certificados
+vetoriais na mesma transação. A elegibilidade ainda exige o fingerprint da entrada
+normalizada atual.
 
 O primeiro produtor recebe uma batch FULL18 de um FILE real. O segundo recebe
 somente origens explicitamente ausentes: delta não trata todos os arquivos não
@@ -78,9 +86,21 @@ escopo capturado ou foreign falham.
 O scan e as omissões do merge são restritos a origens/slugs afetados. O corpo
 antigo usado na comparação permanece local ao FILE; o kernel não retém uma
 imagem textual do corpus. A preparação ocorre sem o writer PROJECT. Depois da
-espera pelo writer, o HEAD deve continuar igual à geração esperada. Commit
-iniciado é aguardado. Não há retry implícito, adoção de HEAD, rollback prometido
-por Drop ou fallback para criação.
+espera pelo writer, o HEAD deve continuar igual à geração usada na preparação.
+Um `GenerationChanged` anterior ao commit permite reaplicar somente a seleção
+local, após recaptura autorizada e comparação exata das 18 colunas documentais
+entre a versão esperada e o HEAD atual. A consulta abrange origens ou slugs
+afetados, inclusive ausências e rows Removed. URI, branch e inherited target
+permanecem idênticos. Avanço só de vetores, índices ou outro FILE não invalida
+essa seleção; alteração documental selecionada conserva o conflito real.
+Cada reaplicação usa novamente o mesmo produtor e seu CAS, Source, Auth e EOF.
+Não se repetem erros de commit, efeitos publicados, IO ou cancelamento; não há
+fila, reconstrução do corpus ou rollback prometido por Drop. Commit iniciado
+é aguardado. Uma operação local Unchanged recapturada informa a nova geração.
+O lote adota esse recibo enquanto não tiver confirmado um efeito Source próprio.
+Depois de First/Updated, qualquer noop conserva o recibo e a recovery key do
+último commit Source, mesmo que NN tenha avançado independentemente. A geração
+desse recibo identifica o efeito Source, sem prometer o HEAD global mais recente.
 
 Preserve mantém a distinção authored None/Some e recalcula o witness quando o
 header muda. Replace pode criar Some vazio. Remoção mantém os campos históricos,

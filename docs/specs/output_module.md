@@ -15,6 +15,10 @@ related:
   - "docs/specs/mcpstdio_module.md"
   - "docs/specs/daemon_module.md"
 references:
+  - target: {type: task, id: 4PRKDSQ5G7GNHKN9331J7HW2V5}
+    relation: derived_from
+  - target: {type: task, id: 506Y2MJDX343KCBYR1Z4XEWGHQ}
+    relation: derived_from
   - target:
       type: session
       id: ses-c98a
@@ -365,6 +369,14 @@ old complete prefix is not scanned/validated in full. Crash recovery is not a
 batch transaction: complete lines from a
 killed batch may survive. New records never concatenate with an old fragment.
 
+On Windows the active file is opened read/write so recovery and failed-write
+rollback can truncate it; an append-only handle lacks the write-data access
+required by [SetEndOfFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-setendoffile).
+After truncating an incomplete fragment, recovery positions the same descriptor
+at the repaired EOF before append. Unix keeps its append opening mode. The
+permanent FileLock continues to coordinate the entire operation; no additional
+handle or lock is introduced and the ordinary complete-LF path needs no extra seek.
+
 When recovered length plus batch fits, append uses write_all under the lock.
 Write errors attempt rollback to pre-append length once; rollback failure is
 reported. Sync errors do not roll back completed bytes. If the cap would be
@@ -373,6 +385,13 @@ keeps recent complete UTF-8 LF records. A same-directory 0600 tempfile receives
 suffix and batch separately, then atomically replaces the active file. The old
 FD is closed before replacement; successful append leaves the active file
 within `max_file_bytes`. No entire growing file or combined payload is cloned.
+
+Windows compaction creates a normal-attribute temporary file and publishes it
+through `std::fs::rename`, whose native POSIX rename semantics permit an existing
+share-delete reader to keep reading the old file. Cleanup of the temporary path
+is disabled only after publication succeeds. Failure retains temporary cleanup;
+there is no application retry or delete/copy publication sequence. Unix retains
+its existing tempfile publication and 0600 policy.
 
 Only factory open and the compaction path clean abandoned regular tempfiles,
 under the same lock. The reserved name is `.log-<same-digest>.compact-` followed

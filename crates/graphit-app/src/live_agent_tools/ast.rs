@@ -203,6 +203,7 @@ pub(super) async fn read(
             registry,
             id,
             version,
+            source.policy().index,
         )
         .map_err(io::Error::other)?;
         let value = if let Some(remote) = remote {

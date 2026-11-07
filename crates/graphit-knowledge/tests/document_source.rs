@@ -396,3 +396,20 @@ fn unrepresentable_metadata_has_no_timestamp_or_interval_default() {
         Err(DocumentSourceError::OutOfRange("stale_after_ns"))
     ));
 }
+
+#[test]
+fn navigation_frontmatter_is_preserved_as_authored_scalars_and_literal_body() {
+    let mut document = document();
+    document.body =
+        "---\nnext: '[Continue](next.md)'\nprevious: '[[first]]'\n---\n# Literal body\n".into();
+    let rendered =
+        render_document_source(&context(), &document, &Request::default(), limits()).unwrap();
+    let (metadata, body) = header(&rendered.source);
+    assert_eq!(metadata["next"], "[Continue](next.md)");
+    assert_eq!(metadata["previous"], "[[first]]");
+    assert_eq!(body, document.body);
+    let parsed =
+        graphit_knowledge::document::document_navigation(&context(), &rendered.source).unwrap();
+    assert_eq!(parsed.next.as_deref(), Some("[Continue](next.md)"));
+    assert_eq!(parsed.previous.as_deref(), Some("[[first]]"));
+}

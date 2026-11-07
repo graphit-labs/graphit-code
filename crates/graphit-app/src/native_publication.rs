@@ -756,11 +756,6 @@ pub(crate) async fn ast_components(
         path: "graph".to_owned(),
         snapshot: NativeSnapshot::Icebug {
             manifest_path: "icebug.json".to_owned(),
-            generation: graph
-                .schema()
-                .map_err(io::Error::other)?
-                .manifest_generation()
-                .to_owned(),
             manifest_sha256: digest,
         },
     }];
@@ -1002,7 +997,6 @@ mod tests {
             path: "graph".into(),
             snapshot: graphit_hub::native_root::NativeSnapshot::Icebug {
                 manifest_path: "icebug.json".into(),
-                generation: "fixture-generation".into(),
                 manifest_sha256: Sha256::digest(bytes).into(),
             },
         }]

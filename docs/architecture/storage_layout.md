@@ -39,7 +39,7 @@ absolute paths. Moving a checkout does not change its storage identity.
 │   │   ├── corpus.lance
 │   │   └── live/<version-key>/
 │   │       ├── graph/icebug.json         current FILE/shard publication
-│   │       ├── graph/shards/             immutable Icebug Parquet node/fact/CSR files
+│   │       ├── graph/shards/             on-demand fan-out of immutable node/fact/CSR files
 │   │       └── ...                       text/NN publication state
 │   ├── knowledge/index.lance
 │   ├── memory/index.lance
@@ -87,8 +87,33 @@ node ranges and FILE-sized CSR members. Ladybug reads those captured local or
 remote ranges through the same in-memory query engine. It does not persist a
 local `.lbug` file. Rebuildable lookup indexes use a temporary directory outside
 the authoritative graph; closing the owner removes them. A FILE edit retains
-unrelated node/CSR files and replaces the manifest atomically. Superseded shards
-are collected only after retained graph readers release the publication guard.
+unrelated node/CSR files and replaces the manifest atomically without walking
+the global shard tree for pruning.
+
+Icebug maintenance consolidates records in batches. Logical node ranges and
+CSR endpoints are independent of physical paths and Parquet row offsets;
+several disjoint complete row-group slices may share a compatible physical
+file. Fan-out directories are created on demand. The manifest publishes the
+new references atomically. Active `with_graph` operations retain their publication
+guard until the callback ends; maintenance waits for that guard before collecting
+residue. Collection retains every current FILE, external and manifest reference
+and the ancestors of shared files. An escaped captured handle does not extend
+that operation guard; completed exported bundles have independent files.
+Neither operation rebuilds Source,
+FTS or unchanged compatible embeddings. See the
+[FILE publication contract](../specs/rust_ast_live_graph.md#file-publication)
+and [physical slice rules](../specs/rust_icebug_storage.md#local-file-publications-and-the-shared-reader).
+
+Report consolidation savings separately from residue collection. Count actual
+files and directories, then measure allocated blocks with hardlinked inodes
+deduplicated; adding logical file lengths or counting filenames alone does not
+measure reclaimed disk space. The maintenance API reports the committed revision,
+active FILE count, FILEs consolidated in this call, remaining work and actual
+collection counters. It does not scan storage before and after a batch to populate
+metrics. Collection walks the shard tree only when the final batch reports
+`more=false`; its `reclaimed_bytes` is the logical length of removed files, not
+an allocated-space measurement. Batch membership follows physical facts files
+so a new path cannot shift all existing bundles by lexical position.
 
 
 Each PROJECT/corpus has exactly one authoritative dataset at its canonical

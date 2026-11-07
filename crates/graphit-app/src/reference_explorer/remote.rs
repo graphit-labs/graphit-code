@@ -104,6 +104,20 @@ pub(super) async fn read(
                     foreground_knowledge::limits(resources.policy)?,
                 )
                 .await?;
+            let navigation = match &page.page {
+                graphit_data::knowledge_snapshot::KnowledgeSnapshotPage::Found {
+                    document, ..
+                } => {
+                    foreground_knowledge::navigation::remote(
+                        &opened,
+                        &lease,
+                        document,
+                        foreground_knowledge::limits(resources.policy)?,
+                    )
+                    .await?
+                }
+                _ => graphit_knowledge::navigation::DocumentNavigation::default(),
+            };
             encode(
                 &ReferenceBinding {
                     selection: None,
@@ -111,7 +125,7 @@ pub(super) async fn read(
                     focused_source: page.focused_source.as_ref(),
                     native: PageRead::Published {
                         generation: &page.generation,
-                        page: foreground_knowledge::PageView(&page.page),
+                        page: foreground_knowledge::PageView(&page.page, &navigation),
                     },
                 },
                 original.snapshot(),

@@ -23,6 +23,9 @@ mod recipe_tests;
 #[path = "foreground_ast_scheduling_tests.rs"]
 mod scheduling;
 
+#[path = "foreground_ast_shards_tests.rs"]
+mod shard_maintenance;
+
 fn source_http_client() -> reqwest::Client {
     reqwest::Client::builder()
         .no_proxy()

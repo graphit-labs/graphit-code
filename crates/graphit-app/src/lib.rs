@@ -47,6 +47,7 @@ pub mod knowledge_ask_entry;
 mod knowledge_ask_service;
 pub mod knowledge_export;
 pub mod knowledge_export_entry;
+mod knowledge_id;
 mod knowledge_kiro_process;
 pub mod knowledge_live;
 mod knowledge_log;

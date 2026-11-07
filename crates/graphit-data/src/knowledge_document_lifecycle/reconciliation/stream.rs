@@ -92,6 +92,7 @@ struct Desired {
     eof: bool,
     ordinal: usize,
     sync_changes: crate::knowledge_sync_history::KnowledgeSyncChanges,
+    body_equivalent: index::KnowledgeBodyEquivalence,
 }
 impl Desired {
     #[allow(clippy::too_many_arguments)]
@@ -99,6 +100,7 @@ impl Desired {
         &mut self,
         pin: &BranchSnapshot,
         physical: &HashMap<String, (bool, bool)>,
+        selected_origins: &HashMap<&str, String>,
         project: graphit_core::project_identity::ProjectId,
         original: &Arc<SnapshotContext>,
         limits: KnowledgeDocumentLifecycleLimits,
@@ -142,7 +144,21 @@ impl Desired {
                 let Some(&(managed, active)) = physical.get(slug) else {
                     reserve(&mut self.sync_changes.added, 1)?;
                     self.sync_changes.added.push(copy(slug)?);
-                    return Ok(Some(index::semantic::align(&desired, pin.schema())?));
+                    // A metadata ID change keeps the same selected physical source.
+                    // Retain certified semantics only through its unique active origin;
+                    // the old slug still follows ordinary retirement, never an alias.
+                    let next = if let Some(previous) = selected_origins.get(origin) {
+                        let old = lookup(pin, previous, original, before).await?;
+                        index::semantic::replace_document(
+                            &desired,
+                            &old,
+                            original,
+                            self.body_equivalent,
+                        )?
+                    } else {
+                        index::semantic::align(&desired, pin.schema())?
+                    };
+                    return Ok(Some(next));
                 };
                 if !managed {
                     return Err(KnowledgeDocumentLifecycleError::ForeignSlugConflict {
@@ -185,7 +201,12 @@ impl Desired {
                         .map_err(KnowledgeIndexError::from)?;
                 }
                 before()?;
-                let desired = index::semantic::replace_document(&desired, &old.slice(0, 1))?;
+                let desired = index::semantic::replace_document(
+                    &desired,
+                    &old.slice(0, 1),
+                    original,
+                    self.body_equivalent,
+                )?;
                 if desired != old.slice(0, 1) {
                     let slug = index::array::<StringArray>(&desired, 0)?.value(0);
                     let changes = if active {
@@ -266,6 +287,7 @@ pub(super) async fn reconcile_stream(
     selection: (&HashSet<String>, &HashSet<String>),
     file: Option<&RecordBatch>,
     limits: KnowledgeDocumentLifecycleLimits,
+    body_equivalent: index::KnowledgeBodyEquivalence,
 ) -> Result<KnowledgeDocumentUpdateResult> {
     check_authority(original, read, write)?;
     source
@@ -367,7 +389,7 @@ pub(super) async fn reconcile_stream(
         .map_err(KnowledgeIndexError::from)?;
     let mut counts = index::NamespaceValidation::bound(Some(project_id));
     let mut physical = HashMap::new();
-    let mut selected_slugs = HashSet::new();
+    let mut selected_origins = HashMap::new();
     let mut transferred_origin = false;
     while let Some(frame) = guarded(old.next(), original, &before).await? {
         let batch = frame
@@ -411,8 +433,19 @@ pub(super) async fn reconcile_stream(
                 // not an absence. Revalidate that selection before commit.
                 transferred_origin = true;
             }
-            if origins.contains(path) {
-                selected_slugs.insert(copy(slug)?);
+            if managed
+                && active
+                && let Some(origin) = origins.get(path)
+            {
+                selected_origins.try_reserve(1).map_err(allocation)?;
+                if selected_origins
+                    .insert(origin.as_str(), copy(slug)?)
+                    .is_some()
+                {
+                    return Err(KnowledgeDocumentLifecycleError::InvalidInput(
+                        "duplicate_origin",
+                    ));
+                }
             }
             physical.try_reserve(1).map_err(allocation)?;
             if physical.insert(copy(slug)?, (managed, active)).is_some() {
@@ -423,11 +456,9 @@ pub(super) async fn reconcile_stream(
     drop(old);
     drop(scanner);
     let mut omitted = Vec::new();
-    reserve(&mut omitted, physical.len())?;
-    for (slug, &(managed, active)) in &physical {
-        if managed && active && selected_slugs.contains(slug) {
-            omitted.push(copy(slug)?);
-        }
+    reserve(&mut omitted, selected_origins.len())?;
+    for slug in selected_origins.values() {
+        omitted.push(copy(slug)?);
     }
     omitted.sort_unstable();
     let validate_source = || -> Result<()> {
@@ -456,11 +487,13 @@ pub(super) async fn reconcile_stream(
         eof: false,
         ordinal: 0,
         sync_changes: Default::default(),
+        body_equivalent,
     };
     let first = desired
         .next_patch(
             &pin,
             &physical,
+            &selected_origins,
             project_id,
             original,
             limits,
@@ -498,6 +531,7 @@ pub(super) async fn reconcile_stream(
                 .next_patch(
                     &pin,
                     &physical,
+                    &selected_origins,
                     project_id,
                     original,
                     limits,

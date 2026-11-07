@@ -53,6 +53,14 @@ The service exposes create_session, create_task, set_task_commit, read_task, rea
 
 Creation requires ProjectWriteOperation::Task, which is currently admitted for Coordinator with WriteTask permission. A read requires ProjectReadModule::Task. The caller passes the SAME original Arc<SnapshotContext> used for the admission. The service checks cancellation, deadline, admission and captured directory at SDK boundaries. Auth mints the creation actor; request data never chooses it.
 
+Creation/event/comment actors and ownership owners use the canonical uppercase
+26-character form of `Actor::identifier()`. The identifier is the first 128 bits
+of the Actor digest, not a reversible encoding of all 256 bits or a creation
+timestamp. The same ULID identity controls ownership and idempotency, including
+reclaiming a live claim by its owner. The actual Auth admission, Original,
+permissions, private 32-byte fence/token, lease and revision checks remain
+required. No extra private actor binding, registry or old-format reader is added.
+
 Reading the admitted request already revalidates the admission. Task reads and
 writes use that check once at each existing boundary, including EOF, delivery
 and publication, without immediately repeating the same physical checks.
@@ -229,6 +237,12 @@ new proof. Current Auth, PROJECT/version, corpus and physical-generation
 identities remain checked. There is no retained snapshot cache, new secret,
 cursor lease or caller-selected URI/branch authority. The selected Records API
 and proof paths passed the qualification below; App consumers remain separate.
+
+Named historical capture reuses the native Lance Session owned by the current
+`BranchSnapshot`, between the same two actual branch-reference reads. Session
+metadata/index caches have that owner's lifetime; they do not select a project,
+branch, version or transport, and no process-wide snapshot registry is introduced.
+Task's observed-schema opener still resolves each new current read independently.
 
 Current reads validate head, creation, last event and its predecessor transition,
 including reference updates and comment/event association when the last event

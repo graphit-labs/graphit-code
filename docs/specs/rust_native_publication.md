@@ -100,8 +100,8 @@ Read failures remain read failures; a reader's HubRead cannot publish.
 ## Captured files and snapshots
 
 Portable AST artifacts use the frozen graph bundle. `PreparedRead` performs
-actual PROJECT admission; CapturedLocalGraph supplies the generation
-and CapturedSourceReader. Enumerate captured nodes and stream each file to EOF.
+actual PROJECT admission; CapturedLocalGraph supplies the genuine
+CapturedSourceReader, without a derived graph-generation token. Enumerate captured nodes and stream each file to EOF.
 Explicit export builds this bundle from the admitted current live cohort,
 including separate Graph and Source captures and one text/NN `corpus.lance`
 snapshot with nullable vectors. The physical package stores its Lance bundles
@@ -131,9 +131,11 @@ Ladybug opens only an in-memory query database over those captured Parquet
 ranges; local indexing does not create a persisted `.lbug` database or export
 the whole graph after an edit. CLI/MCP,
 HTTP/Browser and Live readers retain their own PROJECT admission. GraphServer
-captures the graph generation, separate Source pin and single text/NN corpus pin under the
-project's short publication fence, then releases it before model RPC or rerank.
-Structural queries hold a read fence only around the native query. Parsing and
+captures the committed graph under its own operation fence. Source and the
+single text/NN corpus retain their own SDK pins; an available structural graph
+does not require those derived corpora or a common revision. Model RPC and rerank
+do not retain the graph fence. Structural queries hold it only around their
+actual captured read. Parsing and
 inference do not hold that fence.
 
 `LiveGraph` stores FILE ownership, unresolved intentions, compiler facts, official

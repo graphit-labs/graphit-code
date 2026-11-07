@@ -9,9 +9,8 @@ use graphit_core::{
     native_document_file::{CapturedDocumentDirectory, NativeDocumentFileLimits},
 };
 use graphit_data::{
-    CapturedLocalGraph, DataReadError, GraphGeneration, GraphNeighborhoodLimits,
-    GraphNeighborhoodPage, GraphNeighborhoodRequest, GraphSample, GraphSampleLimits, GraphSchema,
-    LocalGraphPolicy,
+    CapturedLocalGraph, DataReadError, GraphNeighborhoodLimits, GraphNeighborhoodPage,
+    GraphNeighborhoodRequest, GraphSample, GraphSampleLimits, GraphSchema, LocalGraphPolicy,
 };
 use graphit_hub::{
     ArtifactId, ArtifactType, ConcreteVersion, InstallationTarget,
@@ -22,7 +21,8 @@ use std::{error::Error, fmt, fs, io, path::Path, sync::Arc};
 
 mod entity_source;
 pub use entity_source::{
-    EntitySourceError, resolve_imported_entity_window, resolve_remote_entity_window,
+    EntitySourceError, resolve_imported_entity_window, resolve_imported_entity_window_by_key,
+    resolve_remote_entity_window, resolve_remote_entity_window_by_key,
 };
 
 /// Already captured installation and the caller's original operation context.
@@ -259,12 +259,7 @@ impl<'a, 'r> ImportedGraph<'a, 'r> {
         self.revalidate()?;
         Ok(&self.graph)
     }
-    pub fn generation(&self) -> Result<GraphGeneration, ImportedGraphError> {
-        self.revalidate()?;
-        self.graph.schema()?;
-        self.revalidate()?;
-        Ok(self.graph.generation())
-    }
+
     pub fn schema(&self) -> Result<GraphSchema<'_>, ImportedGraphError> {
         self.revalidate()?;
         let result = self.graph.schema()?;

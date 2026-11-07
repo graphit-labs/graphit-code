@@ -47,7 +47,6 @@ fn component(role: NativeRole) -> NativeComponent {
         snapshot: if role == NativeRole::Graph {
             NativeSnapshot::Icebug {
                 manifest_path: "icebug.json".into(),
-                generation: "opaque-generation/✓".into(),
                 manifest_sha256: [0xab; 32],
             }
         } else {
@@ -162,7 +161,7 @@ fn strict_wire_rejects_unknown_duplicate_null_and_trailing_data() {
         bad["components"][0][field] = Value::Null;
         invalid(&bad, &ctx);
     }
-    for field in ["kind", "manifest_path", "generation", "manifest_sha256"] {
+    for field in ["kind", "manifest_path", "manifest_sha256"] {
         let mut bad = value.clone();
         bad["components"][0]["snapshot"][field] = Value::Null;
         invalid(&bad, &ctx);
@@ -233,9 +232,11 @@ fn required_roles_snapshot_kinds_versions_and_digests_are_closed() {
         bad["components"][0]["snapshot"]["manifest_sha256"] = json!(digest);
         invalid(&bad, &ctx);
     }
-    let mut bad = ast.clone();
-    bad["components"][0]["snapshot"]["generation"] = json!("");
-    invalid(&bad, &ctx);
+    for retired in ["", "retired-generation"] {
+        let mut bad = ast.clone();
+        bad["components"][0]["snapshot"]["generation"] = json!(retired);
+        invalid(&bad, &ctx);
+    }
     let mut bad = ast.clone();
     bad["components"][0]["snapshot"]["manifest_path"] = json!("other.json");
     invalid(&bad, &ctx);

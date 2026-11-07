@@ -133,11 +133,11 @@ fn installation_binding_denies_wrong_brand_root_and_full_realm_retarget() {
     let scope = realm(&root, "graphit");
     let before = fs::metadata(&runtime).unwrap().modified().unwrap();
     fs::rename(&runtime, root.join("old-runtime")).unwrap();
-    drop(graphit_fs::create_private_directory(&runtime).unwrap());
-    File::open(&runtime)
+    graphit_fs::create_private_directory(&runtime)
         .unwrap()
         .set_times(std::fs::FileTimes::new().set_modified(before))
         .unwrap();
+    assert_eq!(fs::metadata(&runtime).unwrap().modified().unwrap(), before);
     let ctx = context();
     let borrow = owner.check(&ctx).unwrap();
     assert_eq!(
@@ -483,6 +483,9 @@ fn changed_body_same_inode_and_restored_mtime_denied() {
     file.write_all(&[b'a'; 64]).unwrap();
     file.set_times(fs::FileTimes::new().set_modified(time))
         .unwrap();
+    // Validate the edited body after the mutation handle has released its sharing contract.
+    file.sync_all().unwrap();
+    drop(file);
     assert_eq!(
         owner.check(&context()).err(),
         Some(RuntimeKeyError::Conflict)
@@ -499,18 +502,64 @@ fn replaced_lease_and_directory_denied_without_repair() {
     for directory in [false, true] {
         let (_temp, root) = fixture();
         let owner = start(&root);
-        if directory {
-            fs::rename(root.join("daemon"), root.join("foreign-old")).unwrap();
-            drop(graphit_fs::create_private_directory(&root.join("daemon")).unwrap());
-            private_write(&key(&root), &[b'a'; 64]);
+        #[cfg(windows)]
+        let before = (
+            owner.namespace.directory.identity().clone(),
+            crate::native_file_identity::handle_id(owner.namespace.lease.file()).unwrap(),
+            fs::read(key(&root)).unwrap(),
+            fs::read(owner.namespace.lease.path()).unwrap(),
+        );
+        let selected = if directory {
+            root.join("daemon")
         } else {
-            let path = root.join("daemon/mcp.owner.lock");
-            fs::rename(&path, root.join("foreign-old")).unwrap();
-            drop(graphit_fs::create_private_lock_file(&path).unwrap());
+            root.join("daemon/mcp.owner.lock")
+        };
+        let renamed = fs::rename(&selected, root.join("foreign-old"));
+        #[cfg(unix)]
+        {
+            renamed.unwrap();
+            if directory {
+                drop(graphit_fs::create_private_directory(&selected).unwrap());
+                private_write(&key(&root), &[b'a'; 64]);
+            } else {
+                drop(graphit_fs::create_private_lock_file(&selected).unwrap());
+            }
+            assert!(owner.check(&context()).is_err());
+            assert!(owner.remove(&context()).failure().is_some());
+            assert!(key(&root).exists());
         }
-        assert!(owner.check(&context()).is_err());
-        assert!(owner.remove(&context()).failure().is_some());
-        assert!(key(&root).exists());
+        #[cfg(windows)]
+        {
+            // Both the real lease and its held directory exclude delete sharing.
+            assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
+            let current = context();
+            owner.namespace.check(&current).unwrap();
+            assert!(
+                crate::native_file_identity::physical_id(
+                    &root.join("daemon"),
+                    &fs::symlink_metadata(root.join("daemon")).unwrap(),
+                )
+                .unwrap()
+                    == before.0
+            );
+            assert!(
+                crate::native_file_identity::physical_id(
+                    owner.namespace.lease.path(),
+                    &fs::symlink_metadata(owner.namespace.lease.path()).unwrap(),
+                )
+                .unwrap()
+                    == before.1
+            );
+            let checked = owner.check(&current).unwrap();
+            assert_eq!(
+                checked.secret(&current).unwrap().as_slice(),
+                before.2.as_slice()
+            );
+            assert_eq!(fs::read(key(&root)).unwrap(), before.2);
+            assert_eq!(fs::read(owner.namespace.lease.path()).unwrap(), before.3);
+            assert!(!root.join("foreign-old").exists());
+            assert!(!stage(&root).exists());
+        }
     }
 }
 #[cfg(unix)]

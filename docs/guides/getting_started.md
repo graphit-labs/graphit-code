@@ -4,6 +4,7 @@ description: "Install the Rust executables, initialize a project and publish its
 content-type: guide
 audience: developers
 updated: 2026-10-30
+next: indexing.md
 keywords:
   - setup
   - installation

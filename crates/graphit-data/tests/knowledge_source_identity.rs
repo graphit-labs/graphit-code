@@ -13,23 +13,31 @@ fn identity(path: &str, id: Option<&str>) -> Identity {
 
 #[test]
 fn portable_components_have_independent_golden_origins_and_roundtrip() {
-    for (path, origin, slug, parts) in [
+    for (path, origin, ulid_bytes, parts) in [
         (
             "docs/Guide.md",
             "knowledge-source/t/646f6373/47756964652e6d64",
-            "source-t-646f6373-47756964652e6d64",
+            [
+                217, 37, 71, 6, 118, 0, 73, 240, 127, 181, 47, 235, 132, 232, 220, 169,
+            ],
             vec!["docs", "Guide.md"],
         ),
         (
             "docs/ação.md",
             "knowledge-source/t/646f6373/61c3a7c3a36f2e6d64",
-            "source-t-646f6373-61c3a7c3a36f2e6d64",
+            [
+                106, 128, 211, 39, 227, 191, 24, 133, 97, 133, 51, 5, 92, 62, 89, 175,
+            ],
             vec!["docs", "ação.md"],
         ),
     ] {
         let actual = identity(path, None);
         assert_eq!(actual.source_path(), origin);
-        assert_eq!(actual.slug(), slug);
+        assert_eq!(actual.slug().len(), ulid::ULID_LEN);
+        let parsed = ulid::Ulid::from_string(actual.slug()).unwrap();
+        assert_eq!(parsed.to_bytes(), ulid_bytes);
+        assert_eq!(parsed.to_string(), actual.slug());
+        assert_eq!(identity(path, None), actual);
         assert_eq!(
             decode(origin, cap(4096)).unwrap(),
             Some(Components::Portable(
@@ -132,12 +140,24 @@ fn exact_field_bytes_accept_and_one_more_reject_without_namespace_fallback() {
     let initial = identity("a", None);
     let exact = cap(initial.source_path().len());
     assert_eq!(
-        Identity::from_relative_path(Path::new("a"), None, exact).unwrap(),
-        initial
+        Identity::from_relative_path(Path::new("a"), Some("Explicit"), exact)
+            .unwrap()
+            .source_path(),
+        initial.source_path()
     );
     assert!(matches!(
         Identity::from_relative_path(Path::new("a"), None, cap(exact.get() - 1)),
         Err(IdentityError::LimitExceeded("source_path"))
+    ));
+    assert_eq!(
+        Identity::from_relative_path(Path::new("a"), None, cap(ulid::ULID_LEN))
+            .unwrap()
+            .slug(),
+        initial.slug()
+    );
+    assert!(matches!(
+        Identity::from_relative_path(Path::new("a"), None, cap(ulid::ULID_LEN - 1)),
+        Err(IdentityError::LimitExceeded("slug"))
     ));
     assert!(decode(initial.source_path(), exact).unwrap().is_some());
     assert!(matches!(
@@ -194,4 +214,24 @@ fn actual_windows_unpaired_utf16_is_rejected_without_replacement() {
         Identity::from_relative_path(&path, None, cap(4096)),
         Err(IdentityError::NonUnicodePath)
     ));
+}
+
+#[test]
+fn explicit_ulid_is_authoritative_and_default_tracks_only_the_relative_origin() {
+    let explicit = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    let a = identity("docs/a.md", Some(explicit));
+    let renamed = identity("docs/renamed.md", Some(explicit));
+    assert_eq!(a.slug(), explicit);
+    assert_eq!(renamed.slug(), explicit);
+    assert_ne!(a.source_path(), renamed.source_path());
+    let automatic = identity("docs/a.md", None);
+    for _ in 0..3 {
+        assert_eq!(identity("docs/a.md", None), automatic);
+    }
+    assert_ne!(automatic.slug(), explicit);
+    assert_ne!(automatic.slug(), identity("docs/renamed.md", None).slug());
+    assert_ne!(
+        identity("a/b.md", None).slug(),
+        identity("ab.md", None).slug()
+    );
 }

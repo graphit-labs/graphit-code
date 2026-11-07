@@ -3,7 +3,7 @@
 mod neighborhood;
 mod parquet_reader;
 use crate::{
-    DataReadError, EdgeId, GraphEdgeSummary, GraphGeneration, GraphNodeSummary, GraphSample,
+    DataReadError, EdgeId, GraphEdgeSummary, GraphNodeSummary, GraphProperty, GraphSample,
     GraphSampleLimits, LocalGraphPolicy, NodeId, PrimaryKey, admit_node, bounded,
     manifest::Manifest,
     parquet::{Scalar, Shape, Work},
@@ -15,7 +15,12 @@ use object_store::{ObjectStore, path::Path};
 use parquet::arrow::arrow_reader::RowSelection;
 use parquet_reader::{Object, Table};
 use sha2::{Digest, Sha256};
-use std::{collections::HashSet, error::Error, fmt, io, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    error::Error,
+    fmt, io,
+    sync::Arc,
+};
 
 type Result<T> = std::result::Result<T, RemoteGraphError>;
 
@@ -98,8 +103,8 @@ pub struct RemoteIcebugGraph {
     manifest: Manifest,
     nodes: Vec<Table>,
     members: Vec<Member>,
+    reverse_members: Vec<Member>,
     policy: LocalGraphPolicy,
-    generation: GraphGeneration,
 }
 /// An immutable object metadata pin; callers supply the live request on every read.
 pub struct RemoteGraphFile(Arc<Object>);
@@ -145,10 +150,18 @@ impl RemoteIcebugGraph {
             return Err(RemoteGraphError::ManifestDigest);
         }
         let manifest = Manifest::parse(&bytes, policy.0)?;
+        let mut captured = BTreeMap::new();
         let mut nodes = Vec::new();
         for node in &manifest.node_tables {
-            let table =
-                Table::open_nodes(Arc::clone(&store), &prefix, node, policy.0, &original).await?;
+            let table = Table::open_nodes(
+                Arc::clone(&store),
+                &prefix,
+                node,
+                policy.0,
+                &original,
+                &mut captured,
+            )
+            .await?;
             for (name, kind) in &table.fields {
                 if matches!(name.as_str(), "name" | "path" | "uid" | "cluster" | "lang")
                     && *kind != Scalar::String
@@ -179,15 +192,18 @@ impl RemoteIcebugGraph {
             let indices = Table::open(
                 Arc::clone(&store),
                 object_path(&prefix, &member.indices),
+                member.indices_row_offset,
                 member.rows,
                 Shape::Indices,
                 policy.0,
                 &original,
+                &mut captured,
             )
             .await?;
             let indptr = Table::open(
                 Arc::clone(&store),
                 object_path(&prefix, &member.indptr),
+                member.indptr_row_offset,
                 member
                     .source_rows
                     .checked_add(1)
@@ -195,6 +211,7 @@ impl RemoteIcebugGraph {
                 Shape::Indptr,
                 policy.0,
                 &original,
+                &mut captured,
             )
             .await?;
             members.push(Member {
@@ -211,32 +228,59 @@ impl RemoteIcebugGraph {
                 target_rows: member.target_rows,
             });
         }
-        // Reverse metadata is part of the canonical release, but reverse rows
-        // are not additional edges in a global sample.
+        // Retain reverse CSR for incoming adjacency; it adds no sample edges.
+        let mut reverse_members = Vec::new();
         for group in &manifest.relationships {
             for member in &group.reverse_members {
+                let from = manifest
+                    .node_tables
+                    .iter()
+                    .position(|node| node.label == member.from)
+                    .ok_or(DataReadError::InvalidManifest("from label"))?;
+                let to = manifest
+                    .node_tables
+                    .iter()
+                    .position(|node| node.label == member.to)
+                    .ok_or(DataReadError::InvalidManifest("to label"))?;
                 let rows = member
                     .source_rows
                     .checked_add(1)
                     .ok_or(DataReadError::InvalidManifest("pointer rows"))?;
-                Table::open(
+                let indices = Table::open(
                     Arc::clone(&store),
                     object_path(&prefix, &member.indices),
+                    member.indices_row_offset,
                     member.rows,
                     Shape::Indices,
                     policy.0,
                     &original,
+                    &mut captured,
                 )
                 .await?;
-                Table::open(
+                let indptr = Table::open(
                     Arc::clone(&store),
                     object_path(&prefix, &member.indptr),
+                    member.indptr_row_offset,
                     rows,
                     Shape::Indptr,
                     policy.0,
                     &original,
+                    &mut captured,
                 )
                 .await?;
+                reverse_members.push(Member {
+                    from,
+                    to,
+                    relationship: group.kind.clone(),
+                    indices_path: member.indices.clone(),
+                    indptr_path: member.indptr.clone(),
+                    indices,
+                    indptr,
+                    source_row_base: member.source_row_base,
+                    source_rows: member.source_rows,
+                    target_row_base: member.target_row_base,
+                    target_rows: member.target_rows,
+                });
             }
         }
         original.check()?;
@@ -244,12 +288,9 @@ impl RemoteIcebugGraph {
             manifest,
             nodes,
             members,
+            reverse_members,
             policy,
-            generation: GraphGeneration(expected_manifest_digest),
         })
-    }
-    pub fn generation(&self) -> GraphGeneration {
-        self.generation
     }
     /// Immutable metadata only; composing consumers retain their live authorization.
     pub fn schema(&self) -> crate::GraphSchema<'_> {
@@ -266,6 +307,8 @@ impl RemoteIcebugGraph {
             .map(|member| crate::GraphRelationshipSchema {
                 indices: &member.indices_path,
                 indptr: &member.indptr_path,
+                indices_row_offset: member.indices.row_offset,
+                indptr_row_offset: member.indptr.row_offset,
                 kind: &member.relationship,
                 from: &self.manifest.node_tables[member.from].label,
                 to: &self.manifest.node_tables[member.to].label,
@@ -301,7 +344,6 @@ impl RemoteIcebugGraph {
     }
     fn node_id(&self, table: usize, row: u64) -> NodeId {
         NodeId {
-            generation: self.generation,
             table: table as u32,
             row,
         }
@@ -327,7 +369,6 @@ impl RemoteIcebugGraph {
             seeds -= count as usize;
         }
         let mut edges = Vec::new();
-        let mut uids = HashSet::new();
         let mut remaining = limits.global_edges;
         for (index, member) in self.members.iter().enumerate() {
             if remaining == 0 {
@@ -371,12 +412,8 @@ impl RemoteIcebugGraph {
                         .filter(|uid| !uid.is_empty())
                         .ok_or(DataReadError::InvalidCsr("edge UID"))?;
                     bounded(uid.len(), limits.max_string_bytes, "edge UID")?;
-                    if !uids.insert(uid.to_owned()) {
-                        return Err(DataReadError::DuplicateEdgeUid.into());
-                    }
                     edges.push(GraphEdgeSummary {
                         id: EdgeId {
-                            generation: self.generation,
                             member: index as u32,
                             row,
                         },
@@ -503,6 +540,17 @@ impl RemoteIcebugGraph {
                         ),
                         _ => return Err(DataReadError::InvalidParquet("primary key type").into()),
                     };
+                    let primary_key = GraphProperty {
+                        name: limits.text(&descriptor.primary_key)?,
+                        value: match &key {
+                            PrimaryKey::String(value) => {
+                                crate::neighborhood::PropertyValue::String(limits.text(value)?)
+                            }
+                            PrimaryKey::Int64(value) => {
+                                crate::neighborhood::PropertyValue::Int64(*value)
+                            }
+                        },
+                    };
                     if !keys.insert(key) {
                         return Err(DataReadError::DuplicatePrimaryKey.into());
                     }
@@ -525,7 +573,7 @@ impl RemoteIcebugGraph {
                         .get(next)
                         .ok_or(DataReadError::InvalidParquet("selected row count"))?;
                     nodes.push(GraphNodeSummary {
-                        primary_key: None,
+                        primary_key: Some(primary_key),
                         id: self.node_id(index, physical),
                         label: limits.text(&descriptor.label)?,
                         name: optional("name")?,
@@ -544,11 +592,7 @@ impl RemoteIcebugGraph {
             }
         }
         original.check()?;
-        Ok(GraphSample {
-            generation: self.generation,
-            nodes,
-            edges,
-        })
+        Ok(GraphSample { nodes, edges })
     }
 }
 

@@ -191,6 +191,23 @@ The entry borrows the composed native service and a finite Original for each
 operation; cancelling one command does not retain that request as the context
 of later commands.
 
+Mutating commands (`start`, `stop`, `restart`, `install`, login changes and
+`uninstall`) share the existing per-installation `daemon-start.lock`. They acquire
+it before observing or changing lifecycle state and retain it through native
+commands, drain and authenticated readiness. After waiting, they observe the
+current owner again. The wait obeys the same Original deadline and cancellation;
+it does not renew the request or replace the lock inode. Healthy authenticated
+`status` remains a read and does not join this mutation queue. The protocol
+serializes cooperating Graphit callers; direct external manager commands remain
+outside it.
+
+Stop/drain is constrained to the authenticated PID observed before the manager
+stop. A newly published successor is not a target for that earlier operation.
+Restart requires a different authenticated successor after the previous owner
+releases its singleton. A native manager rejection remains an error even when
+another daemon is running; the administrative error retains status, cleanup and
+its bounded escaped stderr.
+
 | Platform | Native manager |
 |---|---|
 | Linux | systemd user service |

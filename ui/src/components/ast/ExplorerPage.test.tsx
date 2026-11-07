@@ -8,7 +8,7 @@ import "@/test/contextControls";
 import { WorkspaceRefreshProvider } from "@/components/layout/WorkspaceRefreshProvider";
 import { WorkspaceSelectors } from "@/components/layout/WorkspaceSelectors";
 import { afterEach, beforeEach, it, expect, vi } from "vitest";
-import { render, screen, waitFor, cleanup, act } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Routes, Route, useNavigate } from "react-router-dom";
 import { importedAstHref } from '@/api/nativeRecordNavigation';
@@ -50,10 +50,10 @@ it('reads an exact installation and changes only to another observed version',as
 });
 it('searches without sample, resolves a graph anchor and reads source and entity',async()=>{
  const user=setup();await searchIndex(user);await user.click(await screen.findByRole('button',{name:/Anchor src\/file.rs/}));
- await waitFor(()=>expect(nativeAstApi.importedNeighborhood).toHaveBeenCalledTimes(2));
- expect(nativeAstApi.importedQuery).toHaveBeenCalledWith(installed,'MATCH (n:Function) WHERE n.entity_key = $observed_key RETURN n LIMIT 2',{observed_key:'observed-key-A'},expect.any(AbortSignal));
+ await waitFor(()=>expect(nativeAstApi.importedNeighborhood).toHaveBeenCalledTimes(1));
+ expect(nativeAstApi.importedQuery).not.toHaveBeenCalled();
  await user.click(screen.getByRole('button',{name:'Inspect source & impact'}));await screen.findByText('fn imported_observed() {}');await user.click(screen.getByRole('button',{name:'Read entity source'}));
- expect(nativeAstApi.importedSource).toHaveBeenLastCalledWith(installed,{path:'src/file.rs',entity:'Anchor',entity_type:'Function'},expect.any(AbortSignal));
+ expect(nativeAstApi.importedSource).toHaveBeenLastCalledWith(installed,{path:'src/file.rs',entity_key:{type:'string',value:'observed-key-A'},entity_type:'Function'},expect.any(AbortSignal));
  await user.click(screen.getByRole('tab',{name:'Incoming'}));await waitFor(()=>expect(nativeAstApi.importedQuery).toHaveBeenLastCalledWith(installed,expect.stringContaining('WHERE anchor.entity_key = $anchor_key'),{anchor_key:'observed-key-A'},expect.any(AbortSignal)));
  expect(nativeAstApi.importedSample).not.toHaveBeenCalled();
 });
@@ -66,7 +66,7 @@ it('retains the same file and exposes the causal entity error locally until an e
  expect(screen.getByText('fn imported_observed() {}')).toBeTruthy();
  expect(screen.getByText('The previously loaded source remains visible.')).toBeTruthy();
  expect(screen.queryByText('No source open')).toBeNull();
- expect(nativeAstApi.importedSource).toHaveBeenLastCalledWith(installed,{path:'src/file.rs',entity:'Anchor',entity_type:'Function'},expect.any(AbortSignal));
+ expect(nativeAstApi.importedSource).toHaveBeenLastCalledWith(installed,{path:'src/file.rs',entity_key:{type:'string',value:'observed-key-A'},entity_type:'Function'},expect.any(AbortSignal));
  vi.mocked(nativeAstApi.importedSource).mockResolvedValueOnce({origin:'indexed',selection:{source:'fn selected_entity() {}\n',total_lines:528,start_line:188,end_line:190}});
  await user.click(screen.getByRole('button',{name:'Read entity source'}));
  expect(await screen.findByText('fn selected_entity() {}')).toBeTruthy();
@@ -82,9 +82,9 @@ it('refuses renderer identity when no primary key was observed',async()=>{
  const user=setup();await searchIndex(user);await user.click(await screen.findByRole('button',{name:/Anchor src\/file.rs/}));await screen.findByText(/The primary key is unavailable/);
  expect(nativeAstApi.importedQuery).not.toHaveBeenCalled();expect(nativeAstApi.importedNeighborhood).not.toHaveBeenCalled();
 });
-it('refuses ambiguous published graph resolution',async()=>{
- const second=structuredClone(resolvedQuery.rows[0]); ((second[0].value as {id:{value:{row:string}}}).id.value).row='9007199254740994'; vi.mocked(nativeAstApi.importedQuery).mockResolvedValue({...resolvedQuery,rows:[resolvedQuery.rows[0],second]});
- const user=setup();await searchIndex(user);await user.click(await screen.findByRole('button',{name:/Anchor src\/file.rs/}));await screen.findByText(/unavailable or ambiguous/);expect(nativeAstApi.importedNeighborhood).not.toHaveBeenCalled();
+it('reports an ambiguous graph anchor from the native neighborhood reader',async()=>{
+ vi.mocked(nativeAstApi.importedNeighborhood).mockRejectedValueOnce(new NativeRecordReadError(409,'AmbiguousAnchor'));
+ const user=setup();await searchIndex(user);await user.click(await screen.findByRole('button',{name:/Anchor src\/file.rs/}));await screen.findByText(/AmbiguousAnchor/);expect(nativeAstApi.importedQuery).not.toHaveBeenCalled();
 });
 it('loads a bounded sample once on first map entry with accessible controls',async()=>{
  const user=setup();await ready();await user.click(screen.getByRole('tab',{name:'Relationship map'}));await screen.findByRole('button',{name:/Anchor src\/file.rs/});
@@ -153,18 +153,17 @@ async function inspectNativeFile(user: ReturnType<typeof userEvent.setup>) {
  await user.click(screen.getByRole('button', { name: 'Inspect source & impact' }));
 }
 it.each([true, false])('keeps current search, neighborhood and Source usable after publication advances (PROJECT=%s)', async native => {
- const generation=nativeSchema.generation.map(byte=>255-byte);
  const query=structuredClone(resolvedQuery);
- (query.rows[0][0].value as {id:{value:{generation:number[]}}}).id.value.generation=generation;
+ (query.rows[0][0].value as {id:{value:{row:string}}}).id.value.row="new-physical-row";
  vi.mocked(native ? nativeAstApi.search : nativeAstApi.importedSearch).mockResolvedValue(searchReply);
  vi.mocked(native ? nativeAstApi.query : nativeAstApi.importedQuery).mockResolvedValue(query);
- vi.mocked(native ? nativeAstApi.neighborhood : nativeAstApi.importedNeighborhood).mockResolvedValue({...neighborhoodPage(),generation});
+ vi.mocked(native ? nativeAstApi.neighborhood : nativeAstApi.importedNeighborhood).mockResolvedValue(neighborhoodPage());
  const user=native?setupNative():setup();
  await waitFor(()=>expect(native?nativeAstApi.schema:nativeAstApi.importedSchema).toHaveBeenCalledTimes(1));
  await user.type(screen.getByLabelText('Search indexed code'),'Anchor');
  await user.click(screen.getByRole('button',{name:'Search index'}));
  await user.click(await screen.findByRole('button',{name:/Anchor src\/file.rs/}));
- await waitFor(()=>expect(native?nativeAstApi.neighborhood:nativeAstApi.importedNeighborhood).toHaveBeenCalledTimes(2));
+ await waitFor(()=>expect(native?nativeAstApi.neighborhood:nativeAstApi.importedNeighborhood).toHaveBeenCalledTimes(1));
  await user.click(screen.getByRole('button',{name:'Inspect source & impact'}));
  await screen.findByText(native?'fn observed() {}':'fn imported_observed() {}');
  await user.click(screen.getByRole('tab',{name:'Incoming'}));
@@ -173,11 +172,10 @@ it.each([true, false])('keeps current search, neighborhood and Source usable aft
  expect(native?nativeAstApi.schema:nativeAstApi.importedSchema).toHaveBeenCalledTimes(1);
  expect(native?nativeAstApi.search:nativeAstApi.importedSearch).toHaveBeenCalledTimes(1);
 });
-it('shows available search results without cross-component generation metadata',async()=>{
+it('shows available search results without a graph metadata dependency',async()=>{
  vi.mocked(nativeAstApi.importedSearch).mockResolvedValue(searchReply);
  const user=setup();await searchIndex(user);
  await screen.findByRole('button',{name:/Anchor src\/file.rs/});
- expect(screen.queryByText(/invalid graph generation/)).toBeNull();
  expect(nativeAstApi.importedQuery).not.toHaveBeenCalled();
 });
 it.each([true,false])('searches available text when the graph schema is unavailable (PROJECT=%s)',async native=>{
@@ -272,7 +270,7 @@ it('uses the sample observed PK for a native neighborhood even when UIDs collide
  const user = setupNative(); await waitFor(() => expect(nativeAstApi.schema).toHaveBeenCalled());
  await user.click(screen.getByRole('tab',{ name: 'Relationship map' }));
  await user.click(await screen.findByRole('button',{ name: /Anchor src\/file.rs/ }));
- await waitFor(() => expect(nativeAstApi.neighborhood).toHaveBeenCalledTimes(2));
+ await waitFor(() => expect(nativeAstApi.neighborhood).toHaveBeenCalledTimes(1));
  for (const [physical,input] of vi.mocked(nativeAstApi.neighborhood).mock.calls) { expect(physical).toEqual({ project_dir: selection.project_dir, project_version: selection.project_version }); expect(input.anchor_key).toEqual({ type: 'string', value: 'observed-key-A' }); }
 });
 it('aborts and fences a late denied schema when the exact native version changes', async () => {
@@ -303,15 +301,15 @@ it('fences a delayed imported Retry response after switching to the native physi
  await act(async () => finish({ ...original, nodes: [{ ...nativeSchema.nodes[0], label: 'Stale retry label' }] }));
  expect(screen.queryByText('Stale retry label')).toBeNull(); expect(screen.queryByText('Imported schema failed')).toBeNull(); expect(useTaskWorkspace.getState().selection).toEqual(selection);
 });
-it('does not replay a native relation anchor from an older generation during header refresh', async () => {
+it('does not replay a previous native relation anchor during header refresh', async () => {
  const physical = { ...selection, project_dir: "/p" };
  useTaskWorkspace.setState({ module:'ast',contexts:[physical],selection:physical,phase:'ready' }); vi.mocked(nativeRecordContexts).mockResolvedValue({ contexts:[physical],current:physical });
  render(<MemoryRouter initialEntries={['/ast/explorer/project']}><WorkspaceRefreshProvider><TaskWorkspaceSelectors module='ast'/><Routes><Route path='/ast/explorer/:contextId?' element={<ExplorerPage/>}/></Routes></WorkspaceRefreshProvider></MemoryRouter>);
  const user = userEvent.setup(); await waitFor(() => expect(nativeAstApi.schema).toHaveBeenCalled()); await user.click(screen.getByRole('tab',{name:'Relationship map'}));
  await user.click(await screen.findByRole('button',{name:/Anchor src\/file.rs/})); await user.click(screen.getByRole('button',{name:'Inspect source & impact'})); await user.click(screen.getByRole('tab',{name:'Incoming'}));
  await waitFor(() => expect(nativeAstApi.query).toHaveBeenCalledTimes(1));
- const nextGeneration = nativeSchema.generation.map(byte => 255-byte);
- vi.mocked(nativeAstApi.schema).mockResolvedValue({ ...nativeSchema,generation:nextGeneration }); vi.mocked(nativeAstApi.sample).mockResolvedValue({ ...nativeSample,generation:nextGeneration });
+ const moved=structuredClone(nativeSample);moved.nodes[0].id.row="new-physical-row";
+ vi.mocked(nativeAstApi.sample).mockResolvedValue(moved);
  await user.click(screen.getByRole('button',{name:'Refresh'})); await waitFor(() => expect(nativeAstApi.sample).toHaveBeenCalledTimes(2));
  expect(nativeAstApi.query).toHaveBeenCalledTimes(1); expect(screen.queryByLabelText('Symbol investigation')).toBeNull();
 });
@@ -355,7 +353,7 @@ it('shows published file observations separately from the literal Source respons
  const observationSchema={...nativeSchema,nodes:[...nativeSchema.nodes,{label:'AstFileObservation',primary_key:'path',rows:'1',columns:[['path','STRING'],['resolution_outcomes_json','STRING'],['capabilities_json','STRING'],['diagnostics_json','STRING']] as [string,string][],language_counts:[]}]};
  vi.mocked(nativeAstApi.importedSchema).mockResolvedValue(observationSchema);
  const properties={path:'src/file.rs',lang:'rust',resolution_outcomes_json:'[{"target":{"state":"ObservedOnly"},"evidence":"published"}]',capabilities_json:'{"resolver":"ObservedOnly"}',diagnostics_json:'[]'};
- const observation:import('@/api/nativeAst').AstQuery={columns:['f'],rows:[[{type:'NODE',value:{id:{type:'INTERNAL_ID',value:{generation:nativeSchema.generation,table:8,row:'42'}},label:{type:'STRING',value:'AstFileObservation'},properties:{type:'PROPERTIES',value:Object.fromEntries(Object.entries(properties).map(([key,value])=>[key,{type:'STRING',value}]))}}}]]};
+ const observation:import('@/api/nativeAst').AstQuery={columns:['f'],rows:[[{type:'NODE',value:{id:{type:'INTERNAL_ID',value:{table:8,row:'42'}},label:{type:'STRING',value:'AstFileObservation'},properties:{type:'PROPERTIES',value:Object.fromEntries(Object.entries(properties).map(([key,value])=>[key,{type:'STRING',value}]))}}}]]};
  vi.mocked(nativeAstApi.importedQuery).mockImplementation(async(_source,query)=>query.includes('AstFileObservation')?observation:resolvedQuery);
  const user=setup();await searchIndex(user);await user.click(await screen.findByRole('button',{name:/Anchor src\/file.rs/}));await user.click(screen.getByRole('button',{name:'Inspect source & impact'}));
  await screen.findByText('fn imported_observed() {}');const summary=await screen.findByText('Published file observations');
@@ -463,7 +461,7 @@ const observationSchema: import('@/api/nativeAst').AstSchema = {
 };
 function observationReply(properties: Record<string, string> = { diagnostics_json: '[]' }): import('@/api/nativeAst').AstQuery {
  return { columns: ['f'], rows: [[{ type: 'NODE', value: {
-  id: { type: 'INTERNAL_ID', value: { generation: nativeSchema.generation, table: 8, row: '1' } },
+  id: { type: 'INTERNAL_ID', value: { table: 8, row: '1' } },
   label: { type: 'STRING', value: 'AstFileObservation' },
   properties: { type: 'PROPERTIES', value: Object.fromEntries(Object.entries({ path: 'src/file.rs', ...properties }).map(([key, value]) => [key, { type: 'STRING', value }])) },
  } }]] };
@@ -512,8 +510,8 @@ it.each(['empty', 'ambiguous', 'advanced'] as const)('preserves the %s observati
  const reply = observationReply();
  if (outcome === 'empty') reply.rows = [];
  else {
-  const node = reply.rows[0][0].value as { id: { value: { generation: number[]; row: string } } };
-  if (outcome === 'advanced') node.id.value.generation = Array.from({ length: 32 }, () => 255);
+  const node = reply.rows[0][0].value as { id: { value: { row: string } } };
+  if (outcome === 'advanced') node.id.value.row = 'new-physical-row';
   else { const duplicate = structuredClone(reply.rows[0]); (duplicate[0].value as typeof node).id.value.row = '2'; reply.rows.push(duplicate); }
  }
  vi.mocked(nativeAstApi.query).mockResolvedValue(reply);
@@ -540,3 +538,75 @@ it.each(['disclosure', 'Source', 'scope'] as const)('aborts observations when %s
  expect(parsing).not.toHaveBeenCalledWith('["late observation must stay hidden"]'); expect(screen.queryByText(/late observation must stay hidden/)).toBeNull();
  if (change === 'disclosure' || change === 'Source') expect(screen.getByText('Published file observations').parentElement).not.toHaveAttribute('open');
 });
+
+it.each([true, false])('shows the selected entity and its exact scope before neighborhood data arrives, then aborts on scope change (PROJECT=%s)', async native => {
+ let finish!: (value: ReturnType<typeof neighborhoodPage>) => void;
+ const read = native ? nativeAstApi.neighborhood : nativeAstApi.importedNeighborhood;
+ vi.mocked(read).mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+ const other = {...installed,version:'other/version',context:'library@other/version'};
+ if (!native) vi.mocked(nativeAstApi.imports).mockResolvedValue({imports:[installed,other]});
+ const user = native ? setupNative() : setup();
+ await waitFor(() => expect(native ? nativeAstApi.schema : nativeAstApi.importedSchema).toHaveBeenCalled());
+ await user.click(screen.getByRole('tab',{name:'Relationship map'}));
+ await user.click(await screen.findByRole('button',{name:/Anchor src\/file.rs/}));
+ await waitFor(() => expect(read).toHaveBeenCalled());
+ const signal = vi.mocked(read).mock.calls[0][2]!;
+ expect(screen.getByRole('heading',{name:'Anchor'})).toBeTruthy();
+ expect(screen.getByText('Scope').nextElementSibling?.textContent).toBe(native ? `${selection.project_id} / ${selection.project_version}` : `${installed.id}@${installed.version}`);
+ expect(screen.getByRole('button',{name:'Copy UID'})).toBeEnabled();
+ expect(screen.getByText('Loading indexed neighborhood…')).toBeTruthy();
+ if (native) {
+  const next = {...selection,project_version:'other literal version'};
+  act(() => useTaskWorkspace.setState({contexts:[next],selection:next}));
+  await waitFor(() => expect(nativeAstApi.schema).toHaveBeenCalledTimes(2));
+ } else {
+  await user.click(screen.getByRole('combobox',{name:'AST artifact and version'}));
+  await user.click(screen.getByRole('option',{name:other.id+' · '+other.version}));
+  await waitFor(() => expect(nativeAstApi.importedSchema).toHaveBeenCalledTimes(2));
+ }
+ expect(signal.aborted).toBe(true);
+ await act(async () => finish(neighborhoodPage()));
+ expect(screen.queryByRole('heading',{name:'Anchor'})).toBeNull();
+ expect(screen.queryByText('Scope')).toBeNull();
+});
+
+it.each([true, false])('reads unnamed entity Source by its observed int64 PK (PROJECT=%s)', async native => {
+ const sample = structuredClone(nativeSample), page = neighborhoodPage(), schema = structuredClone(nativeSchema)
+ const keys = ['-9223372036854775808', '9223372036854775807']
+ schema.nodes[0].columns[0][1] = 'INT64'
+ sample.nodes.forEach((node, index) => { node.name = null; node.primary_key = {name:'entity_key', value:{type:'int64',value:keys[index]}} })
+ page.nodes.forEach((node, index) => { node.primary_key=sample.nodes[index].primary_key!; node.properties=node.properties.filter(p=>p.name!=='name').map(p=>p.name==='entity_key'?{...p,value:node.primary_key.value}:p) })
+ vi.mocked(native?nativeAstApi.schema:nativeAstApi.importedSchema).mockResolvedValue(schema)
+ vi.mocked(native?nativeAstApi.sample:nativeAstApi.importedSample).mockResolvedValue(sample)
+ vi.mocked(native?nativeAstApi.neighborhood:nativeAstApi.importedNeighborhood).mockResolvedValue(page)
+ const user=native?setupNative():setup();await waitFor(()=>expect(native?nativeAstApi.schema:nativeAstApi.importedSchema).toHaveBeenCalled())
+ await user.click(screen.getByRole('tab',{name:'Relationship map'}))
+ await user.click((await screen.findAllByRole('button',{name:/Function src\/file.rs/}))[0])
+ await user.click(screen.getByRole('button',{name:'Inspect source & impact'}));await screen.findByText(native?'fn observed() {}':'fn imported_observed() {}')
+ await user.click(screen.getByRole('button',{name:'Read entity source'}))
+ expect(native?nativeAstApi.source:nativeAstApi.importedSource).toHaveBeenLastCalledWith(native?{project_dir:selection.project_dir,project_version:selection.project_version}:installed,{path:'src/file.rs',entity_key:{type:'int64',value:keys[0]},entity_type:'Function'},expect.any(AbortSignal))
+ await user.click(screen.getByRole('button',{name:'Read complete file'}))
+ expect(native?nativeAstApi.source:nativeAstApi.importedSource).toHaveBeenLastCalledWith(native?{project_dir:selection.project_dir,project_version:selection.project_version}:installed,{path:'src/file.rs'},expect.any(AbortSignal))
+})
+
+it('cancels PK Source on a same-file entity change and keeps inspection focus without stale code', async () => {
+ const user=setupNative();await inspectNativeFile(user);await screen.findByText('fn observed() {}')
+ let finishOld!: (reply: import('@/api/nativeAst').AstSourceReply) => void
+ vi.mocked(nativeAstApi.source).mockImplementationOnce(()=>new Promise(resolve=>{finishOld=resolve}))
+ await user.click(screen.getByRole('button',{name:'Read entity source'}))
+ const entityCall=vi.mocked(nativeAstApi.source).mock.calls.at(-1)!
+ expect(entityCall[1]).toEqual({path:'src/file.rs',entity_key:{type:'string',value:'observed-key-A'},entity_type:'Function'})
+ const next=neighborhoodPage();next.anchor=nativeSample.nodes[1].id
+ vi.mocked(nativeAstApi.neighborhood).mockResolvedValueOnce(next)
+ await user.click(screen.getAllByRole('button',{name:/Target src\/file.rs/})[0])
+ vi.mocked(nativeAstApi.source).mockImplementationOnce(()=>new Promise(()=>{}))
+ await user.click(screen.getByRole('button',{name:'Inspect source & impact'}))
+ await waitFor(()=>expect(screen.getByRole('region',{name:'Symbol investigation'})).toHaveFocus())
+ expect(entityCall[2]!.aborted).toBe(true)
+ await user.click(screen.getByRole('button',{name:'Cancel source'}))
+ await act(async()=>finishOld({origin:'indexed',selection:{source:'late entity A source',total_lines:1}}))
+ expect(within(screen.getByRole('region',{name:'Symbol investigation'})).getByRole('heading',{name:'Target'})).toBeTruthy()
+ expect(screen.getByText('Source read stopped')).toBeTruthy()
+ expect(screen.queryByText('late entity A source')).toBeNull()
+ expect(screen.queryByText('fn observed() {}')).toBeNull()
+})

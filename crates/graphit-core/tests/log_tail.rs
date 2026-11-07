@@ -6,7 +6,8 @@ use graphit_core::{
     project_paths::{InstallationPaths, ProjectPaths},
 };
 use std::{
-    fs, io,
+    fs,
+    io::{self, Read},
     sync::{
         Arc, Barrier,
         atomic::{AtomicBool, Ordering},
@@ -313,6 +314,7 @@ fn concurrent_cooperative_append_and_compaction_are_bounded_observations() {
         Cancellation::default(),
     )
     .unwrap();
+    let retained_reader = fs::File::open(&path).unwrap();
     let start_barrier = Arc::new(Barrier::new(2));
     let done = Arc::new(AtomicBool::new(false));
     thread::scope(|scope| {
@@ -320,14 +322,15 @@ fn concurrent_cooperative_append_and_compaction_are_bounded_observations() {
         let finished = done.clone();
         let producer = scope.spawn(move || {
             barrier.wait();
-            for id in 0..1000 {
+            let result = (0..1000).try_for_each(|id| {
                 writer
                     .append(
                         format!("{{\"id\":{id},\"message\":\"{}\"}}\n", "x".repeat(128)).as_bytes(),
                     )
-                    .unwrap();
-            }
+                    .map(|_| ())
+            });
             finished.store(true, Ordering::Release);
+            result
         });
         start_barrier.wait();
         let start = Instant::now();
@@ -355,7 +358,7 @@ fn concurrent_cooperative_append_and_compaction_are_bounded_observations() {
                 break;
             }
         }
-        producer.join().unwrap();
+        producer.join().unwrap().unwrap();
         assert!(polls > 0);
     });
     assert_eq!(
@@ -370,5 +373,21 @@ fn concurrent_cooperative_append_and_compaction_are_bounded_observations() {
             ),
         Some(999)
     );
+    let mut retained = String::new();
+    retained_reader
+        .take(4097)
+        .read_to_string(&mut retained)
+        .unwrap();
+    assert!(!retained.is_empty() && retained.len() <= 4096);
+    let old_first = serde_json::from_str::<serde_json::Value>(retained.lines().next().unwrap())
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    let old_last = serde_json::from_str::<serde_json::Value>(retained.lines().last().unwrap())
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    assert_eq!(old_first, 0);
+    assert!(old_last < 999);
     assert!(paths.lock_path().exists()); // Created by the producer, never by the reader.
 }

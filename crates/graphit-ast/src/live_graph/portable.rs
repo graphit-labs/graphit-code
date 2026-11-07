@@ -11,11 +11,15 @@ use std::io::Write;
 pub(super) struct NodePart {
     pub shard: FileNodeShard,
     pub row_base: u64,
+    #[serde(default)]
+    pub row_offset: u64,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub(super) struct FileRecord {
     pub observation: LiveFileObservation,
     pub facts: String,
+    #[serde(default)]
+    pub facts_row: u64,
     pub nodes: Vec<NodePart>,
     pub relationships: Vec<Value>,
     pub pending_compiler: bool,
@@ -133,7 +137,7 @@ impl Index {
                     .push((part.row_base, end));
             }
             let nodes = result.index_nodes(root, path, &file.nodes, original)?;
-            let facts = read_facts(root, &file.facts, original)?;
+            let facts = read_facts(root, &file.facts, file.facts_row, original)?;
             if file.pending_compiler != facts.pending_compiler.is_some()
                 || file.scip_document != facts.scip_document.is_some()
             {
@@ -197,6 +201,11 @@ impl Index {
             visit_node_shard(
                 &owned_path(root, &part.shard.file)?,
                 &part.shard.label,
+                part.row_offset
+                    ..part
+                        .row_offset
+                        .checked_add(part.shard.rows)
+                        .ok_or_else(|| invalid("FILE physical range overflow"))?,
                 original,
                 |node| {
                     self.insert_node(path, &node, part.row_base, row, part.shard.rows)?;
@@ -399,16 +408,24 @@ impl Index {
 pub(super) fn read_facts(
     root: &Path,
     file: &str,
+    row: u64,
     original: &SnapshotContext,
 ) -> io::Result<FileFacts> {
     let mut result = None;
-    visit_fact_rows(&owned_path(root, file)?, original, |payload| {
-        if result.is_some() {
-            return Err(invalid("duplicate FILE fact row"));
-        }
-        result = Some(decoded(payload)?);
-        Ok(())
-    })?;
+    visit_fact_rows(
+        &owned_path(root, file)?,
+        row..row
+            .checked_add(1)
+            .ok_or_else(|| invalid("FILE fact range overflow"))?,
+        original,
+        |payload| {
+            if result.is_some() {
+                return Err(invalid("duplicate FILE fact row"));
+            }
+            result = Some(decoded(payload)?);
+            Ok(())
+        },
+    )?;
     result.ok_or_else(|| invalid("missing FILE fact row"))
 }
 pub(super) fn read_nodes(
@@ -421,6 +438,11 @@ pub(super) fn read_nodes(
         visit_node_shard(
             &owned_path(root, &part.shard.file)?,
             &part.shard.label,
+            part.row_offset
+                ..part
+                    .row_offset
+                    .checked_add(part.shard.rows)
+                    .ok_or_else(|| invalid("FILE physical range overflow"))?,
             original,
             |node| {
                 result.push(node);
@@ -521,20 +543,32 @@ fn allocate(
     }
     Ok(())
 }
-fn stage_directory(root: &Path) -> io::Result<(PathBuf, String)> {
+pub(super) fn stage_directory(root: &Path) -> io::Result<(PathBuf, String)> {
     let shards = root.join("shards");
     std::fs::create_dir_all(&shards)?;
-    let directory = tempfile::Builder::new()
+    let metadata = std::fs::symlink_metadata(&shards)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(invalid("invalid FILE shard root"));
+    }
+    let temporary = tempfile::Builder::new()
         .prefix("file-")
-        .tempdir_in(&shards)?
-        .keep();
-    let relative = format!(
-        "shards/{}",
-        directory
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| invalid("invalid shard directory"))?
-    );
+        .tempdir_in(&shards)?;
+    let name = temporary
+        .path()
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| invalid("invalid shard directory"))?
+        .to_owned();
+    let bucket = format!("{:02x}", Sha256::digest(name.as_bytes())[0]);
+    let parent = shards.join(&bucket);
+    std::fs::create_dir_all(&parent)?;
+    let metadata = std::fs::symlink_metadata(&parent)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        return Err(invalid("invalid FILE shard bucket"));
+    }
+    let directory = parent.join(&name);
+    std::fs::rename(temporary.path(), &directory)?;
+    let relative = format!("shards/{bucket}/{name}");
     Ok((directory, relative))
 }
 fn stage_nodes(
@@ -543,6 +577,10 @@ fn stage_nodes(
     nodes: &[GraphNode],
     original: &Arc<SnapshotContext>,
 ) -> io::Result<Vec<NodePart>> {
+    if nodes.is_empty() {
+        original.check()?;
+        return Ok(Vec::new());
+    }
     let (directory, relative) = stage_directory(root)?;
     let mut parts = Vec::new();
     for mut shard in write_file_nodes(&directory, nodes, original)? {
@@ -559,7 +597,11 @@ fn stage_nodes(
             return Err(invalid("allocated FILE row count differs"));
         }
         shard.file = format!("{relative}/{}", shard.file);
-        parts.push(NodePart { shard, row_base });
+        parts.push(NodePart {
+            shard,
+            row_base,
+            row_offset: 0,
+        });
     }
     Ok(parts)
 }
@@ -616,14 +658,21 @@ fn stage_relationships(
         groups
     {
         let (directory, relative) = stage_directory(root)?;
-        write_csr_shard(&directory, source_rows, target_rows, &rows, original)?;
+        let edge_count = rows.len();
+        write_csr_shard(
+            &directory,
+            source_rows,
+            target_rows,
+            rows.into_iter().map(Ok),
+            original,
+        )?;
         catalog
             .schema
             .relationships
             .entry(kind.clone())
             .or_default()
             .insert((from.clone(), to.clone()));
-        result.push(json!({"kind":kind,"from":from,"to":to,"table":relative,"indices":format!("{relative}/edges.indices"),"indptr":format!("{relative}/edges.indptr"),"rows":rows.len(),"source_row_base":source_row_base,"source_rows":source_rows,"target_row_base":target_row_base,"target_rows":target_rows}));
+        result.push(json!({"kind":kind,"from":from,"to":to,"table":relative,"indices":format!("{relative}/edges.indices"),"indptr":format!("{relative}/edges.indptr"),"rows":edge_count,"source_row_base":source_row_base,"source_rows":source_rows,"target_row_base":target_row_base,"target_rows":target_rows}));
     }
     Ok(result)
 }
@@ -688,7 +737,7 @@ pub(super) fn mutate(
         if let Some(file) = &old {
             let nodes = read_nodes(&graph.directory, file, original)?;
             keys.extend(changed_keys(&nodes));
-            let facts = read_facts(&graph.directory, &file.facts, original)?;
+            let facts = read_facts(&graph.directory, &file.facts, file.facts_row, original)?;
             changed_symbols.extend(symbols(&facts, path)?);
             changed_lookups.extend(lookups(&facts));
         }
@@ -722,6 +771,7 @@ pub(super) fn mutate(
                     scip_compiler: input.scip_compiler.map(str::to_owned),
                 },
                 facts: String::new(),
+                facts_row: 0,
                 nodes: Vec::new(),
                 relationships: Vec::new(),
                 pending_compiler: input.pending_compiler.is_some(),
@@ -754,7 +804,7 @@ pub(super) fn mutate(
             } else {
                 (
                     read_nodes(&graph.directory, &record, original)?,
-                    read_facts(&graph.directory, &record.facts, original)?,
+                    read_facts(&graph.directory, &record.facts, record.facts_row, original)?,
                 )
             };
             let before = nodes.clone();
@@ -807,6 +857,9 @@ pub(super) fn mutate(
                 .ok_or_else(|| invalid("affected FILE disappeared"))?;
             selected.nodes = node_parts;
             selected.facts = facts_path;
+            if owner == path || facts != before_facts {
+                selected.facts_row = 0;
+            }
             if nodes_changed || edges_changed {
                 edge_owners.insert(owner);
             }
@@ -817,7 +870,7 @@ pub(super) fn mutate(
             let Some(record) = next.files.get(&owner) else {
                 continue;
             };
-            let facts = read_facts(&graph.directory, &record.facts, original)?;
+            let facts = read_facts(&graph.directory, &record.facts, record.facts_row, original)?;
             let relationships = stage_relationships(
                 &graph.directory,
                 state.index()?,
@@ -862,15 +915,6 @@ pub(super) fn mutate(
                 state.catalog.schema.revision
             )));
         }
-        prune(&graph.directory, &state.catalog).map_err(|error| {
-            io::Error::new(
-                error.kind(),
-                format!(
-                    "FILE committed at graph revision {}; cleanup failed: {error}",
-                    state.catalog.schema.revision
-                ),
-            )
-        })?;
         original.check().map_err(|error| {
             io::Error::new(
                 error.kind(),
@@ -980,7 +1024,7 @@ pub(super) fn publish(
                 .checked_add(part.shard.rows)
                 .ok_or_else(|| invalid("graph rows overflow"))?;
             shards.push(
-                json!({"file":part.shard.file,"row_base":part.row_base,"rows":part.shard.rows}),
+                json!({"file":part.shard.file,"row_base":part.row_base,"row_offset":part.row_offset,"rows":part.shard.rows}),
             );
             for (language, count) in &part.shard.languages {
                 let total = languages.entry(language.clone()).or_default();
@@ -1064,7 +1108,7 @@ pub(super) fn publish(
                 &directory.join(&name),
                 source_rows,
                 target_rows,
-                &[],
+                std::iter::empty(),
                 original,
             )?;
             relationships.entry(kind.clone()).or_default().push(json!({"from":from,"to":to,"table":format!("{relative}/{name}"),"indices":format!("{relative}/{name}/edges.indices"),"indptr":format!("{relative}/{name}/edges.indptr"),"rows":0,"source_row_base":source["row_base"],"source_rows":source_rows,"target_row_base":target["row_base"],"target_rows":target_rows}));
@@ -1082,11 +1126,20 @@ pub(super) fn publish(
         ));
     }
     std::fs::write(directory.join("schema.cypher"), schema)?;
-    let manifest = json!({"manifest_version":3,"format":"icebug-canonical","storage":"direct-parquet","finished":true,"add_reverse_edges":false,"schema_file":format!("{relative}/schema.cypher"),"node_tables":node_tables,"relationships":relationships.into_iter().map(|(kind,members)|json!({"type":kind,"members":members})).collect::<Vec<_>>(),"relation_uids":true,"generation":format!("{}:{}",catalog.namespace.iter().map(|byte|format!("{byte:02x}")).collect::<String>(),catalog.schema.revision),"n_edges":n_edges,"repaired_strings":0,"invariants":{"indptr_row_groups":1,"self_loops":"forward-once"},"live":catalog});
+    let manifest = json!({"manifest_version":3,"format":"icebug-canonical","storage":"direct-parquet","finished":true,"add_reverse_edges":false,"schema_file":format!("{relative}/schema.cypher"),"node_tables":node_tables,"relationships":relationships.into_iter().map(|(kind,members)|json!({"type":kind,"members":members})).collect::<Vec<_>>(),"relation_uids":true,"n_edges":n_edges,"repaired_strings":0,"invariants":{"indptr_row_groups":1,"self_loops":"forward-once"},"live":catalog});
     let mut temporary = tempfile::NamedTempFile::new_in(root)?;
-    serde_json::to_writer(&mut temporary, &manifest).map_err(io::Error::other)?;
-    temporary.flush()?;
+    {
+        let mut output = std::io::BufWriter::new(&mut temporary);
+        serde_json::to_writer(&mut output, &manifest).map_err(io::Error::other)?;
+        output.flush()?;
+    }
     temporary.as_file().sync_all()?;
+    #[cfg(test)]
+    BEFORE_MANIFEST_REPLACE.with(|slot| {
+        if let Some(hook) = slot.borrow_mut().take() {
+            hook();
+        }
+    });
     original.check()?;
     temporary
         .persist(root.join("icebug.json"))
@@ -1102,6 +1155,7 @@ pub(super) fn publish(
 
 #[cfg(test)]
 thread_local! {
+    pub(super) static BEFORE_MANIFEST_REPLACE: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
     pub(super) static AFTER_MANIFEST_REPLACE: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const { std::cell::RefCell::new(None) };
 }
 
@@ -1123,17 +1177,32 @@ pub(super) fn owned_path(root: &Path, relative: &str) -> io::Result<PathBuf> {
     Ok(path)
 }
 
-pub(super) fn prune(root: &Path, catalog: &Catalog) -> io::Result<()> {
+#[derive(Default)]
+pub(super) struct Reclaimed {
+    pub files: u64,
+    pub directories: u64,
+    pub bytes: u64,
+}
+pub(super) fn prune(
+    root: &Path,
+    catalog: &Catalog,
+    original: &SnapshotContext,
+) -> io::Result<Reclaimed> {
+    // The caller holds the publication mutex. Retain concrete files and all their
+    // ancestors, so a shared shard outlives every FILE that still references it.
     let mut retained = BTreeSet::new();
     let mut retain = |file: &str| -> io::Result<()> {
-        let mut components = Path::new(file).components();
-        if components.next() != Some(std::path::Component::Normal(std::ffi::OsStr::new("shards"))) {
+        original.check()?;
+        let path = Path::new(file);
+        if path.components().next()
+            != Some(std::path::Component::Normal(std::ffi::OsStr::new("shards")))
+        {
             return Err(invalid("FILE shard outside canonical directory"));
         }
-        let Some(std::path::Component::Normal(directory)) = components.next() else {
-            return Err(invalid("FILE shard has no directory"));
-        };
-        retained.insert(directory.to_owned());
+        owned_path(root, file)?;
+        for ancestor in path.ancestors().filter(|path| !path.as_os_str().is_empty()) {
+            retained.insert(ancestor.to_owned());
+        }
         Ok(())
     };
     for file in catalog.files.values() {
@@ -1161,15 +1230,94 @@ pub(super) fn prune(root: &Path, catalog: &Catalog) -> io::Result<()> {
             .as_str()
             .ok_or_else(|| invalid("missing graph schema file"))?,
     )?;
-    for entry in std::fs::read_dir(root.join("shards"))? {
-        let entry = entry?;
-        let metadata = entry.file_type()?;
-        if metadata.is_symlink() || !metadata.is_dir() {
-            return Err(invalid("invalid FILE shard directory"));
-        }
-        if !retained.contains(&entry.file_name()) {
-            std::fs::remove_dir_all(entry.path())?;
+    for table in manifest["node_tables"]
+        .as_array()
+        .ok_or_else(|| invalid("missing node tables"))?
+    {
+        for shard in table["shards"]
+            .as_array()
+            .ok_or_else(|| invalid("missing node shards"))?
+        {
+            retain(
+                shard["file"]
+                    .as_str()
+                    .ok_or_else(|| invalid("invalid node file"))?,
+            )?;
         }
     }
-    Ok(())
+    for relationship in manifest["relationships"]
+        .as_array()
+        .ok_or_else(|| invalid("missing relationships"))?
+    {
+        for member in relationship["members"]
+            .as_array()
+            .ok_or_else(|| invalid("missing CSR members"))?
+        {
+            for field in ["indices", "indptr"] {
+                retain(
+                    member[field]
+                        .as_str()
+                        .ok_or_else(|| invalid("invalid CSR file"))?,
+                )?;
+            }
+        }
+    }
+    fn visit(
+        root: &Path,
+        relative: &Path,
+        entries: &mut Vec<(PathBuf, bool, u64)>,
+        retained: &BTreeSet<PathBuf>,
+        original: &SnapshotContext,
+    ) -> io::Result<()> {
+        for entry in std::fs::read_dir(root.join(relative))? {
+            original.check()?;
+            let entry = entry?;
+            let metadata = entry.file_type()?;
+            if metadata.is_symlink() || !(metadata.is_dir() || metadata.is_file()) {
+                return Err(invalid("invalid FILE shard entry"));
+            }
+            let path = relative.join(entry.file_name());
+            if metadata.is_dir() {
+                visit(root, &path, entries, retained, original)?;
+            }
+            if !retained.contains(&path) {
+                let bytes = if metadata.is_file() {
+                    let metadata = std::fs::symlink_metadata(entry.path())?;
+                    if metadata.file_type().is_symlink() || !metadata.is_file() {
+                        return Err(invalid("invalid obsolete FILE shard"));
+                    }
+                    metadata.len()
+                } else {
+                    0
+                };
+                entries.push((path, metadata.is_dir(), bytes));
+            }
+        }
+        Ok(())
+    }
+    let mut entries = Vec::new();
+    // Validate the entire tree before the first removal; never follow links.
+    visit(root, Path::new("shards"), &mut entries, &retained, original)?;
+    let mut reclaimed = Reclaimed::default();
+    for (path, directory, bytes) in entries {
+        original.check()?;
+        if directory {
+            std::fs::remove_dir(root.join(path))?;
+            reclaimed.directories = reclaimed
+                .directories
+                .checked_add(1)
+                .ok_or_else(|| invalid("reclaimed directory count overflow"))?;
+        } else {
+            std::fs::remove_file(root.join(path))?;
+            reclaimed.files = reclaimed
+                .files
+                .checked_add(1)
+                .ok_or_else(|| invalid("reclaimed file count overflow"))?;
+            reclaimed.bytes = reclaimed
+                .bytes
+                .checked_add(bytes)
+                .ok_or_else(|| invalid("reclaimed byte count overflow"))?;
+        }
+    }
+    Ok(reclaimed)
 }

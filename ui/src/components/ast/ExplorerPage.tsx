@@ -10,6 +10,7 @@ import {
 import { useAstImports } from "./useAstImports";
 import { loadNativeNeighborhood, resolveNativeNode, type NeighborhoodLoader } from "./neighborhood";
 import { RelationshipExplorer } from "./RelationshipExplorer";
+import { NativeEntityDetails } from "./NativeEntityDetails";
 import { QueryBar } from "./QueryBar";
 import { CodePanel } from "./CodePanel";
 import { TabularResults } from "./TabularResults";
@@ -29,7 +30,7 @@ import {
 } from "@/components/shared/EngineeringUI";
 import { LoadingSpinner } from "@/components/shared/LoadingSpinner";
 
-import { nativeAstApi, astSelection, type AstSourceReply, type AstSchema, type AstQuery, type AstSearchMode, type AstSearchMetric, type AstSearchReply } from '@/api/nativeAst';
+import { nativeAstApi, astSelection, type AstKey, type AstSourceReply, type AstSchema, type AstQuery, type AstSearchMode, type AstSearchMetric, type AstSearchReply } from '@/api/nativeAst';
 import { encodeProjectLocator, nativeSelectionKey, projectReadModule, requestedImportedAstSource, requestedAstContext, importedAstHref } from '@/api/nativeRecordNavigation';
 import { stringifyNativeJson, parseNativeJson, type NativeInteger } from '@/api/nativeJson';
 import { useTaskWorkspace, invalidateTaskWorkspace } from '@/components/task/taskWorkspaceState';
@@ -111,6 +112,7 @@ export default function ExplorerPage() {
   const projectKey = nativeProject ? nativeSelectionKey(selection) : stringifyNativeJson(importedSource && [importedSource.id, importedSource.version]);
   const projectId = nativeProject ? selection?.project_id : undefined;
   const projectDir = nativeProject ? selection?.project_dir : undefined;
+  const entityScope = nativeProject ? selection && `${selection.project_id} / ${selection.project_version}` : importedSource && `${importedSource.id}@${importedSource.version}`;
   const navigate = useNavigate();
   const [filePath, setFilePath] = useState('');
   const [fileRead, setFileRead] = useState<string | null>(null);
@@ -130,7 +132,7 @@ export default function ExplorerPage() {
     provenance: string;
     native: AstSourceReply;
     request: number;
-    entity?: { name: string; kind: string };
+    entity?: { key: AstKey; kind: string };
     observationSchema?: AstSchema;
   } | null>(null);
   const [sourceLoading, setSourceLoading] = useState(false);
@@ -300,7 +302,7 @@ export default function ExplorerPage() {
     return nativeAstApi.importedQuery(importedSource, query, { source_path: path }, signal);
   }, [nativeProject, selection, importedSource]);
   const openFile = useCallback(
-    async (path: string, line?: NativeInteger, entity?: { name: string; kind: string }) => {
+    async (path: string, line?: NativeInteger, entity?: { key: AstKey; kind: string }) => {
       sourceAbort.current?.abort();
       const controller = new AbortController(); sourceAbort.current = controller;
       const id = ++sourceRequest.current, startedScope = currentScope;
@@ -308,7 +310,7 @@ export default function ExplorerPage() {
       setSource(previous => previous?.path === path ? previous : null); setSourceLoading(true); setSourceStopped(false); setSourceError(""); setError("");
       try {
         if (nativeProject && !selection || !nativeProject && !importedSource) throw new Error('Select an admitted AST context.');
-        const input = { path, ...(entity ? { entity: entity.name, entity_type: entity.kind } : {}) };
+        const input = { path, ...(entity ? { entity_key: entity.key, entity_type: entity.kind } : {}) };
         const native = nativeProject ? await nativeAstApi.source(astSelection(selection!), input, controller.signal) : await nativeAstApi.importedSource(importedSource!, input, controller.signal);
         if (!isCurrent()) return;
         setSource({ path, line, entity, content: native.selection.source, provenance: native.origin, native, request: id, observationSchema: nativeSchema.current ?? undefined });
@@ -330,6 +332,7 @@ export default function ExplorerPage() {
       setRelationLoading(false);
       setRelated([]);
       setSelected(node);
+      setSource(null);
       setRelation("source");
       setView("map");
       if (node.file) void openFile(node.file, node.line);
@@ -693,6 +696,7 @@ export default function ExplorerPage() {
             error={Boolean(error)}
             onInspect={choose}
             loadNeighborhood={exploreNeighborhood}
+            scope={entityScope ?? undefined}
           />}
           {!queryLoading && !searching && !error && tabular && <details className="work-panel" open={!nodes.length}>
             <summary>Query rows · {tabular.rows.length}</summary>
@@ -711,7 +715,7 @@ export default function ExplorerPage() {
                   <header className="symbol-header">
                     <div>
                       <small>{selected.label}</small>
-                      <h2>{selected.name}</h2>
+                      <h2>{selected.name || selected.label}</h2>
                       <code>
                         {selected.file}
                         {selected.line ? ":" + selected.line : ""}
@@ -719,6 +723,7 @@ export default function ExplorerPage() {
                     </div>
                     <button className="work-button" onClick={() => { cancelSource(); setSelected(null); setSource(null); relationRequest.current++; }}>Close inspection</button>
                   </header>
+                  <NativeEntityDetails key={selected.id} node={selected} scope={entityScope ?? undefined} />
                   <WorkTabs
                     value={relation}
                     onChange={(id) => void investigate(id)}
@@ -736,7 +741,7 @@ export default function ExplorerPage() {
                       <><LoadingSpinner label="Reading source…" /><button className="work-button" onClick={cancelSource}>Cancel source</button></>
                     ) : source ? (
                       <>
-                        {typeof selected.properties?.name === 'string' && selected.properties.name && selected.file && <div className="work-actions"><button className="work-button" onClick={() => void openFile(selected.file!, selected.line, { name: selected.properties!.name as string, kind: selected.label })}>Read entity source</button><button className="work-button" onClick={() => void openFile(selected.file!, selected.line)}>Read complete file</button></div>}
+                        {selected.nativeKey && selected.file && <div className="work-actions"><button className="work-button" onClick={() => void openFile(selected.file!, selected.line, { key: selected.nativeKey!, kind: selected.label })}>Read entity source</button><button className="work-button" onClick={() => void openFile(selected.file!, selected.line)}>Read complete file</button></div>}
                         {sourceDocument}
                       </>
                     ) : (

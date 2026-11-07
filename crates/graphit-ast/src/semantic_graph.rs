@@ -63,8 +63,53 @@ pub struct AstGraphEdge {
     source_key: String,
     target_key: String,
     uid: String,
+    query_data_key: Option<String>,
+    reference_target: String,
+    occurrence_ordinal: u64,
 }
 impl AstGraphEdge {
+    fn logical(
+        file: graphit_data::CodeFileId,
+        kind: &str,
+        source_key: &str,
+        target_key: &str,
+        query_data_key: Option<&str>,
+        reference_target: &str,
+        occurrence_ordinal: u64,
+    ) -> Result<Self, AstGraphError> {
+        let source = graphit_data::GraphAnchorKey::String(source_key);
+        let target = graphit_data::GraphAnchorKey::String(target_key);
+        let occurrence = graphit_data::CodeRelationOccurrence::derive(
+            file,
+            source,
+            kind,
+            query_data_key,
+            reference_target,
+            occurrence_ordinal,
+        )
+        .map_err(|_| AstGraphError::NativeContract("invalid logical reference identity"))?;
+        let uid = graphit_data::CodeRelationUid::derive(file, source, target, kind, occurrence)
+            .map_err(|_| AstGraphError::NativeContract("invalid logical relation identity"))?
+            .to_string();
+        Ok(Self {
+            kind: kind.into(),
+            source_key: source_key.into(),
+            target_key: target_key.into(),
+            uid,
+            query_data_key: query_data_key.map(str::to_owned),
+            reference_target: reference_target.into(),
+            occurrence_ordinal,
+        })
+    }
+    pub fn query_data_key(&self) -> Option<&str> {
+        self.query_data_key.as_deref()
+    }
+    pub fn reference_target(&self) -> &str {
+        &self.reference_target
+    }
+    pub fn occurrence_ordinal(&self) -> u64 {
+        self.occurrence_ordinal
+    }
     pub fn into_parts(self) -> (String, String, String, String) {
         (self.kind, self.source_key, self.target_key, self.uid)
     }
@@ -776,7 +821,7 @@ pub fn assemble_graph_ts(
         for e in document.entities()? {
             original.check()?;
             let uid = e.identity().uid().as_str();
-            let key = serde_json::to_string(&[uid, e.data_key()])?;
+            let key = syntax_key(e.identity(), e.data_key())?;
             let mut properties = BTreeMap::new();
             for (name, value) in [
                 ("uid", uid),
@@ -876,6 +921,7 @@ pub fn assemble_graph_ts(
         }
         let mut edges = Vec::new();
         let mut edge_keys = BTreeSet::new();
+        let mut relation_occurrences = LogicalRelationOccurrences::new(logical_file(&association)?);
         let mut outcomes = Vec::new();
         for (relation_index, r) in document.relations()?.iter().enumerate() {
             original.check()?;
@@ -975,22 +1021,19 @@ pub fn assemble_graph_ts(
                                         "resolved relation lacks exact Original capture",
                                     ));
                                 };
-                                let uid = serde_json::to_string(&(
-                                    kind,
+                                let edge = relation_occurrences.admit(
                                     source_key,
                                     target_key,
-                                    r.query.value().data_key().value(),
-                                    anchor.start(),
-                                    anchor.end(),
-                                ))?;
-                                graph_edge_uids.push(uid.clone());
-                                if edge_keys.insert(uid.clone()) {
-                                    edges.push(AstGraphEdge {
-                                        kind: kind.clone(),
-                                        source_key: source_key.into(),
-                                        target_key: target_key.into(),
-                                        uid,
-                                    });
+                                    kind,
+                                    ParserRelationOccurrence {
+                                        query_data_key: Some(r.query.value().data_key().value()),
+                                        target: anchor.text(),
+                                        anchor: (anchor.start(), anchor.end()),
+                                    },
+                                )?;
+                                graph_edge_uids.push(edge.uid.clone());
+                                if edge_keys.insert(edge.uid.clone()) {
+                                    edges.push(edge);
                                 }
                             }
                             AstGraphRelationTarget::Resolved {
@@ -1054,4 +1097,81 @@ impl From<crate::tree_sitter_generic_model::GenericModelError> for AstGraphError
     fn from(error: crate::tree_sitter_generic_model::GenericModelError) -> Self {
         Self::Generic(Box::new(error))
     }
+}
+
+fn syntax_key(
+    identity: &crate::symbols::SyntaxIdentity<'_, '_, '_>,
+    data_key: &str,
+) -> Result<String, AstGraphError> {
+    graphit_data::CodePrimaryKey::derive(identity.uid().code(), data_key)
+        .map(|key| key.to_string())
+        .map_err(|_| AstGraphError::NativeContract("invalid entity projection identity"))
+}
+
+/// Actual native capture binding used only during this parse, never in a hash.
+struct ParserRelationOccurrence<'a> {
+    query_data_key: Option<&'a str>,
+    target: &'a str,
+    anchor: (usize, usize),
+}
+struct LogicalRelationOccurrences {
+    file: graphit_data::CodeFileId,
+    groups: BTreeMap<graphit_data::CodeRelationOccurrence, BTreeMap<(usize, usize), u64>>,
+}
+impl LogicalRelationOccurrences {
+    fn new(file: graphit_data::CodeFileId) -> Self {
+        Self {
+            file,
+            groups: BTreeMap::new(),
+        }
+    }
+    fn admit(
+        &mut self,
+        source: &str,
+        target: &str,
+        kind: &str,
+        occurrence: ParserRelationOccurrence<'_>,
+    ) -> Result<AstGraphEdge, AstGraphError> {
+        let ordinal = self.ordinal(source, kind, &occurrence)?;
+        AstGraphEdge::logical(
+            self.file,
+            kind,
+            source,
+            target,
+            occurrence.query_data_key,
+            occurrence.target,
+            ordinal,
+        )
+    }
+    fn ordinal(
+        &mut self,
+        source: &str,
+        kind: &str,
+        occurrence: &ParserRelationOccurrence<'_>,
+    ) -> Result<u64, AstGraphError> {
+        let group = graphit_data::CodeRelationOccurrence::derive(
+            self.file,
+            graphit_data::GraphAnchorKey::String(source),
+            kind,
+            occurrence.query_data_key,
+            occurrence.target,
+            0,
+        )
+        .map_err(|_| AstGraphError::NativeContract("invalid logical reference identity"))?;
+        let subjects = self.groups.entry(group).or_default();
+        let next = u64::try_from(subjects.len()).map_err(|_| AstGraphError::Representation)?;
+        Ok(*subjects.entry(occurrence.anchor).or_insert(next))
+    }
+}
+
+fn logical_file(
+    association: &AstGraphAssociation,
+) -> Result<graphit_data::CodeFileId, AstGraphError> {
+    let components: Vec<_> = association
+        .relative_components
+        .iter()
+        .map(String::as_str)
+        .collect();
+    graphit_data::CodeFileId::from_components(&components)
+        .map_err(|_| AstGraphError::NativeContract("invalid logical relation FILE"))
 }

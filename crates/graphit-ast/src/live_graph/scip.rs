@@ -161,6 +161,8 @@ pub(super) fn validate(input: &LiveFileInput<'_>, original: &SnapshotContext) ->
             || !nodes.contains_key(source.as_str())
             || reference.relation_index.is_none()
             || reference.observation_json.is_none()
+            || reference.occurrence_ordinal.is_none()
+            || reference.reference_target.is_empty()
         {
             return Err(invalid("SCIP reference has no genuine FILE source/outcome"));
         }

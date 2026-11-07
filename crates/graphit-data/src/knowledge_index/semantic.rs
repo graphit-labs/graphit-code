@@ -152,20 +152,30 @@ pub(crate) fn align(
 }
 
 /// Preserve a certified vector only when every input-text field is unchanged.
-/// Physical digests, dates, references and paths are deliberately independent.
+/// A matching slug or source origin retains the document association. Slugs,
+/// physical digests, dates, references and paths are not model-input text.
 pub(crate) fn replace_document(
     desired: &RecordBatch,
     old: &RecordBatch,
+    original: &SnapshotContext,
+    body_equivalent: super::KnowledgeBodyEquivalence,
 ) -> Result<RecordBatch, KnowledgeIndexError> {
+    original.check()?;
     let mut next = align(desired, old.schema().as_ref())?;
     if dimensions(old.schema().as_ref())?.is_some()
         && desired.num_rows() == 1
         && old.num_rows() == 1
-        && [1, 2, 3, 4, 5]
+        && (desired.column(0) == old.column(0) || desired.column(7) == old.column(7))
+        && [1, 3, 4, 5]
             .iter()
             .all(|at| desired.column(*at) == old.column(*at))
         && array::<UInt8Array>(desired, 16)?.value(0) == KnowledgeDocumentState::Active as u8
         && array::<UInt8Array>(old, 16)?.value(0) == KnowledgeDocumentState::Active as u8
+        && body_equivalent(
+            original,
+            array::<StringArray>(old, 2)?.value(0),
+            array::<StringArray>(desired, 2)?.value(0),
+        )?
     {
         let mut columns = next.columns().to_vec();
         columns[18..].clone_from_slice(&old.columns()[18..]);
@@ -263,9 +273,13 @@ pub(crate) mod tests {
         let base = document(&original, "original");
         let stored = embedded(&base, vec![Some(1.), Some(0.)]);
         validate(&stored, limits(), || Ok(())).unwrap();
-        assert_eq!(replace_document(&base, &stored).unwrap(), stored);
+        assert_eq!(
+            replace_document(&base, &stored, &original, |_, old, new| Ok(old == new)).unwrap(),
+            stored
+        );
         let changed = document(&original, "changed");
-        let replaced = replace_document(&changed, &stored).unwrap();
+        let replaced =
+            replace_document(&changed, &stored, &original, |_, old, new| Ok(old == new)).unwrap();
         assert!(
             replaced.columns()[18..]
                 .iter()
@@ -280,10 +294,55 @@ pub(crate) mod tests {
         columns[7] = Arc::new(StringArray::from(vec!["docs/renamed.md"]));
         let renamed = RecordBatch::try_new(physical_schema(), columns).unwrap();
         assert!(
-            !replace_document(&renamed, &stored)
+            !replace_document(&renamed, &stored, &original, |_, old, new| Ok(old == new))
                 .unwrap()
                 .column(22)
                 .is_null(0)
+        );
+    }
+    #[test]
+    fn body_equivalence_uses_observed_pair_and_preserves_certificates_by_arc() {
+        let original = SnapshotContext::new(
+            std::time::Instant::now() + std::time::Duration::from_secs(30),
+            Cancellation::default(),
+        );
+        let stored = embedded(
+            &document(&original, "old body"),
+            vec![Some(-0.0), Some(0.125)],
+        );
+        let desired = document(&original, "new metadata, same model text");
+        let next = replace_document(&desired, &stored, &original, |context, old, new| {
+            context.check()?;
+            assert_eq!(old, "old body");
+            assert_eq!(new, "new metadata, same model text");
+            Ok(true)
+        })
+        .unwrap();
+        for index in 18..23 {
+            assert!(Arc::ptr_eq(next.column(index), stored.column(index)));
+        }
+        assert_eq!(
+            array::<StringArray>(&next, 2).unwrap().value(0),
+            "new metadata, same model text"
+        );
+        let mut columns = desired.columns().to_vec();
+        columns[0] = Arc::new(StringArray::from(vec!["different-slug"]));
+        columns[7] = Arc::new(StringArray::from(vec!["docs/different.md"]));
+        let renamed = RecordBatch::try_new(desired.schema(), columns).unwrap();
+        let next = replace_document(&renamed, &stored, &original, |_, _, _| {
+            panic!("different identity cannot invoke equivalence")
+        })
+        .unwrap();
+        assert!(next.columns()[18..].iter().all(|column| column.is_null(0)));
+        let error = replace_document(&desired, &stored, &original, |_, _, _| {
+            Err(KnowledgeIndexError::Request(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "fixture",
+            )))
+        })
+        .unwrap_err();
+        assert!(
+            matches!(error,KnowledgeIndexError::Request(error) if error.kind()==std::io::ErrorKind::BrokenPipe)
         );
     }
     #[test]

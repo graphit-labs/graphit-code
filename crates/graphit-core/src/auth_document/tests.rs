@@ -533,16 +533,29 @@ fn same_size_mutation_with_restored_mtime_is_not_accepted_as_same_content() {
     let mut snapshot = store.read(&context).unwrap();
     let path = fixture.root.join("auth.json");
     let modified = fs::metadata(&path).unwrap().modified().unwrap();
-    let mut changed = fs::OpenOptions::new().write(true).open(&path).unwrap();
-    changed.write_all(b"new").unwrap();
-    changed.sync_all().unwrap();
-    changed
-        .set_times(fs::FileTimes::new().set_modified(modified))
-        .unwrap();
-    assert_eq!(
-        err(store.revalidate(&mut snapshot, &context)),
-        AuthDocumentError::Conflict
-    );
+    let changed = fs::OpenOptions::new().write(true).open(&path);
+    #[cfg(unix)]
+    {
+        let mut changed = changed.unwrap();
+        changed.write_all(b"new").unwrap();
+        changed.sync_all().unwrap();
+        changed
+            .set_times(fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        drop(changed);
+        assert_eq!(
+            err(store.revalidate(&mut snapshot, &context)),
+            AuthDocumentError::Conflict
+        );
+    }
+    #[cfg(windows)]
+    {
+        // The captured private read handle prevents the attempted in-place edit.
+        assert_eq!(changed.unwrap_err().raw_os_error(), Some(32));
+        store.revalidate(&mut snapshot, &context).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"old");
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+    }
     assert_eq!(snapshot.bytes(), Some(b"old".as_slice()));
 }
 
@@ -770,19 +783,42 @@ fn failed_content_bound_still_rechecks_context_and_parent() {
 
     let changed = context();
     let store = fixture.store(&changed, 3);
+    #[cfg(windows)]
+    let identity = store.directory.identity().clone();
+    let retained = fixture._temporary.path().join("original-root");
     let result = store.read_attempt(
         &changed,
         || panic!("content was not read"),
         || {
-            fs::rename(
-                &fixture.root,
-                fixture._temporary.path().join("original-root"),
-            )
-            .unwrap();
-            drop(graphit_fs::create_private_directory(&fixture.root).unwrap());
+            let renamed = fs::rename(&fixture.root, &retained);
+            #[cfg(unix)]
+            {
+                renamed.unwrap();
+                drop(graphit_fs::create_private_directory(&fixture.root).unwrap());
+            }
+            #[cfg(windows)]
+            assert_eq!(renamed.unwrap_err().raw_os_error(), Some(32));
         },
     );
+    #[cfg(unix)]
     assert_eq!(err(result), AuthDocumentError::Conflict);
+    #[cfg(windows)]
+    {
+        // The retained no-delete parent prevents the attempted substitution;
+        // the unchanged parent preserves the original content-limit failure.
+        assert_eq!(err(result), AuthDocumentError::Limit);
+        store.check(&changed).unwrap();
+        assert!(
+            crate::native_file_identity::physical_id(
+                &fixture.root,
+                &fs::symlink_metadata(&fixture.root).unwrap(),
+            )
+            .unwrap()
+                == identity
+        );
+        assert_eq!(fs::read(fixture.root.join("auth.json")).unwrap(), b"data");
+        assert!(!retained.exists());
+    }
 }
 
 #[cfg(unix)]

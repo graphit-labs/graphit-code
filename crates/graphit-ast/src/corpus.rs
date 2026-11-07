@@ -7,8 +7,10 @@ use sha2::{Digest, Sha256};
 use std::{collections::HashMap, io, sync::Arc};
 
 mod batch;
+mod promotion;
 mod publication;
 pub use batch::{attach_embeddings, encode_file, projections, vectors};
+pub use promotion::promote_identities;
 pub use publication::prepare_embeddings;
 
 pub const DIRECTORY: &str = "corpus.lance";

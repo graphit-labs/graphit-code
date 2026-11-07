@@ -153,9 +153,12 @@ fn generic_native_owner_keeps_raw_data_view_and_compiled_queries_after_factory_d
         };
         assert_eq!(extent.range().text(), &source[1..source.len() - 1]);
         assert_eq!(parsed.observations()?.nodes[node_index].kind, "pair");
-        let identity = parsed
-            .identity_document()?
-            .symbol("Pair", name.raw(), &[])?;
+        let identity = parsed.identity_document()?.symbol(
+            "Pair",
+            name.raw(),
+            &[],
+            graphit_ast::symbols::LogicalDeclaration::named(name.display()),
+        )?;
         assert_eq!(identity.subject().text(), name.raw().text());
         let index = parsed.node_index(matched.captures[slots[0]].native.node_id)?;
         assert!(

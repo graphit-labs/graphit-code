@@ -65,6 +65,7 @@ fn stage_syntax(
     let (consumed, document) = index.syntax(batch.into_parts(), text, original)?;
     live.scip_document = Some(document);
     let parts = consumed.parts;
+    live.identity_changes.extend(consumed.identity_changes);
     if parts.association.path() != live.path
         || parts.association.source_sha256() != &live.source_sha256
     {

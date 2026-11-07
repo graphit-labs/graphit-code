@@ -283,6 +283,7 @@ pub(crate) async fn publish_source_changes(
                         source,
                         batch,
                         limits.index,
+                        crate::embedding_projection::equivalent_body,
                     )
                     .await
                     .map_err(E::DataLifecycle)?,
@@ -333,6 +334,7 @@ pub(crate) async fn publish_source_changes(
                                     source,
                                     batch,
                                     limits.index,
+                                    crate::embedding_projection::equivalent_body,
                                 )
                                 .await
                                 .map_err(E::DataLifecycle)?,
@@ -342,13 +344,19 @@ pub(crate) async fn publish_source_changes(
                     }
                 }
             };
-            if published.is_none()
-                || !matches!(
-                    &next,
-                    KnowledgeDesiredReconciliationResult::Existing(
-                        KnowledgeDocumentUpdateResult::Unchanged { .. }
-                    )
+            // A noop may observe a newer semantic generation, but it cannot
+            // replace this passage's actual Source effect and recovery key.
+            if !matches!(
+                &next,
+                KnowledgeDesiredReconciliationResult::Existing(
+                    KnowledgeDocumentUpdateResult::Unchanged { .. }
                 )
+            ) || matches!(
+                published.as_ref(),
+                None | Some(KnowledgeDesiredReconciliationResult::Existing(
+                    KnowledgeDocumentUpdateResult::Unchanged { .. }
+                ))
+            )
             {
                 published = Some(next);
             }

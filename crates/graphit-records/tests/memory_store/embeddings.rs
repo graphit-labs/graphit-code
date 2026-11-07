@@ -24,8 +24,8 @@ fn source() -> Memory {
         attributes: input("a").attributes,
         references: vec![],
         reference_generation: 1,
-        created_by: "1".repeat(64),
-        updated_by: "1".repeat(64),
+        created_by: ulid::Ulid::from(1u128).to_string(),
+        updated_by: ulid::Ulid::from(1u128).to_string(),
         created_at: 1,
         updated_at: 1,
     }
@@ -72,7 +72,7 @@ fn literal_projection_identity_and_irrelevant_metadata_are_distinct() {
     irrelevant.revision = 3;
     irrelevant.attributes.important = true;
     irrelevant.updated_at = 50;
-    irrelevant.updated_by = "2".repeat(64);
+    irrelevant.updated_by = ulid::Ulid::from(2u128).to_string();
     irrelevant.references.push(MemoryReference {
         target_kind: ReferenceTargetKind::Knowledge,
         scope: MemoryReferenceScope::Project("01KSH1CRFFG8Z74B5ZS78WW809".parse().unwrap()),

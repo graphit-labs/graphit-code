@@ -1091,3 +1091,74 @@ mod reference_storage {
         });
     }
 }
+
+#[test]
+fn selected_guide_heads_use_slug_or_source_identity_without_exposing_bodies() {
+    native_test(async {
+        let cancel = Cancellation::default();
+        let ctx = request(&cancel);
+        let f = Fixture::new(&ctx);
+        let issuer = f.issuer(&ctx);
+        let caller = issuer.authenticate_runtime(&f.secret(), &ctx).unwrap();
+        let authority = ProjectRecordAuthority::new(&issuer);
+        let read = authority
+            .admit_authenticated_read(&caller, &ctx, f.scope(), ProjectReadModule::Knowledge)
+            .unwrap();
+        let write = authority
+            .admit_authenticated_write(&caller, &ctx, f.scope(), ProjectWriteOperation::Knowledge)
+            .unwrap();
+        let body = "large destination body ".repeat(1000);
+        let mut target = page("authored-target", &[]);
+        target.title = Some("Target guide");
+        target.body = Some(&body);
+        target.source_path = "docs/target.md";
+        seed(&ctx, &write, &[target]).await;
+        let limits = KnowledgeHeadReadLimits {
+            max_slug_bytes: n(256),
+            native: native(),
+            batch_rows: NonZeroU32::new(1).unwrap(),
+        };
+        for result in [
+            read_native_knowledge_head_by_slug(ctx.snapshot(), &read, "authored-target", limits)
+                .await
+                .unwrap(),
+            read_native_knowledge_head_by_source_path(
+                ctx.snapshot(),
+                &read,
+                "docs/target.md",
+                limits,
+            )
+            .await
+            .unwrap(),
+        ] {
+            let KnowledgeHeadRead::Published { heads, .. } = result else {
+                panic!("published");
+            };
+            assert_eq!(heads.len(), 1);
+            assert_eq!(heads[0].slug, "authored-target");
+            assert_eq!(heads[0].title, "Target guide");
+        }
+        let KnowledgeHeadRead::Published { heads, .. } = read_native_knowledge_head_by_source_path(
+            ctx.snapshot(),
+            &read,
+            "docs/target.md' OR true",
+            limits,
+        )
+        .await
+        .unwrap() else {
+            panic!("published");
+        };
+        assert!(
+            heads.is_empty(),
+            "source identity is a literal SDK predicate"
+        );
+        let foreign = Arc::new(SnapshotContext::new(
+            Instant::now() + Duration::from_secs(30),
+            Cancellation::default(),
+        ));
+        assert!(matches!(
+            read_native_knowledge_head_by_slug(&foreign, &read, "authored-target", limits).await,
+            Err(KnowledgeIndexError::DifferentRequest)
+        ));
+    });
+}

@@ -340,19 +340,33 @@ mod native_nn_codec {
             col::<StringArray>(&batch, "uid").value(0),
             document.entities()?[0].identity().uid().as_str()
         );
+        let identity = document.entities()?[0].identity();
         assert_eq!(
-            serde_json::from_str::<serde_json::Value>(
-                document.entities()?[0].identity().uid().as_str()
-            )?,
-            serde_json::json!([
-                "ast-syntax-root-1",
-                ["src", "ação.rs"],
-                "rust",
-                "tree-sitter-rust",
-                "Function",
-                [39, 45],
-                [["Namespace", 4, 9], ["Namespace", 19, 24]]
-            ])
+            identity.document().relative_components(),
+            &["src", "ação.rs"]
+        );
+        assert_eq!(identity.document().language(), "rust");
+        assert_eq!(identity.document().grammar(), "tree-sitter-rust");
+        assert_eq!(identity.label(), "Function");
+        assert_eq!(
+            (identity.subject().start(), identity.subject().end()),
+            (39, 45)
+        );
+        assert_eq!(
+            identity
+                .context()
+                .iter()
+                .map(|frame| (frame.label(), frame.start(), frame.end()))
+                .collect::<Vec<_>>(),
+            vec![("Namespace", 4, 9), ("Namespace", 19, 24)]
+        );
+        assert_eq!(
+            identity.uid().as_str().len(),
+            graphit_data::CODE_ID_TEXT_BYTES
+        );
+        assert_eq!(
+            identity.uid().as_str().parse::<graphit_data::CodeUid>()?,
+            identity.uid().code()
         );
         assert_eq!(col::<StringArray>(&batch, "name").value(0), "ação");
         assert_eq!(col::<StringArray>(&batch, "data_key").value(0), "functions");
@@ -1166,17 +1180,33 @@ mod native_nn_physical_source {
                 (36, 74)
             );
             assert_eq!(projection.text.as_ptr(), source[36..74].as_ptr());
+            let identity = entity.identity();
             assert_eq!(
-                serde_json::from_str::<serde_json::Value>(entity.identity().uid().as_str())?,
-                serde_json::json!([
-                    "ast-syntax-root-1",
-                    ["src", "answer.rs"],
-                    "rust",
-                    "tree-sitter-rust",
-                    "Function",
-                    [43, 49],
-                    [["Namespace", 4, 9], ["Namespace", 20, 25]]
-                ])
+                identity.document().relative_components(),
+                &["src", "answer.rs"]
+            );
+            assert_eq!(identity.document().language(), "rust");
+            assert_eq!(identity.document().grammar(), "tree-sitter-rust");
+            assert_eq!(identity.label(), "Function");
+            assert_eq!(
+                identity.uid().as_str().len(),
+                graphit_data::CODE_ID_TEXT_BYTES
+            );
+            assert_eq!(
+                identity.uid().as_str().parse::<graphit_data::CodeUid>()?,
+                identity.uid().code()
+            );
+            assert_eq!(
+                identity.uid().code().file_hint(),
+                graphit_data::CodeFileId::from_components(&["src", "answer.rs"])?.hint()
+            );
+            assert_eq!(
+                identity
+                    .context()
+                    .iter()
+                    .map(|frame| (frame.label(), frame.start(), frame.end()))
+                    .collect::<Vec<_>>(),
+                vec![("Namespace", 4, 9), ("Namespace", 20, 25)]
             );
             owner.revalidate(&context)?;
         }

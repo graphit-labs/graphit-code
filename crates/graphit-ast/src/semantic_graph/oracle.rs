@@ -50,6 +50,7 @@ pub struct AstOracleGraphReference {
     kind: String,
     data_key: String,
     anchor: Option<(usize, usize)>,
+    occurrence_ordinal: Option<u64>,
     issue: Option<String>,
     outcome: AstGraphRelationOutcome,
 }
@@ -117,8 +118,7 @@ pub fn collect_oracle_graph_rows(
     }
     for (entity, node) in document.entities().iter().zip(&batch.nodes) {
         original.check()?;
-        if node.key
-            != serde_json::to_string(&[entity.identity().uid().as_str(), entity.data_key()])?
+        if node.key != syntax_key(entity.identity(), entity.data_key())?
             || node.label != entity.identity().label()
         {
             return Err(AstGraphError::NativeContract(
@@ -229,6 +229,7 @@ pub fn collect_oracle_graph_rows(
             kind: kind.clone(),
             data_key: occurrence.query.data_key().value().clone(),
             anchor: None,
+            occurrence_ordinal: None,
             issue: None,
             outcome: outcome.clone(),
         };
@@ -260,6 +261,25 @@ pub fn collect_oracle_graph_rows(
             reference.issue = Some("NonExactOrigin".into());
         }
         rows.references.push(reference);
+    }
+    let mut occurrences = LogicalRelationOccurrences::new(logical_file(&batch.association)?);
+    for reference in &mut rows.references {
+        original.check()?;
+        if let (Some(source), Some(target), Some(anchor)) = (
+            &reference.source_key,
+            &reference.lookup_key,
+            reference.anchor,
+        ) {
+            reference.occurrence_ordinal = Some(occurrences.ordinal(
+                source,
+                &reference.kind,
+                &ParserRelationOccurrence {
+                    query_data_key: Some(&reference.data_key),
+                    target,
+                    anchor,
+                },
+            )?);
+        }
     }
     original.check()?;
     Ok(rows)
@@ -303,13 +323,6 @@ pub fn resolve_oracle_graph_reference(
         {
             continue;
         }
-        // Cross-language/grammar guesses cannot enter this catalog.
-        let uid: Value = serde_json::from_str(&candidate.key)?;
-        if uid.as_array().is_none_or(|a| a.len() != 2) {
-            return Err(AstGraphError::NativeContract(
-                "Oracle candidate lacks entity tuple key",
-            ));
-        }
         target_candidates.push(candidate);
         if candidate.available {
             keys.insert(candidate.key.clone());
@@ -344,19 +357,24 @@ pub fn resolve_oracle_graph_reference(
                         "Oracle empty reference anchor",
                     ));
                 }
-                edges.push(AstGraphEdge {
-                    kind: reference.kind.clone(),
-                    source_key: source.clone(),
-                    target_key: target.clone(),
-                    uid: serde_json::to_string(&(
-                        &reference.kind,
-                        source,
-                        target,
-                        &reference.data_key,
-                        start,
-                        end,
-                    ))?,
-                });
+                edges.push(AstGraphEdge::logical(
+                    logical_file(&reference.association)?,
+                    &reference.kind,
+                    source,
+                    target,
+                    Some(&reference.data_key),
+                    reference
+                        .lookup_key
+                        .as_deref()
+                        .ok_or(AstGraphError::NativeContract(
+                            "Oracle reference lacks logical target",
+                        ))?,
+                    reference
+                        .occurrence_ordinal
+                        .ok_or(AstGraphError::NativeContract(
+                            "Oracle reference lacks occurrence ordinal",
+                        ))?,
+                )?);
                 AstGraphRelationTarget::Resolved {
                     key: target.clone(),
                 }

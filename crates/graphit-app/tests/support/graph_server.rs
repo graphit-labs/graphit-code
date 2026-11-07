@@ -289,7 +289,7 @@ fn graph_payload(
     let mut manifest = json!({"manifest_version":3,"format":"icebug-canonical","storage":"direct-parquet","finished":true,"add_reverse_edges":false,"schema_file":"schema.cypher",
         "node_tables":[{"label":"File","rows":1,"shards":[{"file":"File.parquet","row_base":0,"rows":1}],"primary_key":"path","columns":[{"name":"path","type":"STRING"},{"name":"name","type":"STRING"}],"lang_counts":[]},{"label":"Function","rows":2,"shards":[{"file":"Function.parquet","row_base":0,"rows":2}],"primary_key":"id","columns":[{"name":"id","type":"INT64"},{"name":"name","type":"STRING"}],"lang_counts":[]}],
         "relationships":[{"type":"CONTAINS","members":[{"from":"File","to":"Function","table":"a","indices":"a.indices","indptr":"a.indptr","rows":3,"source_row_base":0,"source_rows":1,"target_row_base":0,"target_rows":2}]}],
-        "relation_uids":true,"generation":version,"n_edges":3,"repaired_strings":0,"invariants":{"indptr_row_groups":1,"self_loops":"forward-once"}});
+        "relation_uids":true,"n_edges":3,"repaired_strings":0,"invariants":{"indptr_row_groups":1,"self_loops":"forward-once"}});
     if query_members {
         parquet(
             &graph.join("b.indices"),
@@ -441,6 +441,7 @@ async fn installed_two_versions_real_packages_schema_sample_properties_and_curso
     install(&f, &s, "release-2", "segunda");
     let (url, served) = socket(&s).await;
     let client = json_client();
+    let mut sampled_file_key = None;
     for (version, name) in [("release-1", "primeira"), ("release-2", "segunda")] {
         let selection = json!({"id":"actual-graph","version":version});
         let schema = client
@@ -466,9 +467,24 @@ async fn installed_two_versions_real_packages_schema_sample_properties_and_curso
         let sample: Value = sample.json().await.unwrap();
         assert_eq!(sample["nodes"][0]["name"], name);
         assert_eq!(sample["edges"].as_array().unwrap().len(), 3);
-        assert_eq!(sample["generation"], schema["generation"]);
+        assert!(sample.get("generation").is_none());
+        assert!(schema.get("generation").is_none());
+        let nodes = sample["nodes"].as_array().unwrap();
+        let file = nodes.iter().find(|node| node["label"] == "File").unwrap();
+        assert_eq!(
+            file["primary_key"],
+            json!({"name":"path","value":{"type":"string","value":"main.rs"}})
+        );
+        let function = nodes.iter().find(|node| node["name"] == "α").unwrap();
+        assert_eq!(
+            function["primary_key"],
+            json!({"name":"id","value":{"type":"int64","value":"9007199254740993"}})
+        );
+        if version == "release-1" {
+            sampled_file_key = Some(file["primary_key"]["value"].clone());
+        }
     }
-    let mut input = json!({"id":"actual-graph","version":"release-1","anchor_label":"File","anchor_key":{"type":"string","value":"main.rs"},"relationship":"CONTAINS","other_label":"Function","direction":"outgoing","limit":1});
+    let mut input = json!({"id":"actual-graph","version":"release-1","anchor_label":"File","anchor_key":sampled_file_key.unwrap(),"relationship":"CONTAINS","other_label":"Function","direction":"outgoing","limit":1});
     let page = client
         .post(format!("{url}/api/graphs/neighborhood"))
         .headers(headers(&f.raw, false))
@@ -479,6 +495,25 @@ async fn installed_two_versions_real_packages_schema_sample_properties_and_curso
     assert_eq!(page.status(), StatusCode::OK);
     let page: Value = page.json().await.unwrap();
     assert_eq!(page["edges"][0]["uid"], "u0");
+    assert_eq!(
+        page["edges"][0]["position"]["to_key"],
+        json!({"type":"int64","value":"9007199254740993"})
+    );
+    assert_eq!(page["edges"][0]["position"]["occurrence"], "0");
+    assert_eq!(
+        page["next_cursor"]["position"],
+        page["edges"].as_array().unwrap().last().unwrap()["position"]
+    );
+    let endpoint = page["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|node| node["label"] == "Function")
+        .unwrap();
+    assert_eq!(
+        endpoint["primary_key"],
+        json!({"name":"id","value":{"type":"int64","value":"9007199254740993"}})
+    );
     assert!(
         page["edges"][0]["properties"]
             .as_array()
@@ -534,6 +569,64 @@ async fn installed_two_versions_real_packages_schema_sample_properties_and_curso
         2
     );
     s.shutdown().await.unwrap();
+    served.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn neighborhood_http_continues_indistinguishable_parallel_positions_without_uid_loss() {
+    let (fixture, server) = fixture(true);
+    let raw = graph_payload(&fixture, "parallel", "actual", false);
+    parquet(
+        &raw.join("graph.icebug/a.indices"),
+        "message graph { required int64 target (UINT_64); required binary uid (UTF8); required int64 weight; }",
+        &[
+            Values::Ints(&[0, 0, 1]),
+            Values::Strings(&["same", "same", "tail"]),
+            Values::Ints(&[7, 7, 8]),
+        ],
+    );
+    publish_graph_payload(&fixture, &server, "parallel", &raw);
+    let (url, served) = socket(&server).await;
+    let client = json_client();
+    let mut input = json!({"id":"actual-graph","version":"parallel","anchor_label":"File",
+        "anchor_key":{"type":"string","value":"main.rs"},"limit":1});
+    let mut positions = Vec::new();
+    for (uid, occurrence) in [("same", "0"), ("same", "1"), ("tail", "0")] {
+        let response = client
+            .post(format!("{url}/api/graphs/neighborhood"))
+            .headers(headers(&fixture.raw, false))
+            .json(&input)
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = response.text().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let page: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(page["edges"].as_array().unwrap().len(), 1);
+        assert_eq!(page["edges"][0]["uid"], uid);
+        assert_eq!(page["edges"][0]["position"]["occurrence"], occurrence);
+        assert_eq!(
+            page["edges"][0]["position"]["from_key"],
+            json!({"type":"string","value":"main.rs"})
+        );
+        if uid == "same" {
+            assert_eq!(
+                page["edges"][0]["position"]["to_key"],
+                json!({"type":"int64","value":"9007199254740993"})
+            );
+            assert_eq!(
+                page["next_cursor"]["position"],
+                page["edges"][0]["position"]
+            );
+        } else {
+            assert!(page["next_cursor"].is_null());
+        }
+        positions.push(page["edges"][0]["position"].clone());
+        input["cursor"] = page["next_cursor"].clone();
+    }
+    assert_ne!(positions[0], positions[1]);
+    server.shutdown().await.unwrap();
     served.await.unwrap().unwrap();
 }
 
@@ -660,7 +753,7 @@ async fn denied_read_before_unavailable_origin_and_captured_change_and_original_
     fs::write(root.join("graph.icebug/icebug.json"), "{}").unwrap();
     assert!(graph.schema().is_err());
     cancel.cancel();
-    assert!(graph.generation().is_err());
+    assert!(graph.revalidate().is_err());
 }
 
 #[tokio::test]
@@ -888,7 +981,7 @@ async fn mismatch_registry_replaced_origin_and_corrupt_parquet_are_causal() {
     fs::rename(&root, &moved).unwrap();
     fs::create_dir_all(root.join("graph.icebug")).unwrap();
     fs::write(root.join("graph.icebug/schema.cypher"), "replacement").unwrap();
-    assert!(captured.generation().is_err());
+    assert!(captured.revalidate().is_err());
     fs::remove_dir_all(&root).unwrap();
     fs::rename(&moved, &root).unwrap();
     fs::write(root.join("graph.icebug/a.indices"), b"not parquet").unwrap();
@@ -991,6 +1084,8 @@ fn publish_local(auth: &DaemonAuth, paths: &InstallationPaths, ctx: &RequestCont
 #[tokio::test]
 async fn query_http_native_members_versions_parameters_and_typed_entities() {
     let (f, s) = fixture(true);
+    let observer = s.query_catalog().test_observer();
+    let mut prepared_counts = None;
     let local_cancel = Cancellation::default();
     let local_request = RequestContext::new(
         content(),
@@ -1023,6 +1118,19 @@ async fn query_http_native_members_versions_parameters_and_typed_entities() {
             "9007199254740993"
         );
         assert!(result["rows"][0][2]["value"].is_null());
+        drop(result);
+        let counts = observer.counts();
+        assert_eq!(
+            counts.0, 1,
+            "compatible releases must reuse the real Database"
+        );
+        assert!(counts.1 > 0, "the real schema must have been created");
+        if let Some(prepared) = prepared_counts {
+            assert_eq!(counts, prepared, "compatible captures must not repeat DDL");
+        } else {
+            prepared_counts = Some(counts);
+        }
+        query_capture_released(&observer).await;
         let result:Value=client.post(format!("{url}/api/graphs/query")).headers(headers(&f.raw,false))
             .json(&json!({"id":"actual-graph","version":version,"query":
                 "MATCH (a)-[r:CONTAINS]->(b) RETURN id(a),id(r),id(b),r.uid,r.weight ORDER BY r.uid"}))
@@ -1051,9 +1159,36 @@ async fn query_http_native_members_versions_parameters_and_typed_entities() {
                 .len(),
             2
         );
+        drop(result);
+        drop(entities);
+        assert_eq!(observer.counts(), prepared_counts.unwrap());
+        query_capture_released(&observer).await;
     }
     s.shutdown().await.unwrap();
     served.await.unwrap().unwrap();
+}
+
+async fn query_capture_released(observer: &graphit_ast::icebug_query::QueryCatalogObserver) {
+    let witness = observer.last_witness().expect("actual SDK query witness");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if witness.original.upgrade().is_none()
+                && witness
+                    .local
+                    .as_ref()
+                    .is_none_or(|reader| reader.upgrade().is_none())
+                && witness
+                    .remote
+                    .as_ref()
+                    .is_none_or(|reader| reader.upgrade().is_none())
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("completed HTTP query must release its Original and captured readers");
 }
 #[tokio::test]
 async fn query_http_denies_effects_credentials_and_invalid_input_causally() {
@@ -1297,33 +1432,21 @@ pub(crate) async fn live_project_graph(
 }
 
 #[cfg(target_os = "linux")]
-async fn project_fixture_from(
-    (fixture, mut server): (source_fixture::Fixture, GraphServer),
-) -> (source_fixture::Fixture, GraphServer, std::path::PathBuf) {
+fn publish_project_file(
+    graph: &crate::foreground_ast_sources::progressive::LiveIndex,
+    original: &Arc<graphit_core::file_io::SnapshotContext>,
+    name: &str,
+    file_version: u8,
+) {
     use graphit_data::graph_writer::{GraphEdge, GraphNode, GraphValue};
     use std::collections::BTreeMap;
-    let config = ConfigSnapshot::new(fixture.paths.brand(), []).unwrap();
-    server
-        .attach_projects(
-            config,
-            Arc::new(crate::live_project_selections::LiveProjectSelections::new(
-                Arc::clone(&fixture.projects),
-                0,
-            )),
-        )
-        .unwrap();
-    let original = Arc::new(graphit_core::file_io::SnapshotContext::new(
-        Instant::now() + Duration::from_secs(30),
-        Cancellation::default(),
-    ));
-    let graph = live_project_graph(&fixture, &server, &original).await;
     let nodes = [
         GraphNode {
             label: "File".into(),
             key: "main.rs".into(),
             properties: BTreeMap::from([
                 ("path".into(), GraphValue::String("main.rs".into())),
-                ("name".into(), GraphValue::String("native-project".into())),
+                ("name".into(), GraphValue::String(name.into())),
             ]),
         },
         GraphNode {
@@ -1358,8 +1481,8 @@ async fn project_fixture_from(
         .replace_file(
             graphit_ast::live_graph::LiveFileInput {
                 path: "main.rs",
-                source_sha256: [0; 32],
-                raw_version: 0,
+                source_sha256: [file_version; 32],
+                raw_version: u64::from(file_version),
                 nodes: &nodes,
                 edges: &edges,
                 definitions: &[],
@@ -1370,9 +1493,31 @@ async fn project_fixture_from(
                 oracle: &[],
                 oracle_file: None,
             },
-            &original,
+            original,
         )
         .unwrap();
+}
+
+#[cfg(target_os = "linux")]
+async fn project_fixture_from(
+    (fixture, mut server): (source_fixture::Fixture, GraphServer),
+) -> (source_fixture::Fixture, GraphServer, std::path::PathBuf) {
+    let config = ConfigSnapshot::new(fixture.paths.brand(), []).unwrap();
+    server
+        .attach_projects(
+            config,
+            Arc::new(crate::live_project_selections::LiveProjectSelections::new(
+                Arc::clone(&fixture.projects),
+                0,
+            )),
+        )
+        .unwrap();
+    let original = Arc::new(graphit_core::file_io::SnapshotContext::new(
+        Instant::now() + Duration::from_secs(30),
+        Cancellation::default(),
+    ));
+    let graph = live_project_graph(&fixture, &server, &original).await;
+    publish_project_file(&graph, &original, "native-project", 0);
     let (paths, id, version) = &fixture.projects[0];
     let scope = CapturedPublicationScope::project(paths, *id, scopes(), &original).unwrap();
     let binding = scope.binding().unwrap();
@@ -1393,12 +1538,77 @@ async fn project_fixture_from(
 
 #[cfg(target_os = "linux")]
 #[tokio::test]
+async fn project_query_http_independent_requests_return_current_data() {
+    let (fixture, server, _destination) = project_fixture(true).await;
+    let observer = server.query_catalog().test_observer();
+    let mut prepared_counts = None;
+    let (url, serving) = socket(&server).await;
+    let client = json_client();
+    for request_number in 1..=2 {
+        let expected_name = if request_number == 1 {
+            "native-project"
+        } else {
+            let original = Arc::new(graphit_core::file_io::SnapshotContext::new(
+                Instant::now() + Duration::from_secs(30),
+                Cancellation::default(),
+            ));
+            let writer = live_project_graph(&fixture, &server, &original).await;
+            let weak_writer = Arc::downgrade(&writer.graph);
+            let fence = writer.write_fence(&original).await.unwrap();
+            publish_project_file(&writer, &original, "updated-project", 1);
+            drop(fence);
+            drop(writer);
+            assert!(
+                weak_writer.upgrade().is_none(),
+                "the publication must release its writer before the next request"
+            );
+            "updated-project"
+        };
+        let started = Instant::now();
+        let response = client
+            .post(format!("{url}/api/graphs/project/query"))
+            .headers(headers(&fixture.raw, false))
+            .json(&json!({"selection":{},"query":{
+                "query":"MATCH (f:File) RETURN f.name","parameters":{}
+            }}))
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = response.text().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let value: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(value["rows"][0][0]["value"], expected_name);
+        eprintln!(
+            "PROJECT query request={request_number} complete_http_us={}",
+            started.elapsed().as_micros()
+        );
+        drop(value);
+        drop(body);
+        let counts = observer.counts();
+        assert_eq!(counts.0, 1);
+        assert!(counts.1 > 0);
+        if let Some(prepared) = prepared_counts {
+            assert_eq!(
+                counts, prepared,
+                "independent PROJECT calls must reuse Database and DDL"
+            );
+        } else {
+            prepared_counts = Some(counts);
+        }
+        query_capture_released(&observer).await;
+    }
+    server.shutdown().await.unwrap();
+    serving.await.unwrap().unwrap();
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
 async fn project_http_uses_live_graph_exact_selection_and_rejects_captured_directory_replacement() {
     let (f, s, destination) = project_fixture(true).await;
     let (url, served) = socket(&s).await;
     let client = json_client();
     let selected = json!({"selection":{}});
-    let mut generation = None;
     for operation in ["schema", "sample"] {
         let response = client
             .post(format!("{url}/api/graphs/project/{operation}"))
@@ -1414,14 +1624,7 @@ async fn project_http_uses_live_graph_exact_selection_and_rejects_captured_direc
             response.text().await.unwrap()
         );
         let value = response.json::<Value>().await.unwrap();
-        if let Some(generation) = &generation {
-            assert_eq!(
-                &value["generation"], generation,
-                "unchanged native FILE retains its generation across fresh requests"
-            );
-        } else {
-            generation = Some(value["generation"].clone());
-        }
+        assert!(value.get("generation").is_none());
     }
     let query =
         json!({"selection":{},"query":{"query":"MATCH (f:File) RETURN f.name","parameters":{}}});
@@ -1668,6 +1871,15 @@ pub(crate) async fn web_source_fixture(stored: bool) -> (source_fixture::Fixture
             label: "Function".into(),
             key: "invalid".into(),
             properties: properties("invalid", 4, 2),
+        },
+        GraphNode {
+            label: "Function".into(),
+            key: "sha-mismatch".into(),
+            properties: {
+                let mut values = properties("sha-mismatch", 2, 4);
+                values.insert("source_sha256".into(), GraphValue::String("00".repeat(32)));
+                values
+            },
         },
         GraphNode {
             label: "Function".into(),

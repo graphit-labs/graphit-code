@@ -26,7 +26,7 @@
 //!     ctx: &'r SnapshotContext) -> SyntaxIdentity<'o, 'o, 'r> {
 //!     let subject = SourceText::new(input.original_bytes, limits.source_bytes()).unwrap().range(0, 1).unwrap();
 //!     let doc = IdentityDocument::new(input, limits, ctx).unwrap();
-//!     doc.symbol("Value", subject, &[]).unwrap()
+//!     doc.symbol("Value", subject, &[], LogicalDeclaration::named(subject.text())).unwrap()
 //! }
 //! ```
 //!
@@ -45,7 +45,7 @@
 //!         relative_components: &["x"], language: "json", grammar: "g", original_bytes: raw.as_bytes(),
 //!     }, limits, ctx).unwrap();
 //!     let subject = SourceText::new(raw.as_bytes(), limits.source_bytes()).unwrap().range(0, 1).unwrap();
-//!     let key = doc.symbol("Value", subject, &[]).unwrap();
+//!     let key = doc.symbol("Value", subject, &[], LogicalDeclaration::named(subject.text())).unwrap();
 //!     raw.push('!');
 //!     assert_eq!(key.subject().text(), "x");
 //! }
@@ -71,8 +71,8 @@
 //! use graphit_ast::{SourceRange, symbols::*};
 //! fn child<'doc, 'o, 'r>(doc: &'doc IdentityDocument<'o, 'r>,
 //!     parent: SourceRange<'o>, subject: SourceRange<'o>) -> Result<SyntaxIdentity<'doc, 'o, 'r>, IdentityError> {
-//!     let owner = doc.symbol("Pair", parent, &[])?;
-//!     let child = doc.symbol("Value", subject, &[&owner])?;
+//!     let owner = doc.symbol("Pair", parent, &[], LogicalDeclaration::named(parent.text()))?;
+//!     let child = doc.symbol("Value", subject, &[&owner], LogicalDeclaration::named(subject.text()))?;
 //!     drop(owner);
 //!     Ok(child)
 //! }
@@ -80,14 +80,8 @@
 
 use crate::{RangeError, SourceRange, SourceText};
 use graphit_core::file_io::SnapshotContext;
-use serde::{Serialize, Serializer, ser::SerializeSeq};
-use std::{
-    error::Error,
-    fmt,
-    io::{self, Write},
-};
-
-const TAG: &str = "ast-syntax-root-1";
+use graphit_data::{CODE_ID_TEXT_BYTES, CodeDeclaration, CodeFileId, CodeScope, CodeUid};
+use std::{collections::HashMap, error::Error, fmt, fmt::Write as _, io, sync::Mutex};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IdentityErrorCode {
@@ -244,12 +238,36 @@ pub struct IdentityDocumentInput<'o> {
     pub original_bytes: &'o [u8],
 }
 
+/// Semantic fields observed by the native producer before identity admission.
+/// Empty names are valid observations, for example a decoded JSON object key.
+#[derive(Clone, Copy)]
+pub struct LogicalDeclaration<'a> {
+    pub name: &'a str,
+    pub declared_type: Option<&'a str>,
+    pub anonymous: bool,
+}
+impl<'a> LogicalDeclaration<'a> {
+    pub fn named(name: &'a str) -> Self {
+        Self {
+            name,
+            declared_type: None,
+            anonymous: false,
+        }
+    }
+}
+
+type DeclarationGroups = HashMap<CodeUid, HashMap<(usize, usize), u64>>;
+
 /// Borrows unchanged logical metadata, original bytes and original context.
 pub struct IdentityDocument<'o, 'request> {
     input: IdentityDocumentInput<'o>,
     source: SourceText<'o>,
     limits: IdentityLimits,
     original: &'request SnapshotContext,
+    file: CodeFileId,
+    // Admission state for this parse only. Anchors bind repeated observations;
+    // they never enter a digest or survive the document.
+    declarations: Mutex<DeclarationGroups>,
 }
 impl<'o, 'request> IdentityDocument<'o, 'request> {
     pub fn new(
@@ -333,11 +351,15 @@ impl<'o, 'request> IdentityDocument<'o, 'request> {
                     range_error: Some(cause),
                 }
             })?;
+        let file =
+            CodeFileId::from_components(input.relative_components).map_err(|_| invariant())?;
         Ok(Self {
             input,
             source,
             limits,
             original,
+            file,
+            declarations: Mutex::new(HashMap::new()),
         })
     }
     pub fn relative_components(&self) -> &'o [&'o str] {
@@ -358,6 +380,7 @@ impl<'o, 'request> IdentityDocument<'o, 'request> {
         label: &str,
         subject: SourceRange<'o>,
         owners: &[&SyntaxIdentity<'doc, 'o, 'request>],
+        declaration: LogicalDeclaration<'_>,
     ) -> Result<SyntaxIdentity<'doc, 'o, 'request>, IdentityError> {
         let original = self.original;
         check_context(original)?;
@@ -409,29 +432,52 @@ impl<'o, 'request> IdentityDocument<'o, 'request> {
                 }
             }
         }
-        let wire = (
-            TAG,
-            self.relative_components(),
-            self.language(),
-            self.grammar(),
-            label,
-            [as_u64(subject.start())?, as_u64(subject.end())?],
-            WireOwners(owners),
-        );
-        let length = serialize_wire(&wire, self.limits.uid_bytes(), None, original)?;
-        if length == 0 {
-            return Err(invariant());
+        cap(
+            CODE_ID_TEXT_BYTES,
+            self.limits.uid_bytes(),
+            IdentityField::UidBytes,
+            None,
+        )?;
+        cap(
+            declaration.name.len(),
+            self.limits.source_bytes(),
+            IdentityField::SourceBytes,
+            None,
+        )?;
+        if let Some(declared_type) = declaration.declared_type {
+            cap(
+                declared_type.len(),
+                self.limits.source_bytes(),
+                IdentityField::SourceBytes,
+                None,
+            )?;
         }
-        let mut output = Vec::new();
-        reserve(&mut output, length, original)?;
-        let written = serialize_wire(&wire, self.limits.uid_bytes(), Some(&mut output), original)?;
-        if written != length || output.len() != length {
-            return Err(invariant());
+        let mut scopes = Vec::new();
+        reserve(&mut scopes, owners.len(), original)?;
+        for owner in owners {
+            check_context(original)?;
+            scopes.push(CodeScope::Declaration(owner.uid().code()));
         }
-        check_context(original)?;
-        let uid = SyntaxUid {
-            value: String::from_utf8(output).map_err(|_| invariant())?,
+        let derive = |ordinal| {
+            CodeUid::derive(
+                self.file,
+                CodeDeclaration::Fallback {
+                    language: self.language(),
+                    kind: label,
+                    owners: &scopes,
+                    name: declaration.name,
+                    declared_type: declaration.declared_type,
+                    anonymous: declaration.anonymous,
+                    ordinal,
+                },
+            )
+            .map_err(|_| invariant())
         };
+        let group = derive(0)?;
+        let mut value = String::new();
+        value
+            .try_reserve_exact(CODE_ID_TEXT_BYTES)
+            .map_err(|_| IdentityError::new(IdentityErrorCode::Allocation, None, None))?;
         let owned_label = copy_text(label, original)?;
         let mut context = Vec::new();
         reserve(&mut context, owners.len(), original)?;
@@ -445,6 +491,26 @@ impl<'o, 'request> IdentityDocument<'o, 'request> {
             check_context(original)?;
             context.push(frame);
         }
+        let mut declarations = self.declarations.lock().map_err(|_| invariant())?;
+        check_context(original)?;
+        declarations
+            .try_reserve(1)
+            .map_err(|_| IdentityError::new(IdentityErrorCode::Allocation, None, None))?;
+        let subjects = declarations.entry(group).or_default();
+        let anchor = (subject.start(), subject.end());
+        let admitted = subjects.get(&anchor).copied();
+        let ordinal = admitted.unwrap_or(as_u64(subjects.len())?);
+        let code = derive(ordinal)?;
+        write!(&mut value, "{code}")
+            .map_err(|_| IdentityError::new(IdentityErrorCode::Serialization, None, None))?;
+        check_context(original)?;
+        if admitted.is_none() {
+            subjects
+                .try_reserve(1)
+                .map_err(|_| IdentityError::new(IdentityErrorCode::Allocation, None, None))?;
+            subjects.insert(anchor, ordinal);
+        }
+        let uid = SyntaxUid { value, code };
         Ok(SyntaxIdentity {
             document: self,
             label: owned_label,
@@ -546,8 +612,12 @@ impl ContextFrame {
 }
 pub struct SyntaxUid {
     value: String,
+    code: CodeUid,
 }
 impl SyntaxUid {
+    pub fn code(&self) -> CodeUid {
+        self.code
+    }
     pub fn as_str(&self) -> &str {
         &self.value
     }
@@ -638,101 +708,6 @@ fn copy_text(value: &str, original: &SnapshotContext) -> Result<String, Identity
     String::from_utf8(bytes).map_err(|_| invariant())
 }
 
-// Owner offsets are checked in symbol validation before either SDK pass. The wrapper
-// borrows existing keys; it allocates no temporary tuple or JSON value vector.
-struct WireOwners<'a, 'doc, 'o, 'request>(&'a [&'a SyntaxIdentity<'doc, 'o, 'request>]);
-impl Serialize for WireOwners<'_, '_, '_, '_> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut sequence = serializer.serialize_seq(Some(self.0.len()))?;
-        for owner in self.0 {
-            sequence.serialize_element(&(
-                owner.label(),
-                owner.subject.start() as u64,
-                owner.subject.end() as u64,
-            ))?;
-        }
-        sequence.end()
-    }
-}
-struct BoundedWriter<'a> {
-    original: &'a SnapshotContext,
-    output: Option<&'a mut Vec<u8>>,
-    cap: usize,
-    count: usize,
-    first_error: Option<IdentityError>,
-}
-impl BoundedWriter<'_> {
-    fn fail(&mut self, error: IdentityError) -> io::Error {
-        if self.first_error.is_none() {
-            self.first_error = Some(error);
-        }
-        io::Error::from(io::ErrorKind::Other)
-    }
-    fn chunk(&mut self, bytes: &[u8]) -> Result<usize, IdentityError> {
-        if bytes.is_empty() {
-            return Ok(0);
-        }
-        check_context(self.original)?;
-
-        let next = self.count.checked_add(bytes.len()).ok_or_else(overflow)?;
-        cap(next, self.cap, IdentityField::UidBytes, None)?;
-        if let Some(output) = self.output.as_mut() {
-            let available = output
-                .capacity()
-                .checked_sub(output.len())
-                .ok_or_else(invariant)?;
-            if bytes.len() > available {
-                return Err(invariant());
-            }
-            output.extend_from_slice(bytes);
-        }
-        self.count = next;
-        Ok(bytes.len())
-    }
-}
-impl Write for BoundedWriter<'_> {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        if self.first_error.is_some() {
-            return Err(io::Error::from(io::ErrorKind::Other));
-        }
-        match self.chunk(bytes) {
-            Ok(n) => Ok(n),
-            Err(error) => Err(self.fail(error)),
-        }
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        if self.first_error.is_some() {
-            return Err(io::Error::from(io::ErrorKind::Other));
-        }
-        match check_context(self.original) {
-            Ok(()) => Ok(()),
-            Err(error) => Err(self.fail(error)),
-        }
-    }
-}
-fn serialize_wire(
-    wire: &impl Serialize,
-    maximum: usize,
-    output: Option<&mut Vec<u8>>,
-    original: &SnapshotContext,
-) -> Result<usize, IdentityError> {
-    check_context(original)?;
-    let mut writer = BoundedWriter {
-        original,
-        output,
-        cap: maximum,
-        count: 0,
-        first_error: None,
-    };
-    let sdk = serde_json::to_writer(&mut writer, wire);
-    if let Some(error) = writer.first_error {
-        return Err(error);
-    }
-    sdk.map_err(|_| IdentityError::new(IdentityErrorCode::Serialization, None, None))?;
-    cap(writer.count, maximum, IdentityField::UidBytes, None)?;
-    Ok(writer.count)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -744,18 +719,6 @@ mod tests {
             Instant::now() + Duration::from_secs(60),
             Cancellation::default(),
         )
-    }
-
-    fn limits() -> IdentityLimits {
-        IdentityLimits::new(IdentityLimitsInput {
-            source_bytes: 4096,
-            path_components: 16,
-            path_component_bytes: 256,
-            identity_text_bytes: 256,
-            owner_depth: 16,
-            uid_bytes: 4096,
-        })
-        .unwrap()
     }
 
     #[test]
@@ -783,139 +746,5 @@ mod tests {
         reserve(&mut output, 74, &ctx).unwrap();
         assert!(output.capacity() >= 74);
         assert_eq!(copy_text("tree-sitter-x", &ctx).unwrap(), "tree-sitter-x");
-    }
-
-    #[test]
-    fn first_other_error_latches_without_retry_or_further_effect() {
-        let ctx = context();
-        let mut output = Vec::new();
-        reserve(&mut output, 1, &ctx).unwrap();
-        let mut writer = BoundedWriter {
-            original: &ctx,
-            output: Some(&mut output),
-            cap: 1,
-            count: 0,
-            first_error: None,
-        };
-        writer.write_all(b"a").unwrap();
-        assert_eq!(
-            writer.write_all(b"bc").unwrap_err().kind(),
-            io::ErrorKind::Other
-        );
-        let error = writer.first_error.unwrap();
-        assert_eq!(error.code(), IdentityErrorCode::LimitExceeded);
-        assert_eq!(error.field(), Some(IdentityField::UidBytes));
-        for _ in 0..3 {
-            assert_eq!(
-                writer.write_all(b"z").unwrap_err().kind(),
-                io::ErrorKind::Other
-            );
-            assert_eq!(writer.write(b"").unwrap_err().kind(), io::ErrorKind::Other);
-            assert_eq!(writer.flush().unwrap_err().kind(), io::ErrorKind::Other);
-        }
-        assert_eq!(writer.first_error, Some(error));
-        assert_eq!(writer.count, 1);
-        assert_eq!(writer.output.as_deref().unwrap().as_slice(), b"a");
-    }
-
-    #[test]
-    fn writer_empty_flush_retains_original_context_error() {
-        let signal = Cancellation::default();
-        let ctx = SnapshotContext::new(Instant::now() + Duration::from_secs(60), signal.clone());
-        let mut writer = BoundedWriter {
-            original: &ctx,
-            output: None,
-            cap: 100,
-            count: 0,
-            first_error: None,
-        };
-        assert_eq!(writer.write(b"").unwrap(), 0);
-        writer.flush().unwrap();
-        signal.cancel();
-        assert_eq!(writer.write(b"").unwrap(), 0);
-        assert_eq!(writer.flush().unwrap_err().kind(), io::ErrorKind::Other);
-        assert_eq!(
-            writer.first_error.unwrap().code(),
-            IdentityErrorCode::Cancelled
-        );
-        assert_eq!(writer.count, 0);
-    }
-
-    #[test]
-    fn every_manual_wire_oracle_has_exact_two_pass_output_and_uid_cap() {
-        let expected: serde_json::Value = serde_json::from_str(include_str!(
-            "../tests/fixtures/symbols/expected-identity.json"
-        ))
-        .unwrap();
-        let rows = expected["rows"].as_array().unwrap();
-        assert_eq!(rows.len(), 15);
-        let ctx = context();
-        for row in rows {
-            let tuple = &row["typed_tuple"];
-            let paths: Vec<&str> = tuple[1]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|v| v.as_str().unwrap())
-                .collect();
-            let bytes = match row["original_fixture"].as_str().unwrap() {
-                "go.txt" => &include_bytes!("../tests/fixtures/symbols/go.txt")[..],
-                "same-line.js" => &include_bytes!("../tests/fixtures/symbols/same-line.js")[..],
-                "unicode-crlf.js" => {
-                    &include_bytes!("../tests/fixtures/symbols/unicode-crlf.js")[..]
-                }
-                "values.json" => &include_bytes!("../tests/fixtures/symbols/values.json")[..],
-                _ => panic!("unknown oracle fixture"),
-            };
-            let doc = IdentityDocument::new(
-                IdentityDocumentInput {
-                    relative_components: &paths,
-                    language: tuple[2].as_str().unwrap(),
-                    grammar: tuple[3].as_str().unwrap(),
-                    original_bytes: bytes,
-                },
-                limits(),
-                &ctx,
-            )
-            .unwrap();
-            let source = SourceText::new(bytes, 4096).unwrap();
-            let owner_tuple = tuple[6].as_array().unwrap().first();
-            let owner = owner_tuple.map(|o| {
-                doc.symbol(
-                    o[0].as_str().unwrap(),
-                    source
-                        .range(
-                            o[1].as_u64().unwrap() as usize,
-                            o[2].as_u64().unwrap() as usize,
-                        )
-                        .unwrap(),
-                    &[],
-                )
-                .unwrap()
-            });
-            let owners: Vec<_> = owner.iter().collect();
-            let wire = (
-                TAG,
-                &paths,
-                doc.language(),
-                doc.grammar(),
-                tuple[4].as_str().unwrap(),
-                [tuple[5][0].as_u64().unwrap(), tuple[5][1].as_u64().unwrap()],
-                WireOwners(&owners),
-            );
-            let expected_uid = row["expected_uid"].as_str().unwrap().as_bytes();
-            let count = serialize_wire(&wire, 4096, None, &ctx).unwrap();
-            assert_eq!(count, expected_uid.len());
-            let mut output = Vec::new();
-            reserve(&mut output, count, &ctx).unwrap();
-            assert_eq!(
-                serialize_wire(&wire, 4096, Some(&mut output), &ctx).unwrap(),
-                count
-            );
-            assert_eq!(output.as_slice(), expected_uid);
-            let error = serialize_wire(&wire, count - 1, None, &ctx).unwrap_err();
-            assert_eq!(error.code(), IdentityErrorCode::LimitExceeded);
-            assert_eq!(error.field(), Some(IdentityField::UidBytes));
-        }
     }
 }

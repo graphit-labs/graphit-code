@@ -345,7 +345,12 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
                 return Ok(None);
             }
             let refs = symbols.iter().collect::<Vec<_>>();
-            symbols.push(self.parsed.identity.symbol(&context.label, anchor, &refs)?);
+            symbols.push(self.parsed.identity.symbol(
+                &context.label,
+                anchor,
+                &refs,
+                LogicalDeclaration::named(&owner_name),
+            )?);
             namespaces.push(TsNamespace {
                 node_index: self.python_wrapper(owner.node_index)?,
                 context_index: Some(context_index),
@@ -364,7 +369,12 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
             outer = Some(owner.node_index);
         }
         let refs = symbols.iter().collect::<Vec<_>>();
-        let identity = self.parsed.identity.symbol(target.label, raw, &refs)?;
+        let identity = self.parsed.identity.symbol(
+            target.label,
+            raw,
+            &refs,
+            LogicalDeclaration::named(&name),
+        )?;
         Ok(Some(EntitySeed {
             identity,
             name,
@@ -576,16 +586,18 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
         for frame in &seed.namespaces {
             self.parsed.original.check()?;
             let refs = symbols.iter().collect::<Vec<_>>();
-            symbols.push(
-                self.parsed
-                    .identity
-                    .symbol(&frame.label, frame.anchor, &refs)?,
-            );
+            symbols.push(self.parsed.identity.symbol(
+                &frame.label,
+                frame.anchor,
+                &refs,
+                LogicalDeclaration::named(&frame.name),
+            )?);
         }
         seed.identity = self.parsed.identity.symbol(
             target.label,
             seed.raw,
             &symbols.iter().collect::<Vec<_>>(),
+            LogicalDeclaration::named(&seed.name),
         )?;
         Ok(())
     }

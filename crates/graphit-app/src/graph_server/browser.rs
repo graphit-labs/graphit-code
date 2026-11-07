@@ -271,7 +271,7 @@ impl GraphServer {
             )
         };
         let index = select_project(state, &input.selection, &snapshot)?;
-        let requires_graph = source.as_ref().is_none_or(|source| source.entity.is_some());
+        let requires_graph = source.as_ref().is_none_or(|source| source.has_entity());
         let (paths, id, version) = &snapshot.projects[index];
         let capture = Arc::new(
             PreparedRead::capture(
@@ -365,6 +365,7 @@ impl GraphServer {
             while jobs.try_join_next().is_some() {}
             let owner = Arc::clone(state);
             let capture = Arc::clone(&capture);
+            let paths = paths.clone();
             jobs.spawn_blocking(move || {
                 let access = owner.project.as_ref().expect("captured PROJECT access");
                 let result = if let Some(source) = source {
@@ -383,6 +384,7 @@ impl GraphServer {
                 } else {
                     render_project_capture(
                         &owner,
+                        &paths,
                         &capture,
                         graph_operation.expect("non-Source graph operation"),
                         input.query,

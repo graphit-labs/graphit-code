@@ -133,6 +133,9 @@ pub fn atomic_replace_with<T>(
         .ok_or_else(|| invalid_input("file has no parent"))?;
     let mut temporary = temporary_file(directory, permissions.as_ref())?;
     let value = write(temporary.as_file_mut())?;
+    // Windows admits only writable permissions at creation and keeps normal
+    // attributes, as tempfile::persist did before publication.
+    #[cfg(not(windows))]
     if let Some(permissions) = permissions {
         temporary.as_file().set_permissions(permissions)?;
     }
@@ -163,6 +166,15 @@ fn persist_temporary(
     check_cancelled(cancellation)?;
     writable_metadata(path)?;
     check_cancelled(cancellation)?;
+    #[cfg(windows)]
+    {
+        let mut temporary = temporary;
+        // std's native rename supports readers holding share-delete handles.
+        // Disarm pathname cleanup only after the publication has succeeded.
+        fs::rename(temporary.path(), path)?;
+        temporary.disable_cleanup(true);
+    }
+    #[cfg(not(windows))]
     temporary.persist(path).map_err(|error| error.error)?;
     Ok(())
 }
@@ -173,16 +185,38 @@ fn temporary_file(
 ) -> io::Result<tempfile::NamedTempFile> {
     let mut builder = tempfile::Builder::new();
     builder.prefix(".write-");
-    if let Some(permissions) = permissions {
-        builder.permissions(permissions.clone());
-    } else {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            builder.permissions(Permissions::from_mode(0o666));
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
+        if permissions.is_some_and(Permissions::readonly) {
+            return Err(io::Error::other(
+                "read-only temporary files are unsupported on Windows",
+            ));
         }
+        // A normal file needs no attribute repair between sync and rename.
+        builder.make_in(directory, |path| {
+            fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .attributes(FILE_ATTRIBUTE_NORMAL)
+                .open(path)
+        })
     }
-    builder.tempfile_in(directory)
+    #[cfg(not(windows))]
+    {
+        if let Some(permissions) = permissions {
+            builder.permissions(permissions.clone());
+        } else {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                builder.permissions(Permissions::from_mode(0o666));
+            }
+        }
+        builder.tempfile_in(directory)
+    }
 }
 
 pub(crate) fn check_cancelled(cancellation: &Cancellation) -> io::Result<()> {
@@ -401,6 +435,15 @@ mod tests {
         .unwrap();
         assert_eq!(value, "finalized");
         assert_eq!(fs::read(&destination).unwrap(), b"0009part-tail");
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_TEMPORARY;
+            assert_eq!(
+                fs::metadata(&destination).unwrap().file_attributes() & FILE_ATTRIBUTE_TEMPORARY,
+                0
+            );
+        }
         assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
     }
 

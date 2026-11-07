@@ -1,6 +1,9 @@
 use super::{State, ToolResult, error, parse};
 use graphit_auth::{Permission, VerifiedRoleGrant};
-use graphit_core::{config::ConfigKey, module_settings::Module, project_paths::ProjectPaths};
+use graphit_core::{
+    config::ConfigKey, module_settings::Module, native_document_file::CapturedDocumentDirectory,
+    project_paths::ProjectPaths,
+};
 use graphit_hub::{ArtifactType, ConcreteVersion, NativeBinding, policy::RequestContext};
 use graphit_runtime::{
     instructions::{
@@ -70,6 +73,7 @@ pub(super) fn read(
         }
     };
     let mut observed = Vec::new();
+    let mut hub_capture = None;
     for candidate in set.candidates() {
         grant
             .authorize(Permission::Read(module))
@@ -104,12 +108,11 @@ pub(super) fn read(
         grant
             .authorize(Permission::Read(Module::Hub))
             .map_err(|_| error("authentication_or_permission_denied"))?;
-        let registry = state
-            .policy
-            .source
-            .registry
-            .load()
-            .map_err(|_| error("hub_registry_failure"))?;
+        let (hub_registry, registry_parent) =
+            super::hub::captured_global_registry(state, original)?;
+        let registry = hub_registry
+            .load_captured(&registry_parent, original.snapshot())
+            .map_err(super::hub::io_failure)?;
         let version = ConcreteVersion::new(&selected.version, state.task.role_reference)
             .map_err(|_| error("invalid_hub_version"))?;
         let artifact = registry
@@ -125,9 +128,15 @@ pub(super) fn read(
         if matching.next().is_some() {
             return Err(error("ambiguous_skill_binding"));
         }
-        let root = installation.original_source.directory().as_path();
+        let source_directory = CapturedDocumentDirectory::capture(
+            installation.original_source.directory().as_path(),
+            state.policy.source.index,
+            original.snapshot(),
+        )
+        .map_err(super::hub::io_failure)?;
+        let root = source_directory.canonical_path();
         if !root.starts_with(paths.root())
-            && !root.starts_with(state.policy.source.installation.root())
+            && !root.starts_with(state.auth.installation().live.owner_root())
         {
             return Err(error("skill_outside_captured_roots"));
         }
@@ -148,6 +157,7 @@ pub(super) fn read(
         }) {
             return Err(error("selected_skill_entry_absent"));
         }
+        hub_capture = Some((registry_parent, source_directory, installation.clone()));
     }
     let mut candidates: Vec<_> = set
         .candidates()
@@ -219,6 +229,35 @@ pub(super) fn read(
     for item in &observed {
         item.revalidate(original)
             .map_err(|_| error("skill_changed"))?;
+    }
+    if let Some((registry_parent, source_directory, installed)) = hub_capture {
+        source_directory
+            .revalidate(original.snapshot())
+            .map_err(super::hub::io_failure)?;
+        let current = state
+            .policy
+            .source
+            .registry
+            .load_captured(&registry_parent, original.snapshot())
+            .map_err(super::hub::io_failure)?;
+        if !current
+            .get_version(
+                ArtifactType::Skill,
+                installed.original_source.id().as_str(),
+                installed.original_source.version(),
+            )
+            .is_some_and(|artifact| {
+                artifact
+                    .installations
+                    .iter()
+                    .any(|current| current.same_source(&installed))
+            })
+        {
+            return Err(error("installed_artifact_changed"));
+        }
+        grant
+            .authorize(Permission::Read(Module::Hub))
+            .map_err(|_| error("authentication_or_permission_denied"))?;
     }
     grant
         .authorize(Permission::Read(module))

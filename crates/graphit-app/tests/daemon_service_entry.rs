@@ -28,11 +28,21 @@ struct PrivateControl {
     global_dir: std::path::PathBuf,
     environment: Vec<(std::ffi::OsString, std::ffi::OsString)>,
     registered: bool,
+    exit_observer_dropin: Option<std::path::PathBuf>,
 }
 
 impl PrivateControl {
     fn command(&self) -> Command {
         self.command_using(std::path::Path::new(env!("CARGO_BIN_EXE_graphit")))
+    }
+
+    fn remove_exit_observer(&mut self) -> io::Result<()> {
+        if let Some(directory) = &self.exit_observer_dropin {
+            fs::remove_file(directory.join("observe-exit.conf"))?;
+            fs::remove_dir(directory)?;
+            self.exit_observer_dropin = None;
+        }
+        Ok(())
     }
 
     fn command_using(&self, executable: &std::path::Path) -> Command {
@@ -51,6 +61,10 @@ impl Drop for PrivateControl {
     fn drop(&mut self) {
         let stop = self.command().args(["daemon", "stop"]).output();
         let mut uninstalled = true;
+        if let Err(error) = self.remove_exit_observer() {
+            uninstalled = false;
+            eprintln!("private exit observer cleanup failed: {error}");
+        }
         if self.registered {
             let uninstall = self.command().args(["daemon", "uninstall"]).output();
             if !matches!(uninstall, Ok(ref result) if result.status.success()) {
@@ -692,6 +706,114 @@ async fn compiled_available_manager_rejection_and_private_binary_replacement()
     compiled_direct_control_journey(true, true).await
 }
 
+async fn waiting_on_lifecycle_inode(child: &mut Child, lock: &std::path::Path) -> io::Result<()> {
+    let metadata = fs::metadata(lock)?;
+    let identity = (metadata.dev(), metadata.ino());
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(status) = child.try_wait()? {
+                return Err(io::Error::other(format!(
+                    "CLI exited before lifecycle admission: {status}"
+                )));
+            }
+            for entry in fs::read_dir(format!("/proc/{}/fd", child.id()))? {
+                if let Ok(metadata) = fs::metadata(entry?.path())
+                    && (metadata.dev(), metadata.ino()) == identity
+                {
+                    return Ok(());
+                }
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            "CLI did not reach lifecycle admission",
+        )
+    })?
+}
+
+async fn captured_control_status(control: &PrivateControl) -> io::Result<std::process::Output> {
+    let mut command = control.command();
+    command.args(["daemon", "status"]);
+    let host = crate::finite_cli::host(1).await?;
+    let result = crate::finite_cli::capture(&host, crate::finite_cli::request(&command)?).await;
+    crate::finite_cli::joined(host).await?;
+    result
+}
+
+async fn competing_cli_lifecycle(
+    control: &PrivateControl,
+    previous_pid: u64,
+) -> Result<u64, Box<dyn std::error::Error>> {
+    use graphit_core::file_lock::FileLock;
+    let lock_path = control.global_dir.join("daemon-start.lock");
+    let lock = FileLock::try_acquire(&lock_path)?;
+    let inode = fs::metadata(&lock_path)?.ino();
+    let root = control.root.as_ref().unwrap().path();
+    let spawn = |action: &str| -> io::Result<PrivateDaemon> {
+        Ok(PrivateDaemon {
+            child: control
+                .command()
+                .args(["daemon", action])
+                .stdout(fs::File::create(
+                    root.join(format!("contended-{action}.out")),
+                )?)
+                .stderr(fs::File::create(
+                    root.join(format!("contended-{action}.err")),
+                )?)
+                .spawn()?,
+        })
+    };
+    let mut start = spawn("start")?;
+    let mut restart = spawn("restart")?;
+    waiting_on_lifecycle_inode(&mut start.child, &lock_path).await?;
+    waiting_on_lifecycle_inode(&mut restart.child, &lock_path).await?;
+    // Both actual CLI processes have opened the same held inode. Status still
+    // authenticates the old healthy daemon without joining this mutation queue.
+    let status = captured_control_status(control).await?;
+    assert!(
+        status.status.success(),
+        "{}",
+        String::from_utf8_lossy(&status.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&status.stdout)?["pid"],
+        previous_pid
+    );
+    drop(lock);
+    assert!(
+        wait_child(&mut start.child).await?.success(),
+        "{}",
+        fs::read_to_string(root.join("contended-start.err"))?
+    );
+    assert!(
+        wait_child(&mut restart.child).await?.success(),
+        "{}",
+        fs::read_to_string(root.join("contended-restart.err"))?
+    );
+    let started: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("contended-start.out"))?)?;
+    let restarted: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("contended-restart.out"))?)?;
+    let successor = restarted["pid"]
+        .as_u64()
+        .ok_or("contended restart PID absent")?;
+    assert_ne!(successor, previous_pid);
+    assert!(started["pid"] == previous_pid || started["pid"] == successor);
+    let status = captured_control_status(control).await?;
+    assert!(status.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&status.stdout)?["pid"],
+        successor
+    );
+    assert_eq!(fs::metadata(&lock_path)?.ino(), inode);
+    assert!(!std::path::Path::new(&format!("/proc/{previous_pid}")).exists());
+    Ok(successor)
+}
+
 async fn compiled_direct_control_journey(
     available: bool,
     qualify_lifecycle: bool,
@@ -767,6 +889,7 @@ async fn compiled_direct_control_journey(
         global_dir: paths.root().to_owned(),
         environment: environment.clone(),
         registered: available,
+        exit_observer_dropin: None,
     };
     let host = host().await;
     let service = daemon_launcher::compose_service(
@@ -803,26 +926,6 @@ async fn compiled_direct_control_journey(
         host.shutdown(Instant::now() + Duration::from_secs(5)).await,
         HostShutdown::Joined(_)
     ));
-    let run = |action: &str| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let output = control.command().args(["daemon", action]).output()?;
-        if !output.status.success() {
-            return Err(io::Error::other(format!(
-                "daemon {action}: status={} stdout={} stderr={}",
-                output.status,
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            ))
-            .into());
-        }
-        serde_json::from_slice(&output.stdout).map_err(|error| {
-            io::Error::other(format!(
-                "daemon {action} returned non-JSON: {error}; stdout={} stderr={}",
-                String::from_utf8_lossy(&output.stdout),
-                String::from_utf8_lossy(&output.stderr)
-            ))
-            .into()
-        })
-    };
     if qualify_lifecycle {
         let refused = control.command().args(["daemon", "start"]).output()?;
         assert!(!refused.status.success());
@@ -853,6 +956,11 @@ async fn compiled_direct_control_journey(
         assert!(
             String::from_utf8_lossy(outcome.transcript.as_ref().unwrap().stderr()).contains(&name)
         );
+        let cause = graphit_app::daemon_launcher::Failure::Manager(Box::new(
+            ServiceFailure::Manager(outcome),
+        ));
+        assert!(cause.to_string().contains("stderr="));
+        assert!(cause.to_string().contains(&name));
         drop(service);
         assert!(matches!(
             verifier
@@ -864,6 +972,29 @@ async fn compiled_direct_control_journey(
         let lock = fs::File::open(paths.root().join("daemon.pid"))?;
         lock.try_lock()?;
         lock.unlock()?;
+        // ExecStopPost receives the real main process result from systemd,
+        // independently of the manager's journal verbosity. Keep it in a
+        // private drop-in so replacing the installed executable preserves it.
+        let observer = control.root.as_ref().unwrap().path().join("observe-exit");
+        fs::write(
+            &observer,
+            "#!/bin/sh\nprintf '%s\t%s\t%s\n' \"$SERVICE_RESULT\" \"$EXIT_CODE\" \"$EXIT_STATUS\" >> \"$0.observations\"\n",
+        )?;
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&observer, fs::Permissions::from_mode(0o700))?;
+        let dropin = registration.with_file_name(format!("{name}.service.d"));
+        fs::create_dir(&dropin)?;
+        control.exit_observer_dropin = Some(dropin.clone());
+        let observer = serde_json::to_string(
+            &observer
+                .to_str()
+                .ok_or("observer path is not Unicode")?
+                .replace('%', "%%"),
+        )?;
+        fs::write(
+            dropin.join("observe-exit.conf"),
+            format!("[Service]\nExecStopPost=:{observer}\n"),
+        )?;
         let repaired = control.command().args(["daemon", "install"]).output()?;
         assert!(
             repaired.status.success(),
@@ -872,6 +1003,26 @@ async fn compiled_direct_control_journey(
         );
         assert!(!fs::read_to_string(&registration)?.contains("RefuseManualStart"));
     }
+    let run = |action: &str| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let output = control.command().args(["daemon", action]).output()?;
+        if !output.status.success() {
+            return Err(io::Error::other(format!(
+                "daemon {action}: status={} stdout={} stderr={}",
+                output.status,
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ))
+            .into());
+        }
+        serde_json::from_slice(&output.stdout).map_err(|error| {
+            io::Error::other(format!(
+                "daemon {action} returned non-JSON: {error}; stdout={} stderr={}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ))
+            .into()
+        })
+    };
     let started = run("start")?;
     assert_eq!(started["state"], "running");
     let mut pid = started["pid"]
@@ -916,6 +1067,7 @@ async fn compiled_direct_control_journey(
     assert_eq!(run("start")?["pid"], pid);
     assert_eq!(registration.exists(), available);
     if qualify_lifecycle {
+        pid = competing_cli_lifecycle(&control, pid).await?;
         use graphit_core::native_document_file::NativeDocumentFileLimits;
         use graphit_hub::policy::ResourceSetting;
         use std::io::{Read, Write};
@@ -958,37 +1110,25 @@ async fn compiled_direct_control_journey(
         );
         let restarted: serde_json::Value = serde_json::from_slice(&restarted.stdout)?;
         assert_eq!(restarted["state"], "running");
-        // A successful restart command can hide systemd's SIGKILL after a
-        // stop timeout. Read this private unit's actual exit observations.
-        let journal = Command::new("journalctl")
-            .env_clear()
-            .envs(control.environment.iter().cloned())
-            .args(["--user", "--no-pager", "--output=json"])
-            .arg(format!("USER_UNIT={name}.service"))
-            .arg("_COMM=systemd")
-            .output()?;
-        assert!(
-            journal.status.success(),
-            "private unit exit journal unavailable"
+        // A successful restart command can hide SIGKILL after a stop timeout.
+        // Assert the main process outcomes supplied by the real manager to
+        // ExecStopPost, including both the contended and replacement restart.
+        let exits = fs::read_to_string(
+            control
+                .root
+                .as_ref()
+                .unwrap()
+                .path()
+                .join("observe-exit.observations"),
+        )?;
+        assert_eq!(
+            exits.lines().count(),
+            2,
+            "both previous owners must exit: {exits}"
         );
-        let exits = String::from_utf8(journal.stdout)?
-            .lines()
-            .map(serde_json::from_str::<serde_json::Value>)
-            .collect::<Result<Vec<_>, _>>()?
-            .into_iter()
-            .filter(|entry| entry.get("EXIT_CODE").is_some())
-            .map(|entry| {
-                serde_json::json!({
-                    "code": entry["EXIT_CODE"], "status": entry["EXIT_STATUS"]
-                })
-            })
-            .collect::<Vec<_>>();
-        assert!(!exits.is_empty(), "previous owner exit was not observed");
         assert!(
-            exits
-                .iter()
-                .all(|exit| exit["code"] == "exited" && exit["status"] == "0"),
-            "replacement must join the previous owner, without timeout/kill: {exits:?}"
+            exits.lines().all(|exit| exit == "success\texited\t0"),
+            "replacement must join the previous owner, without timeout/kill: {exits}"
         );
         let successor = restarted["pid"].as_u64().ok_or("replacement PID absent")?;
         assert_ne!(successor, pid);
@@ -1049,6 +1189,7 @@ async fn compiled_direct_control_journey(
         assert_eq!(fs::metadata(&registration)?.modified()?, modified);
         assert_eq!(enabled()?.stdout, previous.stdout);
         assert_eq!(run("stop")?["state"], "stopped");
+        control.remove_exit_observer()?;
         let uninstall = control.command().args(["daemon", "uninstall"]).output()?;
         assert!(
             uninstall.status.success(),

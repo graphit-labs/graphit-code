@@ -416,7 +416,7 @@ pub fn assemble_graph_antlr(
         for (entity_index, entity) in document.entities().iter().enumerate() {
             original.check()?;
             let uid = entity.identity().uid().as_str();
-            let key = serde_json::to_string(&[uid, entity.data_key()])?;
+            let key = syntax_key(entity.identity(), entity.data_key())?;
             let mut properties = BTreeMap::new();
             for (key, value) in [
                 ("uid", uid),
@@ -541,6 +541,7 @@ pub fn assemble_graph_antlr(
         let mut outcomes = Vec::new();
         let mut edges = Vec::new();
         let mut edge_keys = std::collections::BTreeSet::new();
+        let mut relation_occurrences = LogicalRelationOccurrences::new(logical_file(&association)?);
         for &index in document.unresolved_relations() {
             original.check()?;
             let occurrence =
@@ -609,21 +610,18 @@ pub fn assemble_graph_antlr(
                                 ));
                             };
                             let kind = occurrence.query.relation_type().value();
-                            let uid = serde_json::to_string(&(
-                                kind,
+                            let edge = relation_occurrences.admit(
                                 source_key,
                                 target_key,
-                                occurrence.query.data_key().value(),
-                                anchor.start(),
-                                anchor.end(),
-                            ))?;
-                            if edge_keys.insert(uid.clone()) {
-                                edges.push(AstGraphEdge {
-                                    kind: kind.clone(),
-                                    source_key: source_key.into(),
-                                    target_key: target_key.into(),
-                                    uid,
-                                });
+                                kind,
+                                ParserRelationOccurrence {
+                                    query_data_key: Some(occurrence.query.data_key().value()),
+                                    target: anchor.text(),
+                                    anchor: (anchor.start(), anchor.end()),
+                                },
+                            )?;
+                            if edge_keys.insert(edge.uid.clone()) {
+                                edges.push(edge);
                             }
                         }
                         AstGraphRelationTarget::Resolved {

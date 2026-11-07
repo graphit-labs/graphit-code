@@ -207,10 +207,13 @@ async fn native_go_graph_preserves_families_ranges_metadata_and_local_edges() ->
         assert!(families.contains(label), "{label}");
     }
     for node in graph.nodes() {
-        let pair: Vec<String> = serde_json::from_str(node.key())?;
+        let key: graphit_data::CodePrimaryKey = node.key().parse()?;
         assert_eq!(
-            pair,
-            [text_property(node, "uid"), text_property(node, "data_key")]
+            key,
+            graphit_data::CodePrimaryKey::derive(
+                text_property(node, "uid").parse()?,
+                text_property(node, "data_key"),
+            )?
         );
         assert_eq!(
             text_property(node, "raw_version"),

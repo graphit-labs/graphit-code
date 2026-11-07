@@ -297,7 +297,16 @@ impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(error) => write!(f, "daemon launcher: {error}"),
-            Self::Manager(error) => write!(f, "daemon manager: {error}"),
+            Self::Manager(error) => {
+                write!(f, "daemon manager: {error}")?;
+                if let graphit_daemon::services::ServiceFailure::Manager(outcome) = error.as_ref()
+                    && let Some(transcript) = &outcome.transcript
+                    && !transcript.stderr().is_empty()
+                {
+                    write!(f, "; stderr={}", transcript.stderr().escape_ascii())?;
+                }
+                Ok(())
+            }
             Self::AfterStop {
                 cause,
                 acknowledged,
@@ -420,18 +429,24 @@ pub async fn wait_stopped(
 async fn stop(
     inputs: &Inputs<'_>,
     original: &graphit_hub::policy::RequestContext<'_>,
+    expected_pid: Option<u32>,
 ) -> Result<Outcome, Failure> {
-    let acknowledged = control(
-        inputs,
-        original,
-        crate::daemon_control::Operation::Stop,
-        None,
-    )
-    .await
-    .map_err(|cause| Failure::AfterStop {
-        cause,
-        acknowledged: None,
-    })?;
+    // An absent earlier owner is not permission to stop a newly published one.
+    let acknowledged = if let Some(pid) = expected_pid {
+        control(
+            inputs,
+            original,
+            crate::daemon_control::Operation::Stop,
+            Some(pid),
+        )
+        .await
+        .map_err(|cause| Failure::AfterStop {
+            cause,
+            acknowledged: None,
+        })?
+    } else {
+        None
+    };
     wait_stopped(inputs, original)
         .await
         .map_err(|cause| Failure::AfterStop {
@@ -503,9 +518,36 @@ pub async fn readiness(
     }
 }
 
-/// Start the explicit Linux detached mode and commit custody after authenticated readiness.
+/// Serialize cooperating lifecycle callers, independently of the lifetime singleton.
+async fn lifecycle_lock(
+    inputs: &Inputs<'_>,
+    original: &graphit_hub::policy::RequestContext<'_>,
+) -> io::Result<graphit_core::file_lock::FileLock> {
+    original.check()?;
+    original.snapshot().required_deadline()?;
+    if !inputs.executable.is_absolute() {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    std::fs::create_dir_all(inputs.installation.root())?;
+    let path = inputs.installation.global_path(&["daemon-start.lock"])?;
+    let snapshot = Arc::clone(original.snapshot());
+    tokio::task::spawn_blocking(move || {
+        snapshot.check()?;
+        let lock = graphit_core::file_lock::FileLock::acquire_in_existing_parent_until(
+            &path,
+            Some(snapshot.required_deadline()?),
+            snapshot.cancellation(),
+        )?;
+        snapshot.check()?;
+        Ok::<_, io::Error>(lock)
+    })
+    .await
+    .map_err(io::Error::other)?
+}
+
+/// The sole caller retains the lifecycle lock through startup and readiness.
 #[cfg(target_os = "linux")]
-pub async fn start_detached(
+async fn start_detached(
     inputs: &Inputs<'_>,
     original: &graphit_hub::policy::RequestContext<'_>,
 ) -> Result<Outcome, Failure> {
@@ -517,24 +559,6 @@ pub async fn start_detached(
     {
         return Err(io::Error::from(io::ErrorKind::InvalidInput).into());
     }
-    original.check()?;
-    std::fs::create_dir_all(inputs.installation.root())?;
-    // Serialize launchers, not the daemon's lifetime lock. A competing launcher
-    // rechecks authenticated readiness after this owner commits or joins startup.
-    let path = inputs.installation.global_path(&["daemon-start.lock"])?;
-    let snapshot = Arc::clone(original.snapshot());
-    let _startup_lock = tokio::task::spawn_blocking(move || {
-        snapshot.check()?;
-        let lock = graphit_core::file_lock::FileLock::acquire_in_existing_parent_until(
-            &path,
-            Some(snapshot.required_deadline()?),
-            snapshot.cancellation(),
-        )?;
-        snapshot.check()?;
-        Ok::<_, io::Error>(lock)
-    })
-    .await
-    .map_err(io::Error::other)??;
     original.check()?;
     if let Some(reply) = control(
         inputs,
@@ -590,6 +614,26 @@ pub async fn execute(
 ) -> Result<Outcome, Failure> {
     use crate::service_entry::{ServiceCommand, ServiceResult};
     original.check()?;
+    // Status stays observational. Every mutation shares one stable inode, also
+    // enclosing service-install.lock when registration is changed below.
+    let _lifecycle = if matches!(command, ServiceCommand::Status) {
+        None
+    } else {
+        Some(lifecycle_lock(&inputs, original).await?)
+    };
+    original.check()?;
+    let previous_pid = if matches!(command, ServiceCommand::Stop | ServiceCommand::Restart) {
+        control(
+            &inputs,
+            original,
+            crate::daemon_control::Operation::Status,
+            None,
+        )
+        .await?
+        .map(|reply| reply.pid)
+    } else {
+        None
+    };
     if matches!(command, ServiceCommand::Start | ServiceCommand::Status)
         && let Some(reply) = control(
             &inputs,
@@ -637,21 +681,20 @@ pub async fn execute(
             }
             ServiceCommand::Stop | ServiceCommand::Restart => {
                 service.stop(original.snapshot()).await?;
-                stop(&inputs, original).await?;
+                stop(&inputs, original, previous_pid).await?;
                 if matches!(command, ServiceCommand::Stop) {
                     return Ok(Outcome::Stopped);
                 }
                 service.start(original.snapshot()).await?;
-                return readiness(
+                let reply = readiness(
                     &inputs,
                     original,
                     None,
                     #[cfg(target_os = "linux")]
                     None,
                 )
-                .await
-                .map(Outcome::Running)
-                .map_err(Failure::Io);
+                .await?;
+                return restarted(reply, previous_pid);
             }
             _ => {
                 return match crate::service_entry::execute(&service, command, original.snapshot())
@@ -676,11 +719,14 @@ pub async fn execute(
     match command {
         #[cfg(target_os = "linux")]
         ServiceCommand::Start => start_detached(&inputs, original).await,
-        ServiceCommand::Stop => stop(&inputs, original).await,
+        ServiceCommand::Stop => stop(&inputs, original, previous_pid).await,
         #[cfg(target_os = "linux")]
         ServiceCommand::Restart => {
-            stop(&inputs, original).await?;
-            start_detached(&inputs, original).await
+            stop(&inputs, original, previous_pid).await?;
+            match start_detached(&inputs, original).await? {
+                Outcome::Running(reply) => restarted(reply, previous_pid),
+                _ => Err(io::Error::other("detached restart did not return readiness").into()),
+            }
         }
         ServiceCommand::Status => Ok(Outcome::Absent),
         ServiceCommand::Uninstall => {
@@ -701,4 +747,18 @@ pub async fn execute(
         )
         .into()),
     }
+}
+
+fn restarted(
+    reply: crate::daemon_control::Reply,
+    previous_pid: Option<u32>,
+) -> Result<Outcome, Failure> {
+    if previous_pid == Some(reply.pid) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "restart retained the previous daemon PID",
+        )
+        .into());
+    }
+    Ok(Outcome::Running(reply))
 }

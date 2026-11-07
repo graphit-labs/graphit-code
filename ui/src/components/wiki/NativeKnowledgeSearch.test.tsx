@@ -29,7 +29,7 @@ describe('native Knowledge Query controls', () => {
     expect(screen.getByText('Combined score').nextElementSibling?.textContent).toBe('0.5')
     expect(screen.getByText('Rerank score').nextElementSibling?.textContent).toBe('0')
     expect(screen.getByText('Preview truncated')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: /Literal result literal \/slug.md/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Literal result' }))
     expect(openPage).toHaveBeenCalledWith(focus.slug)
   })
 

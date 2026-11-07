@@ -96,8 +96,7 @@ async fn foreground_oracle_target_rules_cross_file_and_ambiguous()
                     };
                     let files = execute(FILES)?;
                     eprintln!(
-                        "Oracle publication cycle={cycle} ambiguous={ambiguous} generation={} SELECTS={selects:?} FILE={:?}",
-                        schema.manifest_generation(),
+                        "Oracle publication cycle={cycle} ambiguous={ambiguous} SELECTS={selects:?} FILE={:?}",
                         files.rows,
                     );
                     let edges = if ambiguous {

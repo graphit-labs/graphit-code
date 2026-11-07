@@ -1604,3 +1604,66 @@ async fn retained_version_reuses_its_pin_but_named_provenance_is_still_observed(
     assert_eq!(store.capture_target(None).await?.version(), 2);
     Ok(())
 }
+
+#[tokio::test]
+async fn initial_target_preserves_opened_head_schema_and_branch_selection() -> TestResult {
+    let (_temp, uri, base) = fixture().await?;
+    let named = LanceBranchStore::open(&uri, schema(), None)
+        .await?
+        .into_target(Some("feature"))
+        .await?
+        .materialize()
+        .await?;
+    for branch in [None, Some("feature"), Some("absent")] {
+        let previous = LanceBranchStore::open(&uri, schema(), None)
+            .await?
+            .capture_target(branch)
+            .await?;
+        let current = LanceBranchStore::open(&uri, schema(), None)
+            .await?
+            .into_target(branch)
+            .await?;
+        assert_eq!(current.version(), previous.version());
+        assert_eq!(current.physical_branch(), previous.physical_branch());
+        assert_eq!(current.inherited_target(), previous.inherited_target());
+        assert_eq!(values(&current).await?, values(&previous).await?);
+    }
+    // A publication between open and selection distinguishes initial selection
+    // from an actual refresh, including the SDK's direct local manifest lookup.
+    let opened = LanceBranchStore::open(&uri, schema(), None).await?;
+    let retained_store = LanceBranchStore::open(&uri, schema(), None).await?;
+    base.snapshot()
+        .prepare_replace(vec![image(2)])
+        .await?
+        .commit()
+        .await?;
+    let retained = opened.into_target(None).await?;
+    let refreshed = retained_store.capture_target(None).await?;
+    let fresh = LanceBranchStore::open(&uri, schema(), None)
+        .await?
+        .into_target(None)
+        .await?;
+    assert_eq!(retained.version(), 1);
+    assert_eq!(refreshed.version(), 2);
+    assert_eq!(fresh.version(), 2);
+    assert_ne!(values(&retained).await?, values(&fresh).await?);
+    assert_eq!(values(&refreshed).await?, values(&fresh).await?);
+    let different = vector_schema(2, "independent");
+    named
+        .prepare_overwrite(vec![vector_row(Arc::clone(&different), &[1.0, 2.0])])
+        .await?
+        .commit()
+        .await?;
+    assert!(matches!(
+        LanceBranchStore::open(&uri, schema(), None)
+            .await?
+            .into_target(Some("feature"))
+            .await,
+        Err(BranchError::SchemaMismatch)
+    ));
+    assert!(matches!(
+        LanceBranchStore::open(&uri, different, None).await,
+        Err(BranchError::SchemaMismatch)
+    ));
+    Ok(())
+}

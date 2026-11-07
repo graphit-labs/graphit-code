@@ -153,9 +153,32 @@ pub(crate) fn writer(path: &Path, schema: &str, columns: &[Values<'_>]) {
 pub(crate) fn manifest() -> Value {
     json!({"manifest_version":3,"format":"icebug-canonical","storage":"direct-parquet",
     "finished":true,"add_reverse_edges":false,"schema_file":"schema.cypher","node_tables":[],"relationships":[],
-    "relation_uids":true,"generation":"fixture-generation","n_edges":0,"repaired_strings":0,
+    "relation_uids":true,"n_edges":0,"repaired_strings":0,
     "invariants":{"indptr_row_groups":1,"self_loops":"forward-once"}})
 }
+#[test]
+fn producer_and_manifest_decoder_do_not_require_or_emit_graph_generation() {
+    let output = crate::graph_writer::IcebugWriter::new(context())
+        .unwrap()
+        .finish()
+        .unwrap();
+    let bytes = fs::read(output.directory().join("icebug.json")).unwrap();
+    let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(value.get("generation").is_none());
+    Manifest::parse(&bytes, policy()).unwrap();
+    Manifest::parse_generated(&bytes, policy()).unwrap();
+    value["generation"] = json!("removed-field");
+    let obsolete = serde_json::to_vec(&value).unwrap();
+    assert!(matches!(
+        Manifest::parse(&obsolete, policy()),
+        Err(DataReadError::InvalidManifest("JSON shape"))
+    ));
+    assert!(matches!(
+        Manifest::parse_generated(&obsolete, policy()),
+        Err(DataReadError::InvalidManifest("JSON shape"))
+    ));
+}
+
 pub(crate) fn save(path: &Path, manifest: &Value) {
     let mut manifest = manifest.clone();
     let nodes = manifest["node_tables"].as_array().unwrap().clone();
@@ -262,7 +285,6 @@ fn genuine_global_sample_and_summary_contract() {
     assert_eq!(result.edges[2].to().row(), 2);
 
     let again = graph.sample_graph(sample()).unwrap();
-    assert_eq!(again.generation(), result.generation());
     assert!(
         again
             .nodes
@@ -373,9 +395,9 @@ fn pk_duplicate_and_null_are_rejected() {
             "message graph { optional binary uid (UTF8); required binary name (UTF8); }",
             &[
                 Values::OptionalString(if null {
-                    &[Some("f0"), None, Some("f2")]
+                    &[Some("f0"), Some("f1"), None]
                 } else {
-                    &[Some("f0"), Some("f0"), Some("f2")]
+                    &[Some("f0"), Some("f1"), Some("f0")]
                 }),
                 Values::String(&["a", "b", "c"]),
             ],
@@ -393,8 +415,8 @@ fn pk_duplicate_and_null_are_rejected() {
     }
 }
 #[test]
-fn csr_bad_target_pointer_and_output_uid_fail_closed() {
-    for variant in 0..4 {
+fn used_csr_errors_fail_and_sample_preserves_repeated_uids() {
+    for variant in 0..5 {
         let dir = fixture();
         if variant == 0 {
             writer(
@@ -430,12 +452,26 @@ fn csr_bad_target_pointer_and_output_uid_fail_closed() {
                 ],
             );
         }
+        if variant == 4 {
+            writer(
+                &dir.path().join("a.indices"),
+                "message graph { required int64 target (UINT_64); required binary uid (UTF8); }",
+                &[
+                    Values::Int(&[0, 0, 2, 1]),
+                    Values::String(&["", "edge1", "edge2", "edge3"]),
+                ],
+            );
+        }
         let graph = capture(dir.path(), context(), policy()).unwrap();
+        if variant == 3 {
+            let page = graph.sample_graph(sample()).unwrap();
+            assert_eq!(page.edges()[0].uid(), "same");
+            assert_eq!(page.edges()[1].uid(), "same");
+            assert_ne!(page.edges()[0].id(), page.edges()[1].id());
+            continue;
+        }
         let failure = error(graph.sample_graph(sample()));
-        assert!(matches!(
-            failure,
-            DataReadError::InvalidCsr(_) | DataReadError::DuplicateEdgeUid
-        ));
+        assert!(matches!(failure, DataReadError::InvalidCsr(_)));
     }
 }
 #[test]
@@ -515,7 +551,7 @@ fn footer_manifest_row_differential_is_rejected() {
     save(dir.path(), &value);
     assert!(matches!(
         error(capture(dir.path(), context(), policy())),
-        DataReadError::InvalidParquet("footer identity")
+        DataReadError::InvalidParquet("row slice bounds")
     ));
 }
 #[test]
@@ -863,15 +899,15 @@ fn full_decoded_rows_and_string_exact_plus_one_limits() {
     let graph = capture(dir.path(), context(), resources).unwrap();
     assert!(
         graph
-            .sample_graph(GraphSampleLimits::new(2, 3, 8, 11, 18, 1000, 2).unwrap())
+            .sample_graph(GraphSampleLimits::new(2, 3, 8, 11, 12, 1000, 2).unwrap())
             .is_ok()
     );
     assert!(matches!(
-        error(graph.sample_graph(GraphSampleLimits::new(2, 3, 8, 11, 17, 1000, 2).unwrap())),
+        error(graph.sample_graph(GraphSampleLimits::new(2, 3, 8, 11, 11, 1000, 2).unwrap())),
         DataReadError::LimitExceeded("decoded rows")
     ));
     assert!(matches!(
-        error(graph.sample_graph(GraphSampleLimits::new(2, 3, 8, 10, 18, 1000, 2).unwrap())),
+        error(graph.sample_graph(GraphSampleLimits::new(2, 3, 8, 10, 12, 1000, 2).unwrap())),
         DataReadError::LimitExceeded(_)
     ));
 }
@@ -1073,10 +1109,28 @@ fn sample_marked_metadata_does_not_exhaust_seeds_or_hide_custom_labels() {
     assert_eq!(filtered.nodes()[1].id().row(), 302);
     assert_eq!(filtered.nodes()[2].label(), "Function");
     assert!(filtered.edges().is_empty());
-    // A duplicate at the tail still fails; omitted observations are not skipped integrity work.
+    // PK uniqueness belongs to selected nodes; excluded observations are not
+    // admitted merely because their row group was decoded.
     names[302] = names[0].clone();
     let refs: Vec<_> = names.iter().map(String::as_str).collect();
     drop(graph);
+    writer(
+        &root.join("observations.parquet"),
+        "message graph { required binary uid (UTF8); optional boolean is_file_observation; }",
+        &[Values::String(&refs), Values::OptionalBool(&markers)],
+    );
+    let graph = capture(root, context(), policy()).unwrap();
+    assert_eq!(
+        graph
+            .sample_graph_excluding_marked(limits, "is_file_observation")
+            .unwrap()
+            .nodes()
+            .len(),
+        4
+    );
+    drop(graph);
+    names[302] = names[301].clone();
+    let refs: Vec<_> = names.iter().map(String::as_str).collect();
     writer(
         &root.join("observations.parquet"),
         "message graph { required binary uid (UTF8); optional boolean is_file_observation; }",
@@ -1089,8 +1143,198 @@ fn sample_marked_metadata_does_not_exhaust_seeds_or_hide_custom_labels() {
     ));
 }
 
+pub(crate) fn corrupt_group_body(path: &Path, group: usize, column: usize) {
+    let mut bytes = fs::read(path).unwrap();
+    let len =
+        u32::from_le_bytes(bytes[bytes.len() - 8..bytes.len() - 4].try_into().unwrap()) as usize;
+    let start = bytes.len() - 8 - len;
+    let metadata = crate::protocol::footer(&bytes[start..bytes.len() - 8], policy()).unwrap();
+    let chunk = metadata.row_groups[group].columns[column]
+        .meta_data
+        .as_ref()
+        .unwrap();
+    let offset = usize::try_from(chunk.data_page_offset).unwrap();
+    let (header, header_len) = crate::protocol::header(&bytes[offset..], policy()).unwrap();
+    assert!(header.compressed_page_size > 0);
+    // Keep the footer, page envelope and lengths intact, but break the ZSTD
+    // magic in the genuine SDK fixture's compressed payload.
+    bytes[offset + header_len] ^= 0xff;
+    fs::write(path, bytes).unwrap();
+}
+
 #[test]
-fn sample_primary_key_preserves_observed_string_and_int64() {
+fn selected_sample_stops_members_at_cap_and_retains_group_work_bounds() {
+    let dir = fixture();
+    let graph = capture(dir.path(), context(), policy()).unwrap();
+    let limits = GraphSampleLimits::new(1, 1, 3, 1024, 12, 1000, 2).unwrap();
+    let output = graph.sample_graph(limits).unwrap();
+    assert_eq!(output.edges().len(), 1);
+    assert_eq!(output.edges()[0].uid(), "edge0");
+    assert_eq!(output.nodes().len(), 2);
+    // Intersecting groups contain 4 indices + 3 pointers + 3 Function + 2 File
+    // rows. A budget of 11 must still fail, even for one delivered edge.
+    assert!(matches!(
+        graph.sample_graph(GraphSampleLimits::new(1, 1, 3, 1024, 11, 1000, 2).unwrap()),
+        Err(DataReadError::LimitExceeded("decoded rows"))
+    ));
+}
+
+#[test]
+fn selected_sample_skips_later_member_bodies_and_rejects_selected_corruption() {
+    for selected in [false, true] {
+        let dir = fixture();
+        corrupt_group_body(
+            &dir.path()
+                .join(if selected { "a.indices" } else { "z.indices" }),
+            0,
+            0,
+        );
+        let graph = capture(dir.path(), context(), policy()).unwrap();
+        let output =
+            graph.sample_graph(GraphSampleLimits::new(1, 1, 3, 1024, 1000, 1000, 2).unwrap());
+        if selected {
+            assert!(output.is_err());
+        } else {
+            assert_eq!(output.unwrap().edges()[0].uid(), "edge0");
+        }
+    }
+}
+
+#[test]
+fn selected_sample_does_not_read_marker_or_body_after_seeds_are_full() {
+    let dir = fixture();
+    let root = dir.path();
+    let mut value: Value =
+        serde_json::from_slice(&fs::read(root.join("icebug.json")).unwrap()).unwrap();
+    value["relationships"] = json!([]);
+    value["n_edges"] = json!(0);
+    // Labels determine canonical ordering: Function precedes ZFile.
+    value["node_tables"][1]["label"] = json!("ZFile");
+    save(root, &value);
+    corrupt_group_body(&root.join("File.parquet"), 0, 0);
+    corrupt_group_body(&root.join("File.parquet"), 0, 3);
+    let graph = capture(root, context(), policy()).unwrap();
+    let output = graph
+        .sample_graph_excluding_marked(
+            GraphSampleLimits::new(1, 1, 3, 1024, 1000, 1000, 2).unwrap(),
+            "ignored",
+        )
+        .unwrap();
+    assert_eq!(output.nodes().len(), 1);
+    assert_eq!(output.nodes()[0].uid(), Some("f0"));
+}
+
+#[test]
+fn selected_sample_includes_marked_nodes_that_are_edge_endpoints() {
+    let dir = crate::storage_tests::physical_slice_fixture();
+    let graph = CapturedLocalGraph::capture_generated_metadata(
+        dir.path(),
+        context(),
+        LocalGraphPolicy::new(policy()).unwrap(),
+    )
+    .unwrap();
+    let output = graph
+        .sample_graph_excluding_marked(
+            GraphSampleLimits::new(5, 1, 7, 1024, 1000, 1000, 2).unwrap(),
+            "ignored",
+        )
+        .unwrap();
+    assert_eq!(output.edges().len(), 1);
+    assert_eq!(output.edges()[0].from().row(), 10);
+    assert!(
+        output
+            .nodes()
+            .iter()
+            .any(|node| node.label() == "File" && node.id().row() == 10)
+    );
+    assert_eq!(output.nodes().len(), 6);
+}
+
+#[tokio::test]
+async fn selected_sample_matches_remote_for_sparse_shared_slices() {
+    use crate::remote_graph::RemoteIcebugGraph;
+    use object_store::{ObjectStoreExt, memory::InMemory, path::Path as ObjectPath};
+    use sha2::{Digest, Sha256};
+    let dir = crate::storage_tests::physical_slice_fixture();
+    let local = CapturedLocalGraph::capture_generated_metadata(
+        dir.path(),
+        context(),
+        LocalGraphPolicy::new(policy()).unwrap(),
+    )
+    .unwrap();
+    let store = Arc::new(InMemory::new());
+    let schema = local.schema().unwrap();
+    for relative in schema
+        .referenced_files()
+        .chain(std::iter::once("icebug.json"))
+    {
+        store
+            .put(
+                &ObjectPath::from(format!("fixture/{relative}")),
+                bytes::Bytes::from(fs::read(dir.path().join(relative)).unwrap()).into(),
+            )
+            .await
+            .unwrap();
+    }
+    let digest = Sha256::digest(fs::read(dir.path().join("icebug.json")).unwrap()).into();
+    let remote = RemoteIcebugGraph::open(
+        store,
+        ObjectPath::from("fixture"),
+        digest,
+        LocalGraphPolicy::new(policy()).unwrap(),
+        context(),
+    )
+    .await
+    .unwrap();
+    let limits = GraphSampleLimits::new(6, 3, 12, 1024, 1000, 1000, 2).unwrap();
+    let expected = local.sample_graph(limits).unwrap();
+    let actual = remote.sample_graph(limits, context()).await.unwrap();
+    let nodes = |sample: &GraphSample| {
+        sample
+            .nodes()
+            .iter()
+            .map(|node| {
+                (
+                    node.id().table(),
+                    node.id().row(),
+                    node.label().to_owned(),
+                    node.name().map(str::to_owned),
+                    node.uid().map(str::to_owned),
+                    node.line(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let edges = |sample: &GraphSample| {
+        sample
+            .edges()
+            .iter()
+            .map(|edge| {
+                (
+                    edge.id().member(),
+                    edge.id().row(),
+                    edge.from().table(),
+                    edge.from().row(),
+                    edge.to().table(),
+                    edge.to().row(),
+                    edge.uid().to_owned(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(nodes(&actual), nodes(&expected));
+    assert_eq!(edges(&actual), edges(&expected));
+    assert!(expected.nodes().iter().any(|node| node.id().row() == 300));
+    assert!(expected.nodes().iter().any(|node| node.name().is_none()));
+    assert_eq!(expected.edges()[2].id().row(), 0);
+    assert_eq!(expected.edges()[2].to().row(), 102);
+}
+
+#[tokio::test]
+async fn sample_primary_key_preserves_observed_string_and_int64() {
+    use crate::remote_graph::RemoteIcebugGraph;
+    use object_store::{ObjectStoreExt, memory::InMemory, path::Path as ObjectPath};
+    use sha2::{Digest, Sha256};
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     writer(
@@ -1133,6 +1377,39 @@ fn sample_primary_key_preserves_observed_string_and_int64() {
             ("number_key", GraphPropertyValueRef::Int64(-7)),
             ("number_key", GraphPropertyValueRef::Int64(i64::MAX))
         ]
+    );
+    assert_eq!(result.nodes()[0].uid(), Some("uid0"));
+    let store = Arc::new(InMemory::new());
+    for relative in ["strings.parquet", "ints.parquet", "icebug.json"] {
+        store
+            .put(
+                &ObjectPath::from(format!("keys/{relative}")),
+                bytes::Bytes::from(fs::read(root.join(relative)).unwrap()).into(),
+            )
+            .await
+            .unwrap();
+    }
+    let digest = Sha256::digest(fs::read(root.join("icebug.json")).unwrap()).into();
+    let remote = RemoteIcebugGraph::open(
+        store,
+        ObjectPath::from("keys"),
+        digest,
+        LocalGraphPolicy::new(policy()).unwrap(),
+        context(),
+    )
+    .await
+    .unwrap();
+    let result = remote.sample_graph(limits, context()).await.unwrap();
+    assert_eq!(
+        result
+            .nodes()
+            .iter()
+            .map(|node| {
+                let key = node.primary_key().unwrap();
+                (key.name(), key.value())
+            })
+            .collect::<Vec<_>>(),
+        keys
     );
     assert_eq!(result.nodes()[0].uid(), Some("uid0"));
 }
@@ -1199,9 +1476,9 @@ fn file_shards_preserve_sparse_node_ids_and_csr_endpoints_without_rewriting_tabl
     let request = GraphNeighborhoodRequest {
         anchor_label: "File",
         anchor_key: GraphAnchorKey::String("a.rs"),
-        relationship: "CONTAINS",
-        other_label: "Function",
-        direction: GraphDirection::Outgoing,
+        relationship: Some("CONTAINS"),
+        other_label: Some("Function"),
+        direction: Some(GraphDirection::Outgoing),
         limit: 10,
         cursor: None,
     };

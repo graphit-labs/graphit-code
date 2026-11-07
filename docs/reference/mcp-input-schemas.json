@@ -1,6 +1,32 @@
 {
-  "description": "Current Rust Root MCP tool input contracts. Captured with an isolated stdio client on 2026-10-29; Role/Live catalogs are separate. See ../guides/mcp_tools_reference.md.",
+  "description": "Current Rust Root MCP tool input contracts. Original snapshot captured with an isolated stdio client on 2026-10-29; graphit_knowledge_id added from the SDK catalog and checked by focused tests on 2026-11-06. Role/Live catalogs are separate. See ../guides/mcp_tools_reference.md.",
   "tools": [
+    {
+      "name": "graphit_knowledge_id",
+      "description": "Calculate the deterministic default Knowledge document id for a relative Unicode source path. Does not open the path, read a corpus or write a document; the returned id grants no access. An explicit frontmatter id takes precedence when indexing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Relative Unicode source path, with native path separators, as supplied to the Knowledge publisher."
+          },
+          "ai_optimized": {
+            "type": "boolean",
+            "default": true,
+            "description": "Omitted or true: TOON text without duplicate JSON. False: JSON."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
     {
       "name": "graphit_ast_source",
       "description": "Read Source from a retained local project or installed AST context id@version; imported fallback requires explicit project_dir.",

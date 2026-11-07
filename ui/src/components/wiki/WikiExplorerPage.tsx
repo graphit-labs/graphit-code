@@ -9,11 +9,12 @@ import { useTaskWorkspace } from '@/components/task/taskWorkspaceState'
 import { usePageRefresh } from '@/components/layout/WorkspaceRefresh'
 import { RecordReferences } from '@/components/shared/RecordReferences'
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner'
-import { FactList, RecordLink, WorkEmpty, WorkHeader, WorkNotice, WorkPage, WorkSection } from '@/components/shared/EngineeringUI'
+import { FactList, WorkEmpty, WorkHeader, WorkNotice, WorkPage, WorkSection } from '@/components/shared/EngineeringUI'
 import { NativeKnowledgeDocument } from './NativeKnowledgeDocument'
 import { ImportedKnowledge } from './ImportedKnowledge'
 import { NativeKnowledgeSearch } from './NativeKnowledgeSearch'
 import { NativeKnowledgeAsk } from './NativeKnowledgeAsk'
+import { KnowledgePageCatalogue } from './KnowledgePageCatalogue'
 
 export default function WikiExplorerPage() {
   const location = useLocation();
@@ -86,30 +87,36 @@ function NativeProjectKnowledge({ selection: capturedSelection, slug }: { select
   const referenceBinding = currentEnvelope ? knowledgeReferenceBinding(currentEnvelope.selection, currentEnvelope.source, currentEnvelope.focused_source) : null;
   const destinationError = referenceDestinationError(location.search, referenceBinding, currentPage?.state === 'published' && currentPage.page.state === 'found');
   const currentError = pageError?.slug === slug ? pageError.message : '';
-  const openPage = (target: string) => navigate(projectRecordHref('knowledge', target, selection));
-  const libraryHref = () => {
+  const readerOrigin = location.state?.knowledgeReaderOrigin === 'search' ? 'search' : 'catalogue'
+  const openPage = (target: string, origin = readerOrigin) => navigate(projectRecordHref('knowledge', target, selection), {state:{knowledgeReaderOrigin:origin}});
+  const libraryHref = (origin = readerOrigin) => {
     const url = new URL(projectRecordHref('knowledge', '', selection), window.location.origin);
     url.searchParams.delete('page');
-    navigate(url.pathname + url.search);
+    navigate(url.pathname + url.search, {state:{knowledgeReaderOrigin:origin}});
   };
+  const reader = <>
+{destinationError ? <WorkNotice title="Reference destination unavailable" tone="error">{destinationError}</WorkNotice> : currentError ? <WorkNotice title="Unable to read document" tone="error">{currentError}<button className="work-button" onClick={() => void loadPage()}>Retry document</button></WorkNotice>
+        : !currentPage ? <LoadingSpinner label="Loading Knowledge document…" />
+        : currentPage.state === 'no_corpus' ? <WorkEmpty title="No Knowledge corpus has been published" />
+        : currentPage.page.state === 'published_empty' ? <WorkEmpty title="The Knowledge publication is empty" />
+        : currentPage.page.state === 'page_absent' ? <WorkEmpty title="Knowledge page not found">{slug}</WorkEmpty>
+        : <><NativeKnowledgeDocument key={slug} publication={currentPage} openPage={target => openPage(target, readerOrigin)} /><RecordReferences binding={referenceBinding} /></>}
+  </>
   return <WorkPage className="knowledge-library">
-    <WorkHeader title="Knowledge library" description="Read maintained guidance and its authoritative publication metadata." actions={<><button className="work-button" onClick={() => navigate(importedKnowledgeHref(null))}>Imported Knowledge</button>{slug !== null && <button className="work-button" onClick={libraryHref}>Back to library</button>}</>} />
-    <NativeKnowledgeSearch scope={{ kind: 'project', selection }} openPage={openPage} />
+    <WorkHeader title="Knowledge library" description="Read maintained guidance and its authoritative publication metadata." actions={<><button className="work-button" onClick={() => navigate(importedKnowledgeHref(null))}>Imported Knowledge</button>{slug !== null && <button className="work-button" onClick={() => libraryHref()}>Back to library</button>}</>} />
+    <NativeKnowledgeSearch scope={{ kind: 'project', selection }} openPage={target => openPage(target, 'search')} reader={readerOrigin === 'search' ? {slug,content:reader,label:'Knowledge document',close:() => libraryHref('search')} : undefined} />
     <NativeKnowledgeAsk key={nativeSelectionKey(selection)} selection={selection} heads={heads?.state === 'published' ? heads.heads : null} />
     <WorkSection title="Published pages">
       {headsError ? <WorkNotice title="Unable to read Knowledge" tone="error">{headsError}<button className="work-button" onClick={() => void loadHeads()}>Retry library</button></WorkNotice>
         : !heads ? <LoadingSpinner label="Loading Knowledge pages…" />
         : heads.state === 'no_corpus' ? <WorkEmpty title="No Knowledge corpus has been published" />
         : <><FactList items={[["Publication version", heads.generation.version], ["Physical branch", heads.generation.physical_branch], ["Inherited target", heads.generation.inherited_target]]} />
-          {heads.heads.length === 0 ? <WorkEmpty title="The Knowledge publication is empty" /> : <nav aria-label="Published Knowledge pages">{heads.heads.map(head => <RecordLink key={head.slug} title={head.title || head.slug} meta={head.slug} selected={slug === head.slug} onClick={() => openPage(head.slug)}><span>{head.updated_at ?? '—'}</span></RecordLink>)}</nav>}</>}
+          {heads.heads.length === 0 && <WorkEmpty title="The Knowledge publication is empty" />}</>}
+      <KnowledgePageCatalogue heads={heads?.state === 'published' ? heads.heads : null} slug={readerOrigin === 'catalogue' ? slug : null} restoreFocus={slug === null}
+        onSelect={target => target === null ? libraryHref('catalogue') : openPage(target, 'catalogue')}
+        label="Published Knowledge pages" readerLabel="Knowledge document">
+        {reader}
+      </KnowledgePageCatalogue>
     </WorkSection>
-    {slug !== null && <article className="knowledge-reader" aria-label="Knowledge document">
-      {destinationError ? <WorkNotice title="Reference destination unavailable" tone="error">{destinationError}</WorkNotice> : currentError ? <WorkNotice title="Unable to read document" tone="error">{currentError}<button className="work-button" onClick={() => void loadPage()}>Retry document</button></WorkNotice>
-        : !currentPage ? <LoadingSpinner label="Loading Knowledge document…" />
-        : currentPage.state === 'no_corpus' ? <WorkEmpty title="No Knowledge corpus has been published" />
-        : currentPage.page.state === 'published_empty' ? <WorkEmpty title="The Knowledge publication is empty" />
-        : currentPage.page.state === 'page_absent' ? <WorkEmpty title="Knowledge page not found">{slug}</WorkEmpty>
-        : <><NativeKnowledgeDocument key={slug} publication={currentPage} openPage={openPage} /><RecordReferences binding={referenceBinding} /></>}
-    </article>}
   </WorkPage>;
 }

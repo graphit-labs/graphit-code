@@ -94,6 +94,13 @@ is preserved. See [output contract](../specs/output_module.md).
 
 ## Synthesis and Live
 
+In the browser, a new question starts with FTS evidence retrieval, so
+you can write the question without first checking every page. Search still finds and previews
+pages; evidence selection determines which authorized pages the answer may consume. Choose manual
+evidence explicitly when you want to select a fixed set. Manual `selected_slugs: []` continues to
+mean no documents. This browser choice does not change API, CLI or MCP defaults or enable
+embeddings, semantic retrieval or reranking.
+
 Knowledge Ask requires a literal model and an admitted completion CLI binding, plus explicit page
 slugs or ranked retrieval. The CLI/protocol owns its model account; a configured embedding service
 is not a completion service. Conversation adds owned native session continuation. Live prepares an

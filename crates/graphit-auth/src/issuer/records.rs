@@ -25,7 +25,7 @@ pub(super) fn web_actor(issuer: &RoleIssuer, caller: &AuthenticatedWebCaller<'_>
         hash.update((part.len() as u64).to_be_bytes());
         hash.update(part.as_bytes());
     }
-    Actor(hash.finalize().into())
+    Actor::from_digest(hash.finalize().into())
 }
 
 /// The project record domains accepted by this authority boundary.
@@ -495,7 +495,7 @@ impl<'a> ProjectWriteAdmission<'a> {
                 hash.update(installation.as_bytes());
                 caller.source.update_task_principal(&mut hash);
                 self.recheck()?;
-                Ok(Actor(hash.finalize().into()))
+                Ok(Actor::from_digest(hash.finalize().into()))
             }
             RecordProof::Role(_) => self.actor(),
             RecordProof::Broker(_) => Err(AuthError::Denied),

@@ -79,6 +79,52 @@ fn same_tuple(a: &SyntaxIdentity<'_, '_, '_>, b: &SyntaxIdentity<'_, '_, '_>) ->
             .all(|(x, y)| x.label() == y.label() && x.start() == y.start() && x.end() == y.end())
 }
 
+#[test]
+fn inserting_unrelated_lines_preserves_logical_identity_and_scope() {
+    fn uid(bytes: &[u8]) -> String {
+        let ctx = context();
+        let doc = IdentityDocument::new(
+            IdentityDocumentInput {
+                relative_components: &["src", "stable.js"],
+                language: "javascript",
+                grammar: "tree-sitter-javascript",
+                original_bytes: bytes,
+            },
+            limits(),
+            &ctx,
+        )
+        .unwrap();
+        let source = SourceText::new(bytes, 4096).unwrap();
+        let text = std::str::from_utf8(bytes).unwrap();
+        let owner_start = text.find("Box").unwrap();
+        let name_start = text.find("same").unwrap();
+        let owner = doc
+            .symbol(
+                "Class",
+                source.range(owner_start, owner_start + 3).unwrap(),
+                &[],
+                LogicalDeclaration::named(
+                    (source.range(owner_start, owner_start + 3).unwrap()).text(),
+                ),
+            )
+            .unwrap();
+        doc.symbol(
+            "Method",
+            source.range(name_start, name_start + 4).unwrap(),
+            &[&owner],
+            LogicalDeclaration::named((source.range(name_start, name_start + 4).unwrap()).text()),
+        )
+        .unwrap()
+        .uid()
+        .as_str()
+        .to_owned()
+    }
+
+    let original = b"class Box { same() {} }\n";
+    let shifted = b"// unrelated observation\n\nclass Box { same() {} }\n";
+    assert_eq!(uid(original), uid(shifted));
+}
+
 fn assert_manual_oracle(key: &SyntaxIdentity<'_, '_, '_>, row: &serde_json::Value) {
     let tuple = &row["typed_tuple"];
     let paths = tuple[1].as_array().unwrap();
@@ -119,7 +165,7 @@ fn assert_manual_oracle(key: &SyntaxIdentity<'_, '_, '_>, row: &serde_json::Valu
 }
 
 #[test]
-fn all_fifteen_manual_oracles_compare_full_tuple_wire_and_byte_points() {
+fn all_fifteen_manual_oracles_compare_logical_uid_and_source_observations() {
     let expected: serde_json::Value =
         serde_json::from_str(include_str!("fixtures/symbols/expected-identity.json")).unwrap();
     let rows = expected["rows"].as_array().unwrap();
@@ -157,6 +203,21 @@ fn all_fifteen_manual_oracles_compare_full_tuple_wire_and_byte_points() {
         )
         .unwrap();
         let source = SourceText::new(bytes, 4096).unwrap();
+        for prior in row["prior_subjects"].as_array().unwrap() {
+            let subject = source
+                .range(
+                    prior[1].as_u64().unwrap() as usize,
+                    prior[2].as_u64().unwrap() as usize,
+                )
+                .unwrap();
+            doc.symbol(
+                prior[0].as_str().unwrap(),
+                subject,
+                &[],
+                LogicalDeclaration::named(subject.text()),
+            )
+            .unwrap();
+        }
         let owner_tuple = tuple[6].as_array().unwrap().first();
         let owner = owner_tuple.map(|o| {
             doc.symbol(
@@ -168,6 +229,15 @@ fn all_fifteen_manual_oracles_compare_full_tuple_wire_and_byte_points() {
                     )
                     .unwrap(),
                 &[],
+                LogicalDeclaration::named(
+                    (source
+                        .range(
+                            o[1].as_u64().unwrap() as usize,
+                            o[2].as_u64().unwrap() as usize,
+                        )
+                        .unwrap())
+                    .text(),
+                ),
             )
             .unwrap()
         });
@@ -179,6 +249,7 @@ fn all_fifteen_manual_oracles_compare_full_tuple_wire_and_byte_points() {
                 tuple[4].as_str().unwrap(),
                 source.range(start, end).unwrap(),
                 &owners,
+                LogicalDeclaration::named((source.range(start, end).unwrap()).text()),
             )
             .unwrap();
         assert!(std::ptr::eq(key.document(), &doc));
@@ -341,13 +412,25 @@ fn document_and_text_predicates_reject_without_normalizing() {
         "Function\n",
     ] {
         error(
-            doc.symbol(label, subject, &[]),
+            doc.symbol(
+                label,
+                subject,
+                &[],
+                LogicalDeclaration::named((subject).text()),
+            ),
             IdentityErrorCode::InvalidLabel,
             Some(IdentityField::Label),
             None,
         );
     }
-    let key = doc.symbol("Custom\"Λ", subject, &[]).unwrap();
+    let key = doc
+        .symbol(
+            "Custom\"Λ",
+            subject,
+            &[],
+            LogicalDeclaration::named((subject).text()),
+        )
+        .unwrap();
     assert_eq!(key.label(), "Custom\"Λ");
     let cause = error(
         IdentityDocument::new(
@@ -377,6 +460,9 @@ fn document_and_text_predicates_reject_without_normalizing() {
             "Function",
             SourceText::new(b"", 1).unwrap().range(0, 0).unwrap(),
             &[],
+            LogicalDeclaration::named(
+                (SourceText::new(b"", 1).unwrap().range(0, 0).unwrap()).text(),
+            ),
         ),
         IdentityErrorCode::InvalidAnchor,
         None,
@@ -399,7 +485,12 @@ fn actual_ranges_foreign_binding_and_relative_points_are_rejected() {
     let ctx = context();
     let doc = document(&["a.go"], GO, &ctx);
     error(
-        doc.symbol("Function", go.range(27, 27).unwrap(), &[]),
+        doc.symbol(
+            "Function",
+            go.range(27, 27).unwrap(),
+            &[],
+            LogicalDeclaration::named((go.range(27, 27).unwrap()).text()),
+        ),
         IdentityErrorCode::InvalidAnchor,
         None,
         None,
@@ -414,6 +505,13 @@ fn actual_ranges_foreign_binding_and_relative_points_are_rejected() {
                 .range(18, 21)
                 .unwrap(),
             &[],
+            LogicalDeclaration::named(
+                (SourceText::new(&foreign, 4096)
+                    .unwrap()
+                    .range(18, 21)
+                    .unwrap())
+                .text(),
+            ),
         ),
         IdentityErrorCode::InvalidAnchor,
         None,
@@ -424,7 +522,12 @@ fn actual_ranges_foreign_binding_and_relative_points_are_rejected() {
     let alpha = document(&["a.go"], original, &ctx);
     let ascii = SourceText::new(b"a", 1).unwrap().range(0, 1).unwrap();
     let failure = error(
-        alpha.symbol("Function", ascii, &[]),
+        alpha.symbol(
+            "Function",
+            ascii,
+            &[],
+            LogicalDeclaration::named((ascii).text()),
+        ),
         IdentityErrorCode::InvalidAnchor,
         None,
         None,
@@ -439,7 +542,12 @@ fn actual_ranges_foreign_binding_and_relative_points_are_rejected() {
     assert_eq!(relative.text().as_ptr(), whole.text().as_ptr());
     assert_ne!(relative.start_point(), whole.start_point());
     error(
-        full.symbol("Function", relative, &[]),
+        full.symbol(
+            "Function",
+            relative,
+            &[],
+            LogicalDeclaration::named((relative).text()),
+        ),
         IdentityErrorCode::InvalidAnchor,
         None,
         None,
@@ -454,53 +562,109 @@ fn owner_document_prefix_repetition_self_and_independent_lifetimes() {
     let other = document(&paths, JSON, &ctx);
     let source = SourceText::new(JSON, 4096).unwrap();
     let a = doc
-        .symbol("Pair", source.range(2, 3).unwrap(), &[])
+        .symbol(
+            "Pair",
+            source.range(2, 3).unwrap(),
+            &[],
+            LogicalDeclaration::named((source.range(2, 3).unwrap()).text()),
+        )
         .unwrap();
     let b = doc
-        .symbol("Pair", source.range(8, 9).unwrap(), &[])
+        .symbol(
+            "Pair",
+            source.range(8, 9).unwrap(),
+            &[],
+            LogicalDeclaration::named((source.range(8, 9).unwrap()).text()),
+        )
         .unwrap();
     let nested = doc
-        .symbol("Value", source.range(5, 6).unwrap(), &[&a])
+        .symbol(
+            "Value",
+            source.range(5, 6).unwrap(),
+            &[&a],
+            LogicalDeclaration::named((source.range(5, 6).unwrap()).text()),
+        )
         .unwrap();
     let foreign = other
-        .symbol("Pair", source.range(2, 3).unwrap(), &[])
+        .symbol(
+            "Pair",
+            source.range(2, 3).unwrap(),
+            &[],
+            LogicalDeclaration::named((source.range(2, 3).unwrap()).text()),
+        )
         .unwrap();
     let subject = source.range(11, 12).unwrap();
     error(
-        doc.symbol("Value", subject, &[&foreign]),
+        doc.symbol(
+            "Value",
+            subject,
+            &[&foreign],
+            LogicalDeclaration::named((subject).text()),
+        ),
         IdentityErrorCode::InvalidContext,
         Some(IdentityField::Owners),
         Some(0),
     );
     error(
-        doc.symbol("Value", subject, &[&b, &nested]),
+        doc.symbol(
+            "Value",
+            subject,
+            &[&b, &nested],
+            LogicalDeclaration::named((subject).text()),
+        ),
         IdentityErrorCode::InvalidContext,
         Some(IdentityField::Owners),
         Some(1),
     );
     error(
-        doc.symbol("Value", subject, &[&nested]),
+        doc.symbol(
+            "Value",
+            subject,
+            &[&nested],
+            LogicalDeclaration::named((subject).text()),
+        ),
         IdentityErrorCode::InvalidContext,
         Some(IdentityField::Owners),
         Some(0),
     );
     error(
-        doc.symbol("Value", subject, &[&a, &a]),
+        doc.symbol(
+            "Value",
+            subject,
+            &[&a, &a],
+            LogicalDeclaration::named((subject).text()),
+        ),
         IdentityErrorCode::InvalidContext,
         Some(IdentityField::Owners),
         Some(1),
     );
     error(
-        doc.symbol("Pair", source.range(2, 3).unwrap(), &[&a]),
+        doc.symbol(
+            "Pair",
+            source.range(2, 3).unwrap(),
+            &[&a],
+            LogicalDeclaration::named((source.range(2, 3).unwrap()).text()),
+        ),
         IdentityErrorCode::InvalidContext,
         Some(IdentityField::Owners),
         Some(0),
     );
     let child = {
         let temporary = doc
-            .symbol("Pair", source.range(8, 9).unwrap(), &[])
+            .symbol(
+                "Pair",
+                source.range(8, 9).unwrap(),
+                &[],
+                LogicalDeclaration::named((source.range(8, 9).unwrap()).text()),
+            )
             .unwrap();
-        doc.symbol("Value", subject, &[&temporary]).unwrap()
+        doc.symbol(
+            "Value",
+            subject,
+            &[&temporary],
+            LogicalDeclaration::named((subject).text()),
+        )
+        .unwrap()
     };
     assert_eq!(child.context()[0].label(), "Pair");
     assert_eq!(
@@ -584,6 +748,9 @@ fn structural_caps_exact_and_one_below_cover_every_field() {
             "abcdefghijklmn",
             SourceText::new(GO, 4096).unwrap().range(18, 21).unwrap(),
             &[],
+            LogicalDeclaration::named(
+                (SourceText::new(GO, 4096).unwrap().range(18, 21).unwrap()).text(),
+            ),
         );
         if accepted {
             result.ok().unwrap();
@@ -596,7 +763,7 @@ fn structural_caps_exact_and_one_below_cover_every_field() {
             );
         }
     }
-    for (maximum, accepted) in [(74, true), (73, false)] {
+    for (maximum, accepted) in [(67, true), (66, false)] {
         let mut p = policy();
         p.uid_bytes = maximum;
         let doc = IdentityDocument::new(
@@ -614,9 +781,12 @@ fn structural_caps_exact_and_one_below_cover_every_field() {
             "Function",
             SourceText::new(GO, 4096).unwrap().range(18, 21).unwrap(),
             &[],
+            LogicalDeclaration::named(
+                (SourceText::new(GO, 4096).unwrap().range(18, 21).unwrap()).text(),
+            ),
         );
         if accepted {
-            assert_eq!(result.ok().unwrap().uid().as_str().len(), 74);
+            assert_eq!(result.ok().unwrap().uid().as_str().len(), 67);
         } else {
             error(
                 result,
@@ -641,13 +811,28 @@ fn structural_caps_exact_and_one_below_cover_every_field() {
     .unwrap();
     let source = SourceText::new(JSON, 4096).unwrap();
     let outer = doc
-        .symbol("Pair", source.range(2, 3).unwrap(), &[])
+        .symbol(
+            "Pair",
+            source.range(2, 3).unwrap(),
+            &[],
+            LogicalDeclaration::named((source.range(2, 3).unwrap()).text()),
+        )
         .unwrap();
     let inner = doc
-        .symbol("Value", source.range(5, 6).unwrap(), &[&outer])
+        .symbol(
+            "Value",
+            source.range(5, 6).unwrap(),
+            &[&outer],
+            LogicalDeclaration::named((source.range(5, 6).unwrap()).text()),
+        )
         .unwrap();
     error(
-        doc.symbol("Value", source.range(11, 12).unwrap(), &[&outer, &inner]),
+        doc.symbol(
+            "Value",
+            source.range(11, 12).unwrap(),
+            &[&outer, &inner],
+            LogicalDeclaration::named((source.range(11, 12).unwrap()).text()),
+        ),
         IdentityErrorCode::LimitExceeded,
         Some(IdentityField::OwnerDepth),
         None,
@@ -689,6 +874,9 @@ fn retained_context_cancel_and_expiry_precede_input_validation() {
             "",
             SourceText::new(GO, 4096).unwrap().range(18, 21).unwrap(),
             &[],
+            LogicalDeclaration::named(
+                (SourceText::new(GO, 4096).unwrap().range(18, 21).unwrap()).text(),
+            ),
         ),
         IdentityErrorCode::Cancelled,
         None,
@@ -840,31 +1028,76 @@ fn used_decoder_catalog_identity_and_uid_only_borrowed_index() {
     let jssource = SourceText::new(JS, 4096).unwrap();
     let jsonsource = SourceText::new(JSON, 4096).unwrap();
     let ka = a
-        .symbol(go_label, gosource.range(18, 21).unwrap(), &[])
+        .symbol(
+            go_label,
+            gosource.range(18, 21).unwrap(),
+            &[],
+            LogicalDeclaration::named((gosource.range(18, 21).unwrap()).text()),
+        )
         .unwrap();
     let kb = b
-        .symbol(go_label, gosource.range(18, 21).unwrap(), &[])
+        .symbol(
+            go_label,
+            gosource.range(18, 21).unwrap(),
+            &[],
+            LogicalDeclaration::named((gosource.range(18, 21).unwrap()).text()),
+        )
         .unwrap();
     let js1 = jsdoc
-        .symbol(js_label, jssource.range(9, 12).unwrap(), &[])
+        .symbol(
+            js_label,
+            jssource.range(9, 12).unwrap(),
+            &[],
+            LogicalDeclaration::named((jssource.range(9, 12).unwrap()).text()),
+        )
         .unwrap();
     let js2 = jsdoc
-        .symbol(js_label, jssource.range(27, 30).unwrap(), &[])
+        .symbol(
+            js_label,
+            jssource.range(27, 30).unwrap(),
+            &[],
+            LogicalDeclaration::named((jssource.range(27, 30).unwrap()).text()),
+        )
         .unwrap();
     let pair1 = jsondoc
-        .symbol(pair_label, jsonsource.range(2, 3).unwrap(), &[])
+        .symbol(
+            pair_label,
+            jsonsource.range(2, 3).unwrap(),
+            &[],
+            LogicalDeclaration::named((jsonsource.range(2, 3).unwrap()).text()),
+        )
         .unwrap();
     let pair2 = jsondoc
-        .symbol(pair_label, jsonsource.range(8, 9).unwrap(), &[])
+        .symbol(
+            pair_label,
+            jsonsource.range(8, 9).unwrap(),
+            &[],
+            LogicalDeclaration::named((jsonsource.range(8, 9).unwrap()).text()),
+        )
         .unwrap();
     let value1 = jsondoc
-        .symbol(value_label, jsonsource.range(5, 6).unwrap(), &[&pair1])
+        .symbol(
+            value_label,
+            jsonsource.range(5, 6).unwrap(),
+            &[&pair1],
+            LogicalDeclaration::named((jsonsource.range(5, 6).unwrap()).text()),
+        )
         .unwrap();
     let value2 = jsondoc
-        .symbol(value_label, jsonsource.range(11, 12).unwrap(), &[&pair2])
+        .symbol(
+            value_label,
+            jsonsource.range(11, 12).unwrap(),
+            &[&pair2],
+            LogicalDeclaration::named((jsonsource.range(11, 12).unwrap()).text()),
+        )
         .unwrap();
     let replay = jsondoc
-        .symbol(value_label, jsonsource.range(5, 6).unwrap(), &[&pair1])
+        .symbol(
+            value_label,
+            jsonsource.range(5, 6).unwrap(),
+            &[&pair1],
+            LogicalDeclaration::named((jsonsource.range(5, 6).unwrap()).text()),
+        )
         .unwrap();
     // All storage is immutable before any reference enters the consumer index.
     let identities = [ka, kb, js1, js2, pair1, pair2, value1, value2, replay];
@@ -941,12 +1174,22 @@ fn actual_root_exact_projection_composes_without_coercing_other_origins() {
         OriginalProjection::Exact(range) => range,
         _ => panic!("declared direct root must be exact"),
     };
-    let projected = doc.symbol("Function", exact, &[]).unwrap();
+    let projected = doc
+        .symbol(
+            "Function",
+            exact,
+            &[],
+            LogicalDeclaration::named((exact).text()),
+        )
+        .unwrap();
     let direct = doc
         .symbol(
             "Function",
             SourceText::new(GO, 4096).unwrap().range(18, 21).unwrap(),
             &[],
+            LogicalDeclaration::named(
+                (SourceText::new(GO, 4096).unwrap().range(18, 21).unwrap()).text(),
+            ),
         )
         .unwrap();
     assert!(same_tuple(&projected, &direct));

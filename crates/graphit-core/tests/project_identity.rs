@@ -582,6 +582,9 @@ fn readers_observe_complete_identity_snapshots_during_atomic_updates() {
     let first = writer
         .ensure(&ProjectMetadata::new("initial").unwrap())
         .unwrap();
+    let path = fixture.path(".graphit/project.json");
+    let original_bytes = fs::read(&path).unwrap();
+    let mut original_reader = fs::File::open(&path).unwrap();
     let done = Arc::new(AtomicBool::new(false));
     let snapshots: Vec<_> = ["a", "b"]
         .into_iter()
@@ -607,12 +610,17 @@ fn readers_observe_complete_identity_snapshots_during_atomic_updates() {
             }
             reads
         });
-        for i in 0..20 {
-            writer.update(first.id(), &snapshots[i % 2]).unwrap();
-        }
+        let updated =
+            (0..20).try_for_each(|i| writer.update(first.id(), &snapshots[i % 2]).map(|_| ()));
         done.store(true, Ordering::Release);
-        assert!(reader.join().unwrap() >= 100);
+        let reads = reader.join();
+        updated.unwrap();
+        assert!(reads.unwrap() >= 100);
     });
+    let mut retained_bytes = Vec::new();
+    original_reader.read_to_end(&mut retained_bytes).unwrap();
+    assert_eq!(retained_bytes, original_bytes);
+    assert_eq!(store.load().unwrap().unwrap().metadata(), &snapshots[1]);
 }
 
 struct ChildGuard(Child);

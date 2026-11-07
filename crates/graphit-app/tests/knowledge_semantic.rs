@@ -594,6 +594,7 @@ async fn reconcile_pages(
             &source,
             batch,
             lifecycle,
+            |_, old, new| Ok(old == new),
         )
         .await
         .unwrap()

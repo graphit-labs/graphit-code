@@ -1,6 +1,9 @@
 import { useState, useMemo, isValidElement } from "react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkFrontmatter from "remark-frontmatter";
+import { toString as markdownText } from "mdast-util-to-string";
+import type { PhrasingContent, Root } from "mdast";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import {
   oneLight,
@@ -122,6 +125,39 @@ export interface WikiMarkdownProps {
 
 export interface MarkdownContentProps extends WikiMarkdownProps {
   wikiLinks?: boolean;
+  frontmatter?: boolean;
+  displayedTitle?: string;
+}
+
+function titleTextOnly(node: PhrasingContent): boolean {
+  switch (node.type) {
+    case "text":
+    case "inlineCode":
+      return true;
+    case "emphasis":
+    case "strong":
+    case "delete":
+      return node.children.every(titleTextOnly);
+    default:
+      return false;
+  }
+}
+
+function remarkDisplayedTitle({ title }: { title?: string }) {
+  return (tree: Root) => {
+    if (title === undefined) return;
+    const index = tree.children.findIndex((node) => node.type !== "yaml");
+    const heading = tree.children[index];
+    if (
+      heading?.type === "heading" &&
+      heading.depth === 1 &&
+      !heading.data &&
+      heading.children.every(titleTextOnly) &&
+      markdownText(heading) === title
+    ) {
+      tree.children.splice(index, 1);
+    }
+  };
 }
 
 export function MarkdownContent({
@@ -129,6 +165,8 @@ export function MarkdownContent({
   onLink,
   wikiLinks = false,
   compactWikiLinks = false,
+  frontmatter = false,
+  displayedTitle,
 }: MarkdownContentProps) {
   const processed = useMemo(
     () => (wikiLinks ? preprocessWikiLinks(content) : content),
@@ -140,7 +178,11 @@ export function MarkdownContent({
   return (
     <div className="wiki-prose prose prose-sm dark:prose-invert max-w-none">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={[
+          remarkGfm,
+          ...(frontmatter ? [remarkFrontmatter] : []),
+          [remarkDisplayedTitle, { title: displayedTitle }],
+        ]}
         urlTransform={(url) =>
           wikiLinks && url.startsWith("wiki://")
             ? url

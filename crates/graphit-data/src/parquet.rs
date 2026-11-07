@@ -5,24 +5,31 @@ use crate::{
     policy::{DecodeLimits, LocalGraphLimits},
     protocol,
 };
+use arrow_array_parquet::{Array, BooleanArray, Int64Array, StringArray, UInt64Array};
 use bytes::Bytes;
 use graphit_core::artifact_store::{CapturedSourceFile, CapturedSourceReader, SnapshotContext};
 use parquet::{
+    arrow::{
+        ProjectionMask,
+        arrow_reader::{
+            ArrowReaderMetadata, ArrowReaderOptions, ParquetRecordBatchReaderBuilder, RowSelection,
+        },
+    },
     errors::ParquetError,
     file::{
-        properties::ReaderProperties,
-        reader::{ChunkReader, FileReader, Length},
-        serialized_reader::{ReadOptionsBuilder, SerializedFileReader},
+        metadata::{ParquetMetaData, ParquetMetaDataReader},
+        reader::{ChunkReader, Length},
     },
-    record::{Row, reader::TreeBuilder},
-    schema::types::{SchemaDescriptor, Type as SchemaType},
+    record::{Field, Row},
 };
 use polars_parquet_format::{
     self as format, CompressionCodec, ConvertedType, Encoding, FieldRepetitionType, LogicalType,
     PageType,
 };
 use std::{
+    collections::BTreeMap,
     io::Cursor,
+    ops::Range,
     sync::{
         Arc, Mutex, MutexGuard, TryLockError,
         atomic::{AtomicUsize, Ordering},
@@ -35,6 +42,72 @@ pub(crate) enum Scalar {
     Int64,
     Bool,
     UInt64,
+}
+#[derive(Clone, Copy)]
+pub(crate) enum LookupKey<'a> {
+    String(&'a str),
+    Int64(i64),
+    UInt64(u64),
+}
+impl LookupKey<'_> {
+    /// Modern min/max are conservative bounds even when truncated by the writer.
+    /// Missing or legacy statistics cannot exclude a row group.
+    pub(crate) fn may_match(
+        self,
+        statistics: Option<&parquet::file::statistics::Statistics>,
+    ) -> Result<bool> {
+        use parquet::file::statistics::Statistics;
+        let Some(stats) = statistics.filter(|s| !s.is_min_max_deprecated()) else {
+            return Ok(true);
+        };
+        match (self, stats) {
+            (Self::String(key), Statistics::ByteArray(stats)) => {
+                if stats
+                    .min_opt()
+                    .zip(stats.max_opt())
+                    .is_some_and(|(min, max)| min.data() > max.data())
+                {
+                    return Err(invalid("statistics bounds"));
+                }
+                Ok(stats.min_opt().is_none_or(|v| key.as_bytes() >= v.data())
+                    && stats.max_opt().is_none_or(|v| key.as_bytes() <= v.data()))
+            }
+            (Self::Int64(key), Statistics::Int64(stats)) => {
+                if stats
+                    .min_opt()
+                    .zip(stats.max_opt())
+                    .is_some_and(|(min, max)| min > max)
+                {
+                    return Err(invalid("statistics bounds"));
+                }
+                Ok(stats.min_opt().is_none_or(|v| key >= *v)
+                    && stats.max_opt().is_none_or(|v| key <= *v))
+            }
+            (Self::UInt64(key), Statistics::Int64(stats)) => {
+                if stats
+                    .min_opt()
+                    .zip(stats.max_opt())
+                    .is_some_and(|(min, max)| (*min as u64) > (*max as u64))
+                {
+                    return Err(invalid("statistics bounds"));
+                }
+                Ok(stats.min_opt().is_none_or(|v| key >= *v as u64)
+                    && stats.max_opt().is_none_or(|v| key <= *v as u64))
+            }
+            _ => Ok(true),
+        }
+    }
+    fn matches(self, value: &Field, strings: usize) -> Result<bool> {
+        match (self, value) {
+            (Self::String(key), Field::Str(value)) => {
+                bounded(value.len(), strings, "primary key")?;
+                Ok(key == value)
+            }
+            (Self::Int64(key), Field::Long(value)) => Ok(key == *value),
+            (Self::UInt64(key), Field::ULong(value)) => Ok(key == *value),
+            _ => Err(invalid("nonnull lookup key")),
+        }
+    }
 }
 #[derive(Clone, Copy)]
 pub(crate) enum Shape<'a> {
@@ -53,13 +126,17 @@ pub(crate) struct Chunk {
 #[derive(Clone)]
 pub(crate) struct Table {
     shards: Vec<(u64, Box<Table>)>,
-    path: String,
+    path: Arc<str>,
+    file: Arc<CapturedSourceFile>,
     length: u64,
     footer_start: u64,
     footer: Bytes,
     trailer: Bytes,
-    metadata: format::FileMetaData,
-    chunks: Vec<Chunk>,
+    metadata: Arc<format::FileMetaData>,
+    arrow: ArrowReaderMetadata,
+    chunks: Arc<Vec<Chunk>>,
+    row_groups: Vec<usize>,
+    row_offset: u64,
     pub(crate) fields: Vec<(String, Scalar)>,
     pub(crate) rows: u64,
 }
@@ -128,15 +205,18 @@ impl Table {
         reader: &CapturedSourceReader,
         node: &crate::manifest::NodeTable,
         limits: LocalGraphLimits,
+        captured: &mut BTreeMap<String, Self>,
     ) -> Result<Self> {
         let mut shards = Vec::new();
         for shard in &node.shards {
             let part = Self::capture(
                 reader,
                 &shard.file,
+                shard.row_offset,
                 shard.rows,
                 Shape::Nodes(&node.columns),
                 limits,
+                captured,
             )?;
             if shard.rows != 0
                 && !part
@@ -177,12 +257,18 @@ impl Table {
         if self.shards.is_empty() {
             return Ok((0..self.rows.min(count)).collect());
         }
-        Ok(self
-            .shards
-            .iter()
-            .flat_map(|(base, part)| *base..*base + part.rows)
-            .take(usize::try_from(count).map_err(|_| invalid("seed count"))?)
-            .collect())
+        let mut selected = Vec::new();
+        let count = usize::try_from(count).map_err(|_| invalid("seed count"))?;
+        for (base, part) in &self.shards {
+            let end = base
+                .checked_add(part.rows)
+                .ok_or_else(|| invalid("node row extent"))?;
+            selected.extend((*base..end).take(count.saturating_sub(selected.len())));
+            if selected.len() == count {
+                break;
+            }
+        }
+        Ok(selected)
     }
     pub(crate) fn contains(&self, offset: u64) -> bool {
         if self.shards.is_empty() {
@@ -195,13 +281,36 @@ impl Table {
     pub(crate) fn relative_path(&self) -> &str {
         &self.path
     }
+    pub(crate) fn row_offset(&self) -> u64 {
+        self.row_offset
+    }
     pub(crate) fn capture(
         reader: &CapturedSourceReader,
         path: &str,
+        row_offset: u64,
         rows: u64,
         shape: Shape<'_>,
         limits: LocalGraphLimits,
+        captured: &mut BTreeMap<String, Self>,
     ) -> Result<Self> {
+        if let Some(physical) = captured.get(path) {
+            validate_shape(&physical.fields, shape)?;
+            let mut table = physical.clone();
+            table.row_groups = slice_row_groups(
+                physical.metadata.num_rows,
+                physical
+                    .metadata
+                    .row_groups
+                    .iter()
+                    .map(|group| group.num_rows),
+                row_offset,
+                rows,
+                shape,
+            )?;
+            table.row_offset = row_offset;
+            table.rows = rows;
+            return Ok(table);
+        }
         let file = reader.open_file(relative(path)?)?;
         let length = file.len();
         if length < 12 || file.read_range(0, 4)?.as_ref() != b"PAR1" {
@@ -226,21 +335,52 @@ impl Table {
         let metadata = protocol::footer(bytes.as_ref(), limits)?;
         let footer = Bytes::from_owner(bytes);
         let trailer = Bytes::from_owner(trailer);
-        let ValidatedFooter { fields, chunks } =
-            validate(&metadata, rows, shape, footer_start, limits)?;
+        let ValidatedFooter { fields, chunks } = validate(
+            &metadata,
+            unsigned(metadata.num_rows, "rows")?,
+            shape,
+            footer_start,
+            limits,
+        )?;
+        let row_groups = slice_row_groups(
+            metadata.num_rows,
+            metadata.row_groups.iter().map(|group| group.num_rows),
+            row_offset,
+            rows,
+            shape,
+        )?;
+        let decoded = Arc::new(
+            ParquetMetaDataReader::decode_metadata(&footer).map_err(|_| invalid("SDK footer"))?,
+        );
+        compare(&metadata, &decoded)?;
+        let arrow = ArrowReaderMetadata::try_new(
+            decoded,
+            ArrowReaderOptions::new().with_skip_arrow_metadata(true),
+        )
+        .map_err(|_| invalid("SDK schema"))?;
 
-        Ok(Self {
+        let table = Self {
             shards: Vec::new(),
             path: path.into(),
+            file: Arc::new(file),
             length,
             footer_start,
             footer,
             trailer,
-            metadata,
-            chunks,
+            metadata: Arc::new(metadata),
+            arrow,
+            chunks: Arc::new(chunks),
+            row_groups,
+            row_offset,
             fields,
             rows,
-        })
+        };
+        let mut physical = table.clone();
+        physical.rows = unsigned(physical.metadata.num_rows, "rows")?;
+        physical.row_offset = 0;
+        physical.row_groups = (0..physical.metadata.row_groups.len()).collect();
+        captured.insert(path.into(), physical);
+        Ok(table)
     }
     pub(crate) fn scan(
         &self,
@@ -249,6 +389,313 @@ impl Table {
         mut consume: impl FnMut(u64, &Row) -> Result<()>,
     ) -> Result<()> {
         self.scan_inner(request, names, &mut consume)
+    }
+    /// Resolve exact keys through captured SDK statistics and projected bodies.
+    /// Logical ordinals remain relative to this table's captured shard slices.
+    pub(crate) fn scan_keys(
+        &self,
+        request: &DecodeRequest<'_>,
+        name: &str,
+        keys: &[LookupKey<'_>],
+        strings: usize,
+        names: &[&str],
+        mut consume: impl FnMut(u64, &Row) -> Result<()>,
+    ) -> Result<()> {
+        self.scan_keys_inner(request, name, keys, strings, names, &mut consume)
+    }
+    fn scan_keys_inner(
+        &self,
+        request: &DecodeRequest<'_>,
+        name: &str,
+        keys: &[LookupKey<'_>],
+        strings: usize,
+        names: &[&str],
+        consume: &mut dyn FnMut(u64, &Row) -> Result<()>,
+    ) -> Result<()> {
+        request.context.check()?;
+        request.source.check_request(request.context)?;
+        if keys.is_empty() || self.rows == 0 {
+            return Ok(());
+        }
+        if !self.shards.is_empty() {
+            for (base, part) in &self.shards {
+                part.scan_keys_inner(request, name, keys, strings, names, &mut |row, record| {
+                    consume(
+                        base.checked_add(row)
+                            .ok_or_else(|| invalid("node row ordinal"))?,
+                        record,
+                    )
+                })?;
+            }
+            return Ok(());
+        }
+        let column = self
+            .fields
+            .iter()
+            .position(|(field, _)| field == name)
+            .ok_or_else(|| invalid("lookup column"))?;
+        let mut groups = Vec::new();
+        for index in &self.row_groups {
+            let group = self.arrow.metadata().row_group(*index);
+            let mut matched = false;
+            for key in keys {
+                matched |= key.may_match(group.column(column).statistics())?;
+            }
+            if matched {
+                groups.push(*index);
+            }
+        }
+        self.scan_groups(request, names, &groups, &mut |row, record| {
+            let value = crate::field(record, name)?;
+            let mut matched = false;
+            for key in keys {
+                matched |= key.matches(value, strings)?;
+            }
+            if matched {
+                consume(row, record)?;
+            }
+            Ok(())
+        })
+    }
+    /// Read an adjacency interval without allocating one ordinal per edge.
+    pub(crate) fn scan_range(
+        &self,
+        request: &DecodeRequest<'_>,
+        names: &[&str],
+        range: Range<u64>,
+        mut consume: impl FnMut(u64, &Row) -> Result<()>,
+    ) -> Result<()> {
+        request.context.check()?;
+        request.source.check_request(request.context)?;
+        if !self.shards.is_empty() || range.start > range.end || range.end > self.rows {
+            return Err(invalid("selected range"));
+        }
+        if range.is_empty() {
+            return Ok(());
+        }
+        let mut groups = Vec::new();
+        let mut offset = 0u64;
+        for (index, group) in self.arrow.metadata().row_groups().iter().enumerate() {
+            let end = offset
+                .checked_add(unsigned(group.num_rows(), "group rows")?)
+                .ok_or_else(|| invalid("group rows"))?;
+            if self.row_groups.binary_search(&index).is_ok()
+                && offset < self.row_offset + range.end
+                && end > self.row_offset + range.start
+            {
+                groups.push(index);
+            }
+            offset = end;
+        }
+        self.scan_groups(request, names, &groups, &mut |row, record| {
+            if range.contains(&row) {
+                consume(row, record)?;
+            }
+            Ok(())
+        })
+    }
+    fn scan_groups(
+        &self,
+        request: &DecodeRequest<'_>,
+        names: &[&str],
+        groups: &[usize],
+        consume: &mut dyn FnMut(u64, &Row) -> Result<()>,
+    ) -> Result<()> {
+        let mut physical = self.clone();
+        physical.row_groups.clear();
+        let mut segments = Vec::new();
+        let mut offset = 0u64;
+        let mut decoded = 0u64;
+        for (index, group) in self.arrow.metadata().row_groups().iter().enumerate() {
+            let count = unsigned(group.num_rows(), "group rows")?;
+            if groups.binary_search(&index).is_ok() && count != 0 {
+                let logical = offset
+                    .checked_sub(self.row_offset)
+                    .ok_or_else(|| invalid("row slice boundary"))?;
+                segments.push((decoded, logical, count));
+                decoded = decoded
+                    .checked_add(count)
+                    .ok_or_else(|| invalid("decoded rows"))?;
+                physical.row_groups.push(index);
+            }
+            offset = offset
+                .checked_add(count)
+                .ok_or_else(|| invalid("group rows"))?;
+        }
+        physical.rows = decoded;
+        let mut segment = 0;
+        physical.scan(request, names, |ordinal, record| {
+            while segments
+                .get(segment)
+                .is_some_and(|(base, _, count)| ordinal - base >= *count)
+            {
+                segment += 1;
+            }
+            let (base, logical, _) = segments
+                .get(segment)
+                .ok_or_else(|| invalid("decoded row count"))?;
+            consume(
+                logical
+                    .checked_add(ordinal - base)
+                    .ok_or_else(|| invalid("node row ordinal"))?,
+                record,
+            )
+        })
+    }
+    pub(crate) fn row_group_ranges(&self) -> Result<Vec<Range<u64>>> {
+        let mut ranges = Vec::new();
+        if !self.shards.is_empty() {
+            for (base, part) in &self.shards {
+                for range in part.row_group_ranges()? {
+                    ranges.push(
+                        base.checked_add(range.start)
+                            .ok_or_else(|| invalid("node row extent"))?
+                            ..base
+                                .checked_add(range.end)
+                                .ok_or_else(|| invalid("node row extent"))?,
+                    );
+                }
+            }
+            return Ok(ranges);
+        }
+        let mut offset = 0u64;
+        for (index, group) in self.metadata.row_groups.iter().enumerate() {
+            let next = offset
+                .checked_add(unsigned(group.num_rows, "group rows")?)
+                .ok_or_else(|| invalid("group rows"))?;
+            if self.row_groups.binary_search(&index).is_ok() && next > offset {
+                ranges.push(
+                    offset
+                        .checked_sub(self.row_offset)
+                        .ok_or_else(|| invalid("row slice boundary"))?
+                        ..next
+                            .checked_sub(self.row_offset)
+                            .ok_or_else(|| invalid("row slice boundary"))?,
+                );
+            }
+            offset = next;
+        }
+        Ok(ranges)
+    }
+    /// Decode complete intersecting SDK row groups, but deliver only selected
+    /// logical rows. Skipped groups and shards never ask for body ranges.
+    pub(crate) fn scan_selected(
+        &self,
+        request: &DecodeRequest<'_>,
+        names: &[&str],
+        rows: &[u64],
+        mut consume: impl FnMut(u64, &Row) -> Result<()>,
+    ) -> Result<()> {
+        self.scan_selected_inner(request, names, rows, &mut consume)
+    }
+    fn scan_selected_inner(
+        &self,
+        request: &DecodeRequest<'_>,
+        names: &[&str],
+        rows: &[u64],
+        consume: &mut dyn FnMut(u64, &Row) -> Result<()>,
+    ) -> Result<()> {
+        request.context.check()?;
+        request.source.check_request(request.context)?;
+        if rows.windows(2).any(|pair| pair[0] >= pair[1])
+            || rows.iter().any(|row| !self.contains(*row))
+        {
+            return Err(invalid("selected rows"));
+        }
+        if rows.is_empty() {
+            return Ok(());
+        }
+        if !self.shards.is_empty() {
+            for (base, part) in &self.shards {
+                let selected = rows
+                    .iter()
+                    .copied()
+                    .filter(|row| *row >= *base && *row - *base < part.rows)
+                    .map(|row| row - *base)
+                    .collect::<Vec<_>>();
+                if selected.is_empty() {
+                    continue;
+                }
+                let mut physical = names
+                    .iter()
+                    .copied()
+                    .filter(|name| part.fields.iter().any(|(field, _)| field == name))
+                    .collect::<Vec<_>>();
+                if physical.is_empty()
+                    && let Some((name, _)) = part.fields.first()
+                {
+                    physical.push(name);
+                }
+                part.scan_selected_inner(request, &physical, &selected, &mut |row, record| {
+                    let row = base
+                        .checked_add(row)
+                        .ok_or_else(|| invalid("node row ordinal"))?;
+                    if physical.as_slice() == names {
+                        consume(row, record)
+                    } else {
+                        consume(row, &project(names, record))
+                    }
+                })?;
+            }
+            return request.context.check().map_err(Into::into);
+        }
+        let mut physical = self.clone();
+        physical.row_groups.clear();
+        let mut segments = Vec::new();
+        let mut offset = 0u64;
+        let mut decoded = 0u64;
+        for (index, group) in self.metadata.row_groups.iter().enumerate() {
+            let count = unsigned(group.num_rows, "group rows")?;
+            let next = offset
+                .checked_add(count)
+                .ok_or_else(|| invalid("group rows"))?;
+            if self.row_groups.binary_search(&index).is_ok() && count != 0 {
+                let start = offset
+                    .checked_sub(self.row_offset)
+                    .ok_or_else(|| invalid("row slice boundary"))?;
+                let end = start
+                    .checked_add(count)
+                    .ok_or_else(|| invalid("row slice boundary"))?;
+                let first = rows.partition_point(|row| *row < start);
+                if rows.get(first).is_some_and(|row| *row < end) {
+                    segments.push((decoded, start, count));
+                    decoded = decoded
+                        .checked_add(count)
+                        .ok_or_else(|| invalid("decoded rows"))?;
+                    physical.row_groups.push(index);
+                }
+            }
+            offset = next;
+        }
+        physical.rows = decoded;
+        let mut segment = 0usize;
+        let mut delivered = 0usize;
+        physical.scan(request, names, |ordinal, record| {
+            while segments.get(segment).is_some_and(|(base, _, count)| {
+                ordinal.checked_sub(*base).is_some_and(|row| row >= *count)
+            }) {
+                segment += 1;
+            }
+            let (base, logical, _) = segments
+                .get(segment)
+                .ok_or_else(|| invalid("decoded row count"))?;
+            let row = logical
+                .checked_add(
+                    ordinal
+                        .checked_sub(*base)
+                        .ok_or_else(|| invalid("decoded row ordinal"))?,
+                )
+                .ok_or_else(|| invalid("node row ordinal"))?;
+            if rows.binary_search(&row).is_ok() {
+                consume(row, record)?;
+                delivered += 1;
+            }
+            Ok(())
+        })?;
+        if delivered != rows.len() {
+            return Err(invalid("selected row count"));
+        }
+        request.context.check().map_err(Into::into)
     }
     fn scan_inner(
         &self,
@@ -268,23 +715,23 @@ impl Table {
                 {
                     physical.push(name);
                 }
+                if physical.as_slice() == names {
+                    part.scan(request, names, |row, record| {
+                        consume(
+                            base.checked_add(row)
+                                .ok_or_else(|| invalid("node row ordinal"))?,
+                            record,
+                        )
+                    })?;
+                    continue;
+                }
                 part.scan(request, &physical, |row, record| {
-                    let projected = Row::new(
-                        names
-                            .iter()
-                            .map(|name| {
-                                (
-                                    (*name).to_owned(),
-                                    record
-                                        .get_column_iter()
-                                        .find(|(field, _)| field.as_str() == *name)
-                                        .map(|(_, value)| value.clone())
-                                        .unwrap_or(::parquet::record::Field::Null),
-                                )
-                            })
-                            .collect(),
-                    );
-                    consume(*base + row, &projected)
+                    let projected = project(names, record);
+                    consume(
+                        base.checked_add(row)
+                            .ok_or_else(|| invalid("node row ordinal"))?,
+                        &projected,
+                    )
                 })?;
             }
             return Ok(());
@@ -298,82 +745,176 @@ impl Table {
             work,
         } = *request;
         context.check()?;
-        if self.rows == 0 && self.fields.is_empty() {
+        source.check_request(context)?;
+        if self.rows == 0 {
             return Ok(());
         }
-        let adapter = Adapter::new(
-            source.open_file(relative(&self.path)?)?,
-            self,
-            context,
-            limits,
-            work,
-        )?;
-        let options = ReadOptionsBuilder::new()
-            .with_reader_properties(
-                ReaderProperties::builder()
-                    .set_read_bloom_filter(false)
-                    .build(),
-            )
-            .build();
+        let adapter = Adapter::new(Arc::clone(&self.file), self, context, limits, work)?;
         work.page()?;
-        let sdk = SerializedFileReader::new_with_options(adapter.clone(), options)
-            .map_err(|_| adapter.failure("SDK footer"))?;
-        compare(&self.metadata, &sdk)?;
-        let root = sdk.metadata().file_metadata().schema_descr().root_schema();
-        let mut selected = Vec::new();
-        selected
-            .try_reserve_exact(names.len())
-            .map_err(|_| DataReadError::LimitExceeded("projection allocation"))?;
-        for field in root.get_fields() {
-            if names.contains(&field.name()) {
-                selected.push(Arc::clone(field));
-            }
-        }
+        let builder =
+            ParquetRecordBatchReaderBuilder::new_with_metadata(adapter.clone(), self.arrow.clone());
+        compare(&self.metadata, builder.metadata())?;
+        let selected = self
+            .fields
+            .iter()
+            .enumerate()
+            .filter(|(_, (name, _))| names.contains(&name.as_str()))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
         if selected.len() != names.len() {
             return Err(invalid("projection"));
         }
-        let projected = Arc::new(SchemaDescriptor::new(Arc::new(
-            SchemaType::group_type_builder(root.name())
-                .with_fields(selected)
-                .build()
-                .map_err(|_| invalid("projection"))?,
-        )));
+        let projection = ProjectionMask::roots(builder.parquet_schema(), selected);
+        let count = usize::try_from(self.rows).map_err(|_| invalid("table row count"))?;
+        work.rows(count)?;
+        let selected = RowSelection::from_consecutive_ranges(std::iter::once(0..count), count);
+        let sdk = builder
+            .with_row_groups(self.row_groups.clone())
+            .with_projection(projection)
+            .with_row_selection(selected)
+            .with_batch_size(decode.row_batch_size)
+            .build()
+            .map_err(|_| adapter.failure("row decoder"))?;
         let mut ordinal = 0;
-        for index in 0..sdk.num_row_groups() {
+        for batch in sdk {
             context.check()?;
-            let group = sdk
-                .get_row_group(index)
-                .map_err(|_| adapter.failure("row group"))?;
-            let count = usize::try_from(group.metadata().num_rows())
-                .map_err(|_| invalid("row group rows"))?;
-            work.rows(count)?; // Admit full decoded/skipped row work before initial SDK batch.
-            let rows = TreeBuilder::new()
-                .with_batch_size(decode.row_batch_size)
-                .as_iter(Arc::clone(&projected), group.as_ref())
-                .map_err(|_| adapter.failure("row decoder"))?;
-            let mut actual = 0;
-            for row in rows {
+            let batch = batch.map_err(|_| adapter.failure("row decoder"))?;
+            let arrays = names
+                .iter()
+                .map(|name| {
+                    batch
+                        .column_by_name(name)
+                        .ok_or_else(|| invalid("decoded projection"))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            for at in 0..batch.num_rows() {
                 context.check()?;
-                let row = row.map_err(|_| adapter.failure("row decoder"))?;
+                let mut values = Vec::with_capacity(batch.num_columns());
+                for (name, array) in names.iter().zip(&arrays) {
+                    let value = if array.is_null(at) {
+                        Field::Null
+                    } else if let Some(value) = array.as_any().downcast_ref::<StringArray>() {
+                        Field::Str(value.value(at).to_owned())
+                    } else if let Some(value) = array.as_any().downcast_ref::<Int64Array>() {
+                        Field::Long(value.value(at))
+                    } else if let Some(value) = array.as_any().downcast_ref::<UInt64Array>() {
+                        Field::ULong(value.value(at))
+                    } else if let Some(value) = array.as_any().downcast_ref::<BooleanArray>() {
+                        Field::Bool(value.value(at))
+                    } else {
+                        return Err(invalid("decoded scalar"));
+                    };
+                    values.push(((*name).to_owned(), value));
+                }
+                let row = Row::new(values);
                 consume(ordinal, &row)?;
-                ordinal += 1;
-                actual += 1;
+                ordinal = ordinal
+                    .checked_add(1)
+                    .ok_or_else(|| invalid("decoded row count"))?;
             }
-            if actual != count {
-                return Err(invalid("decoded row count"));
-            }
-            adapter.complete_group(index, names)?;
         }
         if ordinal != self.rows {
             return Err(invalid("table row count"));
+        }
+        for &group in &self.row_groups {
+            adapter.complete_group(group, names)?;
         }
         context.check()?;
         Ok(())
     }
 }
+fn project(names: &[&str], record: &Row) -> Row {
+    Row::new(
+        names
+            .iter()
+            .map(|name| {
+                (
+                    (*name).to_owned(),
+                    record
+                        .get_column_iter()
+                        .find(|(field, _)| field.as_str() == *name)
+                        .map(|(_, value)| value.clone())
+                        .unwrap_or(Field::Null),
+                )
+            })
+            .collect(),
+    )
+}
 pub(crate) struct ValidatedFooter {
     pub(crate) fields: Vec<(String, Scalar)>,
     pub(crate) chunks: Vec<Chunk>,
+}
+pub(crate) fn slice_row_groups(
+    physical_rows: i64,
+    groups: impl IntoIterator<Item = i64>,
+    row_offset: u64,
+    rows: u64,
+    shape: Shape<'_>,
+) -> Result<Vec<usize>> {
+    let physical_rows = unsigned(physical_rows, "rows")?;
+    let end = row_offset
+        .checked_add(rows)
+        .filter(|end| *end <= physical_rows)
+        .ok_or_else(|| invalid("row slice bounds"))?;
+    let mut offset = 0u64;
+    let mut start_boundary = row_offset == 0;
+    let mut end_boundary = end == 0;
+    let mut selected = Vec::new();
+    for (index, group_rows) in groups.into_iter().enumerate() {
+        let next = offset
+            .checked_add(unsigned(group_rows, "group rows")?)
+            .filter(|next| *next <= physical_rows)
+            .ok_or_else(|| invalid("group rows"))?;
+        if offset < end && next > row_offset && next > offset {
+            if offset < row_offset || next > end {
+                return Err(invalid("row slice boundary"));
+            }
+            selected.push(index);
+        }
+        start_boundary |= next == row_offset;
+        end_boundary |= next == end;
+        offset = next;
+    }
+    if offset != physical_rows || !start_boundary || !end_boundary {
+        return Err(invalid("row slice boundary"));
+    }
+    if matches!(shape, Shape::Indptr) && selected.len() != 1 {
+        return Err(invalid("indptr row groups"));
+    }
+    Ok(selected)
+}
+pub(crate) fn validate_shape(fields: &[(String, Scalar)], shape: Shape<'_>) -> Result<()> {
+    match shape {
+        Shape::Nodes(columns) => {
+            for (name, kind) in fields {
+                let column = columns
+                    .iter()
+                    .find(|column| column.name == *name)
+                    .ok_or_else(|| invalid("manifest columns"))?;
+                let expected = match column.kind.as_str() {
+                    "STRING" => Scalar::String,
+                    "INT64" => Scalar::Int64,
+                    "BOOL" => Scalar::Bool,
+                    _ => return Err(invalid("manifest type")),
+                };
+                if expected != *kind {
+                    return Err(invalid("manifest schema"));
+                }
+            }
+        }
+        Shape::Indptr if fields.len() == 1 && fields[0] == ("ptr".into(), Scalar::UInt64) => (),
+        Shape::Indices
+            if fields.first() == Some(&("target".into(), Scalar::UInt64))
+                && fields
+                    .iter()
+                    .any(|(name, kind)| name == "uid" && *kind == Scalar::String)
+                && fields
+                    .iter()
+                    .skip(1)
+                    .all(|(_, kind)| *kind != Scalar::UInt64) => {}
+        _ => return Err(invalid("CSR schema")),
+    }
+    Ok(())
 }
 pub(crate) fn validate(
     metadata: &format::FileMetaData,
@@ -411,9 +952,6 @@ pub(crate) fn validate(
         limits.max_row_groups,
         "row groups",
     )?;
-    if matches!(shape, Shape::Indptr) && metadata.row_groups.len() != 1 {
-        return Err(invalid("indptr row groups"));
-    }
     if rows != 0 && metadata.schema.len() == 1 {
         return Err(invalid("empty nonzero schema"));
     }
@@ -429,36 +967,7 @@ pub(crate) fn validate(
             .map_err(|_| DataReadError::LimitExceeded("schema allocation"))?;
         fields.push((schema.name.clone(), kind));
     }
-    match shape {
-        Shape::Nodes(columns) => {
-            for (name, kind) in &fields {
-                let column = columns
-                    .iter()
-                    .find(|column| column.name == *name)
-                    .ok_or_else(|| invalid("manifest columns"))?;
-                let expected = match column.kind.as_str() {
-                    "STRING" => Scalar::String,
-                    "INT64" => Scalar::Int64,
-                    "BOOL" => Scalar::Bool,
-                    _ => return Err(invalid("manifest type")),
-                };
-                if expected != *kind {
-                    return Err(invalid("manifest schema"));
-                }
-            }
-        }
-        Shape::Indptr if fields.len() == 1 && fields[0] == ("ptr".into(), Scalar::UInt64) => (),
-        Shape::Indices
-            if fields.first() == Some(&("target".into(), Scalar::UInt64))
-                && fields
-                    .iter()
-                    .any(|(name, kind)| name == "uid" && *kind == Scalar::String)
-                && fields
-                    .iter()
-                    .skip(1)
-                    .all(|(_, kind)| *kind != Scalar::UInt64) => {}
-        _ => return Err(invalid("CSR schema")),
-    }
+    validate_shape(&fields, shape)?;
     let mut metadata_count = 0usize;
     let mut metadata_text = metadata.created_by.as_ref().map_or(0, String::len);
     let mut marker = false;
@@ -488,6 +997,7 @@ pub(crate) fn validate(
     )?;
     bounded(metadata_text, limits.max_metadata_bytes, "metadata bytes")?;
     let mut chunks = Vec::new();
+    let mut spans = Vec::new();
     let mut group_rows = 0u64;
     for (group_index, group) in metadata.row_groups.iter().enumerate() {
         let count = unsigned(group.num_rows, "group rows")?;
@@ -558,12 +1068,11 @@ pub(crate) fn validate(
             if count > 0 && bytes == 0 {
                 return Err(invalid("empty chunk"));
             }
-            if bytes > 0
-                && chunks
-                    .iter()
-                    .any(|chunk: &Chunk| start < chunk.end && chunk.start < end)
-            {
-                return Err(invalid("overlapping chunks"));
+            if bytes > 0 {
+                spans
+                    .try_reserve(1)
+                    .map_err(|_| DataReadError::LimitExceeded("chunk metadata"))?;
+                spans.push((start, end));
             }
             chunks
                 .try_reserve(1)
@@ -580,10 +1089,16 @@ pub(crate) fn validate(
     if group_rows != rows {
         return Err(invalid("group row total"));
     }
+    // Empty ranges occupy no bytes. Sort only the validation spans so physical
+    // chunk order stays intact; any overlap occurs between sorted neighbors.
+    spans.sort_unstable();
+    if spans.windows(2).any(|pair| pair[1].0 < pair[0].1) {
+        return Err(invalid("overlapping chunks"));
+    }
     Ok(ValidatedFooter { fields, chunks })
 }
-fn compare(metadata: &format::FileMetaData, sdk: &SerializedFileReader<Adapter>) -> Result<()> {
-    let file = sdk.metadata().file_metadata();
+fn compare(metadata: &format::FileMetaData, sdk: &ParquetMetaData) -> Result<()> {
+    let file = sdk.file_metadata();
     if file.num_rows() != metadata.num_rows
         || sdk.num_row_groups() != metadata.row_groups.len()
         || file.schema_descr().num_columns() + 1 != metadata.schema.len()
@@ -601,7 +1116,7 @@ fn compare(metadata: &format::FileMetaData, sdk: &SerializedFileReader<Adapter>)
             return Err(invalid("schema differential"));
         }
     }
-    for (group, admitted) in sdk.metadata().row_groups().iter().zip(&metadata.row_groups) {
+    for (group, admitted) in sdk.row_groups().iter().zip(&metadata.row_groups) {
         if group.num_rows() != admitted.num_rows || group.num_columns() != admitted.columns.len() {
             return Err(invalid("group differential"));
         }
@@ -681,7 +1196,7 @@ struct Cache {
     error: Option<DataReadError>,
 }
 struct Inner {
-    file: CapturedSourceFile,
+    file: Arc<CapturedSourceFile>,
     length: u64,
     footer_start: u64,
     footer: Bytes,
@@ -697,7 +1212,7 @@ struct Inner {
 struct Adapter(Arc<Inner>);
 impl Adapter {
     fn new(
-        file: CapturedSourceFile,
+        file: impl Into<Arc<CapturedSourceFile>>,
         table: &Table,
         context: &Arc<SnapshotContext>,
 
@@ -706,13 +1221,22 @@ impl Adapter {
     ) -> Result<Self> {
         let mut chunks = Vec::new();
         let mut progress = Vec::new();
+        let count = table
+            .row_groups
+            .len()
+            .checked_mul(table.fields.len())
+            .ok_or(DataReadError::LimitExceeded("decoder chunks"))?;
         chunks
-            .try_reserve_exact(table.chunks.len())
+            .try_reserve_exact(count)
             .map_err(|_| DataReadError::LimitExceeded("decoder chunks"))?;
         progress
-            .try_reserve_exact(table.chunks.len())
+            .try_reserve_exact(count)
             .map_err(|_| DataReadError::LimitExceeded("decoder progress"))?;
-        for chunk in &table.chunks {
+        for chunk in table
+            .chunks
+            .iter()
+            .filter(|chunk| table.row_groups.binary_search(&chunk.group).is_ok())
+        {
             progress.push(ChunkProgress {
                 next: chunk.start,
                 values: 0,
@@ -727,7 +1251,7 @@ impl Adapter {
             });
         }
         Ok(Self(Arc::new(Inner {
-            file,
+            file: file.into(),
             length: table.length,
             footer_start: table.footer_start,
             footer: table.footer.clone(),
@@ -837,6 +1361,42 @@ impl Adapter {
         if start == self.0.footer_start && length == self.0.footer.len() {
             return Ok(self.0.footer.clone());
         }
+        if let Some((index, chunk)) = self.0.chunks.iter().enumerate().find(|(_, chunk)| {
+            chunk.start == start && chunk.end.checked_sub(start) == Some(length as u64)
+        }) {
+            let bytes = self.0.file.read_range(start, length)?;
+            let mut offset = 0usize;
+            let mut values = 0u64;
+            let mut pages = 0usize;
+            while offset < bytes.as_ref().len() {
+                self.0.context.check()?;
+                pages = add(pages, 1, "chunk pages")?;
+                bounded(pages, self.0.limits.max_pages, "chunk pages")?;
+                self.0.work.page()?;
+                let end = offset
+                    .saturating_add(self.0.limits.max_header_bytes)
+                    .min(bytes.as_ref().len());
+                let (header, header_bytes) =
+                    protocol::header(&bytes.as_ref()[offset..end], self.0.limits)?;
+                let (compressed, _, count) = validate_page(&header, self.0.limits)?;
+                offset = offset
+                    .checked_add(header_bytes)
+                    .and_then(|offset| offset.checked_add(compressed))
+                    .filter(|offset| *offset <= bytes.as_ref().len())
+                    .ok_or_else(|| invalid("page span"))?;
+                values = values
+                    .checked_add(count)
+                    .filter(|values| *values <= chunk.values)
+                    .ok_or_else(|| invalid("page value count"))?;
+            }
+            if values != chunk.values {
+                return Err(invalid("page value total"));
+            }
+            cache.progress[index].next = chunk.end;
+            cache.progress[index].values = values;
+            cache.progress[index].pages = pages;
+            return Ok(Bytes::from_owner(bytes));
+        }
         let index = cache
             .frames
             .iter()
@@ -928,9 +1488,389 @@ pub(crate) fn validate_page(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lookup_statistics_use_modern_bounds_and_preserve_unknown_ranges() {
+        use parquet::{
+            data_type::ByteArray,
+            file::statistics::{Statistics, ValueStatistics},
+        };
+        let cases = [
+            (
+                LookupKey::String("f0"),
+                Statistics::byte_array(
+                    Some(ByteArray::from("z")),
+                    Some(ByteArray::from("a")),
+                    None,
+                    Some(0),
+                    false,
+                ),
+            ),
+            (
+                LookupKey::Int64(0),
+                Statistics::int64(Some(1), Some(-1), None, Some(0), false),
+            ),
+            (
+                LookupKey::UInt64(0),
+                Statistics::int64(Some(-1), Some(0), None, Some(0), false),
+            ),
+        ];
+        for (key, statistics) in cases {
+            assert!(matches!(
+                key.may_match(Some(&statistics)),
+                Err(DataReadError::InvalidParquet("statistics bounds"))
+            ));
+            assert!(key.may_match(None).unwrap());
+        }
+        let legacy = Statistics::int64(Some(1), Some(-1), None, Some(0), true);
+        assert!(LookupKey::Int64(0).may_match(Some(&legacy)).unwrap());
+        let inexact = Statistics::from(
+            ValueStatistics::new(Some(1i64), Some(-1), None, Some(0), false)
+                .with_min_is_exact(false),
+        );
+        assert!(matches!(
+            LookupKey::Int64(0).may_match(Some(&inexact)),
+            Err(DataReadError::InvalidParquet("statistics bounds"))
+        ));
+        let truncated = Statistics::from(
+            ValueStatistics::new(
+                Some(ByteArray::from("aaaaaaaa")),
+                Some(ByteArray::from("aaaaaaab")),
+                None,
+                Some(0),
+                false,
+            )
+            .with_min_is_exact(false)
+            .with_max_is_exact(false),
+        );
+        assert!(
+            LookupKey::String("aaaaaaaa-long-key")
+                .may_match(Some(&truncated))
+                .unwrap()
+        );
+        assert!(
+            !LookupKey::String("zzzzzzzz-long-key")
+                .may_match(Some(&truncated))
+                .unwrap()
+        );
+        let exact = Statistics::byte_array(
+            Some(ByteArray::from("a")),
+            Some(ByteArray::from("z")),
+            None,
+            Some(0),
+            false,
+        );
+        assert!(LookupKey::String("f0").may_match(Some(&exact)).unwrap());
+        assert!(!LookupKey::String("0").may_match(Some(&exact)).unwrap());
+    }
     use crate::tests::{Values, capture, context, fixture, policy, sample, writer};
+    use parquet::file::serialized_reader::SerializedFileReader;
     use polars_parquet_format::thrift::protocol::TCompactOutputProtocol;
     use std::{fs, io::Read};
+
+    #[test]
+    fn selected_rows_keep_sparse_ids_nulls_and_whole_group_work() {
+        let dir = crate::storage_tests::physical_slice_fixture();
+        let ctx = context();
+        let graph = crate::CapturedLocalGraph::capture_generated_metadata(
+            dir.path(),
+            Arc::clone(&ctx),
+            crate::LocalGraphPolicy::new(policy()).unwrap(),
+        )
+        .unwrap();
+        let decode = sample().into();
+        let work = Work::new(decode);
+        let request = DecodeRequest {
+            source: &graph.reader,
+            context: &ctx,
+            limits: policy(),
+            decode,
+            work: &work,
+        };
+        let index = graph
+            .manifest
+            .node_tables
+            .iter()
+            .position(|node| node.label == "Function")
+            .unwrap();
+        let table = &graph.nodes[index];
+        let mut observed = Vec::new();
+        table
+            .scan_selected(&request, &["added", "uid"], &[101, 300], |row, record| {
+                observed.push((
+                    row,
+                    record
+                        .get_column_iter()
+                        .map(|(name, field)| (name.clone(), field.clone()))
+                        .collect::<Vec<_>>(),
+                ));
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(
+            observed,
+            vec![
+                (
+                    101,
+                    vec![
+                        ("added".into(), Field::Null),
+                        ("uid".into(), Field::Str("f1".into()))
+                    ]
+                ),
+                (
+                    300,
+                    vec![
+                        ("added".into(), Field::Bool(true)),
+                        ("uid".into(), Field::Str("f3".into()))
+                    ]
+                ),
+            ]
+        );
+        assert_eq!(work.counts().0, 4);
+        let before = work.counts();
+        table
+            .scan_selected(&request, &["uid"], &[], |_, _| {
+                panic!("empty selection delivered a row")
+            })
+            .unwrap();
+        assert_eq!(work.counts(), before);
+        for rows in [&[300, 101][..], &[101, 101][..], &[400][..]] {
+            assert!(
+                table
+                    .scan_selected(&request, &["uid"], rows, |_, _| Ok(()))
+                    .is_err()
+            );
+        }
+        assert_eq!(work.counts(), before);
+        let cancellation = graphit_core::file_lock::Cancellation::default();
+        cancellation.cancel();
+        let cancelled = Arc::new(crate::SnapshotContext::new(
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
+            cancellation,
+        ));
+        let request = DecodeRequest {
+            context: &cancelled,
+            ..request
+        };
+        assert!(
+            table
+                .scan_selected(&request, &["uid"], &[], |_, _| Ok(()))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn selected_rows_skip_unselected_shared_body_but_validate_the_read_group() {
+        for bad_group in [0, 1] {
+            let dir = crate::storage_tests::physical_slice_fixture();
+            crate::tests::corrupt_group_body(
+                &dir.path().join("shards/ab/slices/Function.parquet"),
+                bad_group,
+                0,
+            );
+            let ctx = context();
+            let graph = crate::CapturedLocalGraph::capture_generated_metadata(
+                dir.path(),
+                Arc::clone(&ctx),
+                crate::LocalGraphPolicy::new(policy()).unwrap(),
+            )
+            .unwrap();
+            let decode = sample().into();
+            let work = Work::new(decode);
+            let request = DecodeRequest {
+                source: &graph.reader,
+                context: &ctx,
+                limits: policy(),
+                decode,
+                work: &work,
+            };
+            let index = graph
+                .manifest
+                .node_tables
+                .iter()
+                .position(|node| node.label == "Function")
+                .unwrap();
+            let table = &graph.nodes[index];
+            let mut rows = Vec::new();
+            let result = table.scan_selected(&request, &["uid"], &[101], |row, _| {
+                rows.push(row);
+                Ok(())
+            });
+            if bad_group == 0 {
+                assert!(result.is_err());
+            } else {
+                result.unwrap();
+                assert_eq!(rows, [101]);
+                assert_eq!(work.counts().0, 3);
+                assert!(
+                    table
+                        .scan_selected(&request, &["uid"], &[300], |_, _| Ok(()))
+                        .is_err()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn selected_rows_reject_corrupt_later_page_after_selected_row() {
+        use parquet::{
+            basic::Compression,
+            data_type::{ByteArray, ByteArrayType},
+            file::{
+                metadata::KeyValue,
+                properties::{WriterProperties, WriterVersion},
+                writer::SerializedFileWriter,
+            },
+            schema::parser::parse_message_type,
+        };
+        let dir = fixture();
+        let path = dir.path().join("Function.parquet");
+        let props = WriterProperties::builder()
+            .set_writer_version(WriterVersion::PARQUET_1_0)
+            .set_dictionary_enabled(false)
+            .set_compression(Compression::ZSTD(Default::default()))
+            .set_data_page_row_count_limit(1)
+            .set_write_batch_size(1)
+            .set_key_value_metadata(Some(vec![KeyValue::new(
+                "icebug_disk_version".into(),
+                Some("v1".into()),
+            )]))
+            .build();
+        let schema = parse_message_type(
+            "message graph { required binary uid (UTF8); required binary name (UTF8); }",
+        )
+        .unwrap();
+        let mut file = SerializedFileWriter::new(
+            fs::File::create(&path).unwrap(),
+            Arc::new(schema),
+            Arc::new(props),
+        )
+        .unwrap();
+        let mut group = file.next_row_group().unwrap();
+        for values in [["f0", "f1", "f2"], ["alpha", "beta", "gamma"]] {
+            let mut column = group.next_column().unwrap().unwrap();
+            let values = values.into_iter().map(ByteArray::from).collect::<Vec<_>>();
+            column
+                .typed::<ByteArrayType>()
+                .write_batch(&values, None, None)
+                .unwrap();
+            column.close().unwrap();
+        }
+        group.close().unwrap();
+        file.close().unwrap();
+        let (mut bytes, _, metadata) = raw_footer(&path);
+        let chunk = metadata.row_groups[0].columns[0]
+            .meta_data
+            .as_ref()
+            .unwrap();
+        let mut offset = usize::try_from(chunk.data_page_offset).unwrap();
+        for page in 0..3 {
+            let (header, len) = protocol::header(&bytes[offset..], policy()).unwrap();
+            assert_eq!(header.data_page_header.as_ref().unwrap().num_values, 1);
+            let body = offset + len;
+            if page == 2 {
+                bytes[body] ^= 0xff;
+            }
+            offset = body + usize::try_from(header.compressed_page_size).unwrap();
+        }
+        fs::write(path, bytes).unwrap();
+        let ctx = context();
+        let graph = capture(dir.path(), Arc::clone(&ctx), policy()).unwrap();
+        let decode = sample().into();
+        let work = Work::new(decode);
+        let request = DecodeRequest {
+            source: &graph.reader,
+            context: &ctx,
+            limits: policy(),
+            decode,
+            work: &work,
+        };
+        let index = graph
+            .manifest
+            .node_tables
+            .iter()
+            .position(|node| node.label == "Function")
+            .unwrap();
+        assert!(
+            graph.nodes[index]
+                .scan_selected(&request, &["uid"], &[0], |_, _| Ok(()))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn shard_projection_keeps_order_sparse_rows_nulls_and_eof_for_shared_slices() {
+        for (dir, generated) in [
+            (crate::tests::shard_fixture(), false),
+            (crate::storage_tests::physical_slice_fixture(), true),
+        ] {
+            let ctx = context();
+            let graph = if generated {
+                crate::CapturedLocalGraph::capture_generated_metadata(
+                    dir.path(),
+                    Arc::clone(&ctx),
+                    crate::LocalGraphPolicy::new(policy()).unwrap(),
+                )
+                .unwrap()
+            } else {
+                capture(dir.path(), Arc::clone(&ctx), policy()).unwrap()
+            };
+            let decode: DecodeLimits = sample().into();
+            let work = Work::new(decode);
+            let request = DecodeRequest {
+                source: &graph.reader,
+                context: &ctx,
+                limits: policy(),
+                decode,
+                work: &work,
+            };
+            let table = graph
+                .manifest
+                .node_tables
+                .iter()
+                .position(|node| node.label == "Function")
+                .unwrap();
+            let mut observed = Vec::new();
+            graph.nodes[table]
+                .scan(&request, &["added", "uid", "name"], |row, record| {
+                    assert_eq!(
+                        record
+                            .get_column_iter()
+                            .map(|(name, _)| name.as_str())
+                            .collect::<Vec<_>>(),
+                        ["added", "uid", "name"]
+                    );
+                    observed.push((
+                        row,
+                        record
+                            .get_column_iter()
+                            .map(|(_, value)| value.clone())
+                            .collect::<Vec<_>>(),
+                    ));
+                    Ok(())
+                })
+                .unwrap();
+            assert_eq!(
+                observed.iter().map(|(row, _)| *row).collect::<Vec<_>>(),
+                [100, 101, 102, 300]
+            );
+            for (index, (_, values)) in observed.iter().enumerate() {
+                assert_eq!(
+                    values[0],
+                    if index < 3 {
+                        Field::Null
+                    } else {
+                        Field::Bool(true)
+                    }
+                );
+                assert_eq!(values[1], Field::Str(format!("f{index}")));
+                assert_eq!(
+                    values[2],
+                    Field::Str(["alpha", "beta", "gamma", "delta"][index].into())
+                );
+            }
+        }
+    }
 
     fn raw_footer(path: &std::path::Path) -> (Vec<u8>, usize, format::FileMetaData) {
         let bytes = fs::read(path).unwrap();
@@ -1000,6 +1940,153 @@ mod tests {
             &[Values::String(&["one", "two"])],
         );
     }
+
+    fn footer_with_spans(
+        template: &format::FileMetaData,
+        spans: &[(u64, u64)],
+    ) -> format::FileMetaData {
+        let mut footer = template.clone();
+        footer.row_groups = spans
+            .iter()
+            .map(|&(start, end)| {
+                let mut group = template.row_groups[0].clone();
+                group.num_rows = i64::from(start != end);
+                let data = group.columns[0].meta_data.as_mut().unwrap();
+                data.num_values = group.num_rows;
+                data.data_page_offset = start.try_into().unwrap();
+                data.total_compressed_size = (end - start).try_into().unwrap();
+                group
+            })
+            .collect();
+        footer.num_rows = footer.row_groups.iter().map(|group| group.num_rows).sum();
+        footer
+    }
+
+    #[test]
+    fn chunk_spans_validate_half_open_ranges_in_any_order() {
+        let dir = tempfile::tempdir().unwrap();
+        single_node(dir.path());
+        let (_, _, template) = raw_footer(&dir.path().join("one.parquet"));
+        let columns = [Column {
+            name: "uid".into(),
+            kind: "STRING".into(),
+        }];
+        for (spans, overlaps) in [
+            ([(4, 6), (6, 8), (5, 5)], false), // Adjacent and an interior empty range.
+            ([(4, 4), (4, 8), (8, 8)], false), // Empty ranges at either boundary.
+            ([(6, 6), (6, 6), (6, 6)], false), // Repeated empty positions.
+            ([(4, 5), (7, 8), (5, 7)], false), // Physical order may differ.
+            ([(4, 8), (4, 8), (6, 6)], true),  // Duplicate nonempty ranges.
+            ([(4, 8), (5, 7), (8, 8)], true),  // Nested nonempty ranges.
+            ([(4, 6), (5, 8), (4, 4)], true),  // Partial overlap.
+        ] {
+            for order in [
+                [0, 1, 2],
+                [0, 2, 1],
+                [1, 0, 2],
+                [1, 2, 0],
+                [2, 0, 1],
+                [2, 1, 0],
+            ] {
+                let spans = order.map(|index| spans[index]);
+                let footer = footer_with_spans(&template, &spans);
+                let result = validate(
+                    &footer,
+                    footer.num_rows as u64,
+                    Shape::Nodes(&columns),
+                    8,
+                    policy(),
+                );
+                if overlaps {
+                    assert!(
+                        matches!(
+                            result,
+                            Err(DataReadError::InvalidParquet("overlapping chunks"))
+                        ),
+                        "{spans:?}"
+                    );
+                } else {
+                    let validated = result.unwrap();
+                    assert_eq!(
+                        validated
+                            .chunks
+                            .iter()
+                            .map(|chunk| (chunk.start, chunk.end))
+                            .collect::<Vec<_>>(),
+                        spans
+                    );
+                    assert_eq!(
+                        validated
+                            .chunks
+                            .iter()
+                            .map(|chunk| chunk.group)
+                            .collect::<Vec<_>>(),
+                        [0, 1, 2]
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn chunk_spans_keep_bounds_and_reject_real_overlaps() {
+        let dir = tempfile::tempdir().unwrap();
+        single_node(dir.path());
+        let (_, _, template) = raw_footer(&dir.path().join("one.parquet"));
+        let columns = [Column {
+            name: "uid".into(),
+            kind: "STRING".into(),
+        }];
+        let check = |footer: &format::FileMetaData, limits| {
+            validate(
+                footer,
+                footer.num_rows as u64,
+                Shape::Nodes(&columns),
+                16,
+                limits,
+            )
+        };
+        for spans in [&[(3, 4)][..], &[(15, 17)], &[(17, 17)]] {
+            assert!(matches!(
+                check(&footer_with_spans(&template, spans), policy()),
+                Err(DataReadError::InvalidParquet("chunk span"))
+            ));
+        }
+        let footer = footer_with_spans(&template, &[(10, 16), (4, 10), (16, 16)]);
+        let mut limits = policy();
+        limits.max_chunk_bytes = 6;
+        assert!(check(&footer, limits).is_ok());
+        limits.max_chunk_bytes = 5;
+        assert!(matches!(
+            check(&footer, limits),
+            Err(DataReadError::LimitExceeded("chunk bytes"))
+        ));
+
+        let mut footer = footer_with_spans(&template, &[(4, 10), (9, 12), (12, 14)]);
+        assert!(matches!(
+            check(&footer, policy()),
+            Err(DataReadError::InvalidParquet("overlapping chunks"))
+        ));
+        footer.row_groups[1].columns[0]
+            .meta_data
+            .as_mut()
+            .unwrap()
+            .total_compressed_size = 0;
+        assert!(matches!(
+            check(&footer, policy()),
+            Err(DataReadError::InvalidParquet("empty chunk"))
+        ));
+        footer.row_groups[1].columns[0]
+            .meta_data
+            .as_mut()
+            .unwrap()
+            .total_compressed_size = 8;
+        assert!(matches!(
+            check(&footer, policy()),
+            Err(DataReadError::InvalidParquet("chunk span"))
+        ));
+    }
+
     #[test]
     fn sdk_footer_header_body_peek_share_exact_admitted_cache() {
         let dir = fixture();
@@ -1068,7 +2155,7 @@ mod tests {
         let start = table.chunks[0].start;
         let cached = adapter.read(start).unwrap();
         let (_, header_len) = protocol::header(&cached, policy()).unwrap();
-        let path = dir.path().join(&table.path);
+        let path = dir.path().join(table.relative_path());
         let mut changed = fs::read(&path).unwrap();
         changed[start as usize + header_len] ^= 0xff;
         fs::write(path, changed).unwrap();
@@ -1359,7 +2446,7 @@ mod tests {
         let ctx = context();
         let graph = capture(dir.path(), Arc::clone(&ctx), policy()).unwrap();
         let table = &graph.members[0].indices;
-        let raw = fs::read(dir.path().join(&table.path)).unwrap();
+        let raw = fs::read(dir.path().join(table.relative_path())).unwrap();
         let (header, header_len) =
             protocol::header(&raw[table.chunks[0].start as usize..], policy()).unwrap();
         for variant in 0..3 {

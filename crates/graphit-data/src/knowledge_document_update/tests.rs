@@ -74,6 +74,7 @@ async fn interruptions_at_real_phases_preserve_confirmed_commit_evidence()
             &rows,
             &changes(),
             limits(),
+            |_, old, new| Ok(old == new),
         )
         .await
         .unwrap_err();
@@ -176,6 +177,7 @@ async fn actual_sdk_concurrent_commit_retains_cas_key_and_sdk_cause() -> Result<
         &rows,
         &changes(),
         limits(),
+        |_, old, new| Ok(old == new),
     )
     .await
     .unwrap_err();
@@ -267,6 +269,7 @@ async fn real_deadline_after_prepare_stops_before_commit_without_renewing_origin
         &rows,
         &changes(),
         limits(),
+        |_, old, new| Ok(old == new),
     )
     .await
     .unwrap_err();

@@ -948,6 +948,7 @@ impl<'profile: 'o, 'o, 'v, 'request>
                 &candidates[index].label,
                 candidates[index].name.raw(),
                 &owners,
+                crate::symbols::LogicalDeclaration::named(candidates[index].name.display()),
             )?;
             identities[index] = Some(identity);
         }

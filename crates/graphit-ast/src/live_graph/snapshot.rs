@@ -15,7 +15,8 @@ impl LiveGraph {
         for record in state.catalog.files.values() {
             original.check()?;
             let nodes = portable::read_nodes(&self.directory, record, original)?;
-            let facts = portable::read_facts(&self.directory, &record.facts, original)?;
+            let facts =
+                portable::read_facts(&self.directory, &record.facts, record.facts_row, original)?;
             writer = writer.push_file_ref(&nodes, &facts.edges)?;
         }
         original.check()?;

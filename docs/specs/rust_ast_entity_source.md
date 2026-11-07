@@ -121,6 +121,48 @@ lookup, full indexing/queries or App transports. The affected qualification rece
 
 ## Captured registered Native entity Source
 
+Source accepts either `entity` (a name) or `entity_key` (the selected graph node's
+typed primary key). Key selection requires the exact schema label in
+`entity_type` and the same relative `path` as the resolved node. The closed wire
+object has `type` equal to `string` or `int64` and a textual `value`, for example
+`{"type":"int64","value":"9007199254740993"}`. This preserves INT64 values
+above JavaScript's exact numeric range. A numeric
+STRING key remains a STRING; no digit-based inference or coercion occurs.
+Name and key together, a key without a label, and an invalid INT64 are errors.
+
+`resolve_imported_entity_window_by_key`, `resolve_remote_entity_window_by_key`
+and `resolve_project_entity_source_by_key` use the official Data reader's
+`resolve_query_node` followed by `read_query_node` with the returned borrowed
+guard. They project only the declared association and extent fields, resolve the
+key once in the current capture and perform no name Cypher query. Physical row
+coordinates never cross the request boundary. The selected node must have the
+requested path, `available = true`, `extent_status = 'Exact'` and positive ordered
+INT64 bounds. PROJECT also requires its existing `source_sha256` association
+before applying the window to Raw or permitted physical Source. Missing nodes
+and mismatched paths are unavailable; malformed metadata and storage failures
+retain their real error causes.
+
+`ImportedGraph::entity_source_by_key(path, label, key, selection, row_batch_size)`
+shares the same native payload and Raw capture/delivery checks as name selection.
+The live PROJECT wrapper retains its operation's shard capture through point
+lookup and extraction. Authentication, Original cancellation/deadline and final
+capture rechecks remain owned by the existing callers. Key selection never falls
+back to returning the whole file or selecting an arbitrary homonym.
+
+The CLI uses literal `--entity-key VALUE --entity-type LABEL`; STRING is the
+default. INT64 requires `--entity-key-type int64`. For example:
+
+```sh
+graphit ast source main.rs --entity-type Function --entity-key selected-uid
+graphit ast source main.rs --context vendor/context@release-1 \
+  --entity-type Function --entity-key 9007199254740993 --entity-key-type int64
+```
+
+The affected PK fixtures cover registered Native MCP/client calls, live PROJECT
+association, remote in-memory ObjectStore readers and CLI argument parsing.
+Their execution results are recorded separately from the historical name-only
+qualification below; they do not qualify a remote S3 deployment or installed UI.
+
 [Imported entity acquisition](../../crates/graphit-ast/src/imported_graph/entity_source.rs)
 adds `ImportedGraph::entity_source(runtime, path, entity, entity_type, selection,
 options)`. Its receiver already retains the actual authenticated caller, registry
@@ -160,6 +202,10 @@ after SDK awaits/queries and before delivery. SDK/storage/query/selection causes
 remain attached to `EntitySourceError`; public MCP diagnostics expose categories
 without embedding source text or credentials. Native work uses the SourceServer's
 existing owned blocking job and interruption/join lifecycle.
+PROJECT entity resolution enters a Tokio blocking section on that same job before
+calling the synchronous query SDK. This permits the SDK's cancelable catalogue
+wait without nesting a runtime inside the Raw acquisition future; the Original
+and captured graph remain the same throughout resolution and delivery.
 
 [SourceServer composition](../../crates/graphit-app/src/source_server/entity.rs)
 uses that method when both `context` and `entity` are provided. The shipped CLI

@@ -1481,10 +1481,10 @@ async fn task_lexical_search_consulted_comment_event_attribution_is_checked() {
             if text(&batch, "row_key", row) == key {
                 let mut payload: serde_json::Value =
                     serde_json::from_str(text(&batch, "payload", row)).unwrap();
-                let actor = if comment.actor == "a".repeat(64) {
-                    "b".repeat(64)
+                let actor = if comment.actor == ulid::Ulid::from(10u128).to_string() {
+                    ulid::Ulid::from(11u128).to_string()
                 } else {
-                    "a".repeat(64)
+                    ulid::Ulid::from(10u128).to_string()
                 };
                 payload["record"]["actor"] = serde_json::json!(actor);
                 replace_current_text(

@@ -261,7 +261,12 @@ impl<'profile: 'o, 'o, 'v, 'request> ParsedGenericAntlrDocument<'profile, 'o, 'v
             for (label, name) in &candidate.frames {
                 original.check()?;
                 let owners = frames.iter().collect::<Vec<_>>();
-                frames.push(identity.symbol(label, *name, &owners)?);
+                frames.push(identity.symbol(
+                    label,
+                    *name,
+                    &owners,
+                    crate::symbols::LogicalDeclaration::named((*name).text()),
+                )?);
             }
             let owners = frames.iter().collect::<Vec<_>>();
             let uid = identity
@@ -269,6 +274,7 @@ impl<'profile: 'o, 'o, 'v, 'request> ParsedGenericAntlrDocument<'profile, 'o, 'v
                     candidate.query.graph_label().value(),
                     candidate.name,
                     &owners,
+                    crate::symbols::LogicalDeclaration::named((candidate.name).text()),
                 )?
                 .uid()
                 .as_str()

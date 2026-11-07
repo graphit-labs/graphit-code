@@ -66,11 +66,17 @@ and other mutations keep exact root/version selection. Omitting
 both uses the supplied current entry, never the server's current directory.
 Unknown or ambiguous entries, empty selectors and invalid paths fail. A version
 selects only among retained facts; incoming strings provide no project authority.
-`entity` with `context` resolves the selected registered Native graph and its
-associated indexed Source. `entity_type` filters the actual schema label and
-requires `entity`. Empty names/types are invalid; ambiguous and unknown entities
-return domain errors. Local project entity requests remain explicitly unavailable
-until their graph publisher/locator is supplied.
+`entity` or `entity_key` with `context` resolves the selected registered Native
+graph and its associated indexed Source. Name selection optionally filters by
+`entity_type`; key selection requires that exact label. `entity_key` is a closed
+object such as `{"type":"int64","value":"9007199254740993"}` or
+`{"type":"string","value":"selected-uid"}`. It preserves STRING/INT64 types
+without numeric coercion. Both selectors together, missing labels for keys,
+invalid INT64 values and empty names/types are invalid. Unknown, unavailable or
+ambiguous entities return domain errors. The resolved node's path must equal
+`path`. Local PROJECT selection uses its current live graph and existing Raw/SHA
+association. See [entity Source](rust_ast_entity_source.md) for point lookup and
+the literal CLI flags `--entity-key` and `--entity-key-type`.
 
 `context` selects an installed native AST artifact as its full namespace-qualified
 `id@artifact-version`, for example `vendor/context@release-1`. The selected

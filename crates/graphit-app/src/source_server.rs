@@ -68,6 +68,7 @@ mod hub_unpublish;
 pub(crate) mod knowledge_ask;
 mod knowledge_conversation;
 mod knowledge_export;
+mod knowledge_id;
 mod knowledge_live;
 mod knowledge_log;
 mod knowledge_search;
@@ -1149,7 +1150,7 @@ async fn read(
         .map_err(|_| ReadFailure::Context)?;
     let project_index = match &selected {
         Selected::Local(_) => None,
-        Selected::Imported { fallback, .. } if input.source.entity.is_none() => *fallback,
+        Selected::Imported { fallback, .. } if !input.source.has_entity() => *fallback,
         Selected::Imported { .. } => None,
     };
     let captured = if let Some(index) = project_index {
@@ -1201,7 +1202,7 @@ async fn read(
                 }
                 return Ok(result.selection.source);
             }
-            if input.source.entity.is_some() {
+            if input.source.has_entity() {
                 let result =
                     entity::inspect(state, id, version, &input, request, credential, local)
                         .await
@@ -1369,6 +1370,7 @@ fn build_definition() -> Tool {
     ] {
         properties.insert(field.into(), json!({"type":"string"}));
     }
+    properties.insert("entity_key".into(), crate::graph_server::GraphKey::schema());
     for field in ["head", "tail", "start_line", "end_line", "before", "after"] {
         properties.insert(field.into(), json!({"type":"integer"}));
     }
@@ -1406,6 +1408,9 @@ impl ServerHandler for SourceServer {
             }
             if name == memory_index::TOOL {
                 return Some(memory_index::definition());
+            }
+            if name == knowledge_id::name(self.0.policy.installation.brand()) {
+                return Some(knowledge_id::definition(self.0.policy.installation.brand()));
             }
             if name == knowledge_log::TOOL {
                 return Some(knowledge_log::definition());
@@ -1483,6 +1488,7 @@ impl ServerHandler for SourceServer {
         tools.push(semantic::definition());
         tools.push(memory_search::definition());
         tools.push(memory_index::definition());
+        tools.push(knowledge_id::definition(self.0.policy.installation.brand()));
         tools.push(knowledge_log::definition());
         tools.push(knowledge_search::definition());
         tools.push(knowledge_source::definition());
@@ -1646,6 +1652,9 @@ impl SourceServer {
         }
         if call.name == knowledge_ask::TOOL {
             return Ok(knowledge_ask::call(self, call, context).await.into());
+        }
+        if call.name == knowledge_id::name(self.0.policy.installation.brand()) {
+            return Ok(knowledge_id::call(self, call, context).await.into());
         }
         if call.name == knowledge_log::TOOL {
             return Ok(knowledge_log::call(self, call, context).await.into());

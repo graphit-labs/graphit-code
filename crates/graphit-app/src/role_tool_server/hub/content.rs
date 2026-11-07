@@ -47,8 +47,10 @@ pub(super) async fn read<'a>(
         Scope::GlobalInstallation => graphit_core::artifact_store::PublicationSlot::Scope,
     };
     let consumer = graphit_hub::registry::consumer_for_artifact(slot, input.artifact_type);
-    let registry = registry(state, selected, input.scope)?;
-    let document = registry.load().map_err(io_failure)?;
+    let (registry, parent) = registry(state, selected, input.scope, original)?;
+    let document = registry
+        .load_captured(&parent, original.snapshot())
+        .map_err(io_failure)?;
     let target = match input.scope {
         Scope::Project => InstallationTarget::for_artifact(effective_binding, input.artifact_type),
         Scope::GlobalInstallation => InstallationTarget::GlobalCache,
@@ -146,7 +148,9 @@ pub(super) async fn read<'a>(
     } else {
         local(state, &read, selected, source, &input, original)?
     };
-    let current = registry.load().map_err(io_failure)?;
+    let current = registry
+        .load_captured(&parent, original.snapshot())
+        .map_err(io_failure)?;
     let current = current
         .get_version_for_consumer(&consumer, input.artifact_type, id.as_str(), &version)
         .and_then(|artifact| {

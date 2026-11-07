@@ -258,6 +258,7 @@ pub async fn reconcile_native_knowledge_source_file(
     source: &CapturedSourceReader,
     batch: RecordBatch,
     limits: KnowledgeDocumentLifecycleLimits,
+    body_equivalent: index::KnowledgeBodyEquivalence,
 ) -> Result<KnowledgeDocumentUpdateResult, KnowledgeDocumentLifecycleError> {
     if batch.schema() != index::physical_schema() || batch.num_rows() == 0 {
         return Err(KnowledgeDocumentLifecycleError::InvalidInput(
@@ -285,7 +286,16 @@ pub async fn reconcile_native_knowledge_source_file(
         .map(|value| value.unwrap().to_owned())
         .collect();
     scoped(
-        original, read, write, expected, source, batch, &origins, &slugs, limits,
+        original,
+        read,
+        write,
+        expected,
+        source,
+        batch,
+        &origins,
+        &slugs,
+        limits,
+        body_equivalent,
     )
     .await
 }
@@ -321,6 +331,7 @@ pub async fn remove_native_knowledge_source_origins(
         origins,
         &HashSet::new(),
         limits,
+        |_, old, new| Ok(old == new),
     )
     .await
 }
@@ -336,22 +347,187 @@ async fn scoped(
     origins: &HashSet<String>,
     slugs: &HashSet<String>,
     limits: KnowledgeDocumentLifecycleLimits,
+    body_equivalent: index::KnowledgeBodyEquivalence,
 ) -> Result<KnowledgeDocumentUpdateResult, KnowledgeDocumentLifecycleError> {
     let file = (batch.num_rows() != 0).then(|| batch.clone());
-    let input = Box::pin(RecordBatchStreamAdapter::new(
-        index::physical_schema(),
-        futures::stream::iter([Ok(batch)]),
-    ));
-    stream::reconcile_stream(
-        original,
-        read,
-        write,
-        expected,
-        source,
-        input,
-        (origins, slugs),
-        file.as_ref(),
-        limits,
-    )
-    .await
+    let mut attempt = expected.clone();
+    loop {
+        let input = Box::pin(RecordBatchStreamAdapter::new(
+            index::physical_schema(),
+            futures::stream::iter([Ok(batch.clone())]),
+        ));
+        match stream::reconcile_stream(
+            original,
+            read,
+            write,
+            &attempt,
+            source,
+            input,
+            (origins, slugs),
+            file.as_ref(),
+            limits,
+            body_equivalent,
+        )
+        .await
+        {
+            Err(KnowledgeDocumentLifecycleError::GenerationChanged { observed }) => {
+                // This error precedes commit. Reapply only if this operation's
+                // complete documentary selection is unchanged at the new HEAD.
+                check_authority(original, read, write)?;
+                let project = index::check_read_project(original, read)?;
+                let corpus = index::local_corpus(
+                    project.scope.live,
+                    project.version.version(),
+                    original,
+                    limits.read.native,
+                )?;
+                let directory = index::capture_index(
+                    project.scope.live,
+                    &corpus,
+                    original,
+                    limits.read.native,
+                    || index::check_read(original, read),
+                )?
+                .ok_or(KnowledgeDocumentLifecycleError::NoCorpus)?;
+                let before = || {
+                    check_authority(original, read, write)?;
+                    directory
+                        .revalidate(original)
+                        .map_err(KnowledgeIndexError::from)?;
+                    source
+                        .check_request(original)
+                        .map_err(KnowledgeDocumentLifecycleError::Source)
+                };
+                before()?;
+                // The strict attempt supplies the admitted physical identity.
+                // Never open a URI or branch supplied only by `expected`.
+                if observed.corpus_uri != corpus.uri
+                    || observed.corpus_uri != expected.corpus_uri
+                    || observed.physical_branch != expected.physical_branch
+                    || observed.inherited_target != expected.inherited_target
+                {
+                    return Err(KnowledgeDocumentLifecycleError::GenerationChanged { observed });
+                }
+                let current = stream::guarded(
+                    BranchSnapshot::capture_observed(
+                        &observed.corpus_uri,
+                        observed.physical_branch.as_deref(),
+                        None,
+                    ),
+                    original,
+                    &before,
+                )
+                .await?
+                .map_err(KnowledgeIndexError::from)?;
+                let conflict = KnowledgeDocumentLifecycleError::GenerationChanged { observed };
+                let observed = index::generation(&expected.corpus_uri, &current);
+                if observed.version <= attempt.version
+                    || observed.physical_branch != expected.physical_branch
+                    || observed.inherited_target != expected.inherited_target
+                {
+                    return Err(conflict);
+                }
+                let baseline =
+                    stream::guarded(current.at_version(expected.version), original, &before)
+                        .await?
+                        .map_err(KnowledgeIndexError::from)?;
+                if index::generation(&expected.corpus_uri, &baseline) != *expected {
+                    return Err(conflict);
+                }
+                let previous = documentary_selection(
+                    &baseline,
+                    original,
+                    read,
+                    origins,
+                    slugs,
+                    limits.read,
+                    &before,
+                )
+                .await?;
+                let latest = documentary_selection(
+                    &current,
+                    original,
+                    read,
+                    origins,
+                    slugs,
+                    limits.read,
+                    &before,
+                )
+                .await?;
+                if previous != latest {
+                    return Err(conflict);
+                }
+                attempt = observed;
+            }
+            result => return result,
+        }
+    }
+}
+
+/// Exact FILE membership and documentary values; semantic columns are independent.
+async fn documentary_selection(
+    pin: &BranchSnapshot,
+    original: &Arc<SnapshotContext>,
+    read: &ProjectReadAdmission<'_>,
+    origins: &HashSet<String>,
+    slugs: &HashSet<String>,
+    limits: KnowledgeIndexReadLimits,
+    before: &impl Fn() -> Result<(), KnowledgeDocumentLifecycleError>,
+) -> Result<HashMap<String, RecordBatch>, KnowledgeDocumentLifecycleError> {
+    use crate::lance_branch_store::{col, lit};
+    let project = index::check_read_project(original, read)?;
+    let StoreOwner::Project { project_id } = project.scope.live.owner() else {
+        return Err(KnowledgeIndexError::WrongAdmission.into());
+    };
+    let mut scanner = pin.scan();
+    let schema = index::physical_schema();
+    let fields: Vec<_> = schema
+        .fields()
+        .iter()
+        .map(|field| field.name().as_str())
+        .collect();
+    scanner
+        .project(&fields)
+        .map_err(StoreError::from)
+        .map_err(KnowledgeIndexError::from)?
+        .filter_expr(
+            col("source_path")
+                .in_list(
+                    origins.iter().map(|value| lit(value.as_str())).collect(),
+                    false,
+                )
+                .or(col("slug").in_list(
+                    slugs.iter().map(|value| lit(value.as_str())).collect(),
+                    false,
+                )),
+        )
+        .batch_size(limits.batch_rows.get() as usize);
+    let mut input = stream::guarded(scanner.try_into_stream(), original, before)
+        .await?
+        .map_err(StoreError::from)
+        .map_err(KnowledgeIndexError::from)?;
+    let mut counts = index::NamespaceValidation::bound(Some(*project_id));
+    let mut rows = HashMap::new();
+    while let Some(batch) = stream::guarded(input.try_next(), original, before)
+        .await?
+        .map_err(StoreError::from)
+        .map_err(KnowledgeIndexError::from)?
+    {
+        index::validate_full_batch(&batch, limits.content, &mut counts, || {
+            index::check_read(original, read)
+        })?;
+        let names = index::array::<StringArray>(&batch, 0)?;
+        for row in 0..batch.num_rows() {
+            before()?;
+            rows.try_reserve(1).map_err(allocation)?;
+            if rows
+                .insert(names.value(row).to_owned(), batch.slice(row, 1))
+                .is_some()
+            {
+                return Err(KnowledgeIndexError::DuplicateSlug.into());
+            }
+        }
+    }
+    before()?;
+    Ok(rows)
 }

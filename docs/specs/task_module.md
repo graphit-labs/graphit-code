@@ -74,6 +74,11 @@ permit it. An incomplete functional result cannot be closed merely to reduce a t
 Claim operations return `{record,token}` only to that participant. Keep tokens private and out of
 Git, shared docs, task descriptions and logs. Task and Session claims are separate; neither token
 can be used for the other record. There is no client-chosen actor or generic force-takeover grant.
+Actor/owner attribution uses a canonical 26-character ULID derived from the
+first 128 bits of the server-minted Actor digest. Ownership and idempotency use
+this identity; its bits do not encode a creation time or all 256 digest bits.
+The private claim token/fence remains 32 bytes and current Auth, lease and revision
+checks remain required.
 
 Most owned mutations use `target:{id,claim:{token,expected_revision}}` plus positive `lease_ms`.
 Completion uses its advertised `{id,claim}` shape instead. A stale revision, invalid fence,

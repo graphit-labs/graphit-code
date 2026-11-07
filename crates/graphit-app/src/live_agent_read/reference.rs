@@ -220,10 +220,10 @@ pub(super) async fn resolve(
         .policy
         .imported_knowledge
         .as_ref()
-        .map(|policy| &policy.registry);
+        .map(|policy| (&policy.registry, policy.directory));
     let mut remotes = Vec::new();
     let mut remote_indices = std::collections::BTreeSet::new();
-    if let (Some(read), Some(registry)) = (&imported, registry) {
+    if let (Some(read), Some((registry, directory))) = (&imported, registry) {
         for (index, selected) in selectors.iter().enumerate() {
             let Some((id, version)) = &selected.imported else {
                 continue;
@@ -233,6 +233,7 @@ pub(super) async fn resolve(
                 registry,
                 id,
                 version,
+                directory,
             ) {
                 Ok(Some(remote)) => {
                     remote_indices.insert(index);
@@ -331,7 +332,7 @@ pub(super) async fn resolve(
             r.native_allow_loopback_http,
             crate::native_publication::metadata_limits(
                 r.policy.content,
-                registry.limits().projection(),
+                registry.0.limits().projection(),
             ),
         )
         .await

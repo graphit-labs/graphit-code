@@ -55,6 +55,11 @@ pub fn prepare_native_nn_scip(
         {
             return Err(NativeNnError::InvalidInput);
         }
+        if graph.origin == crate::semantic_graph::scip_document::AstScipDocumentOrigin::Syntax {
+            let batch = NnColumns::new().finish(native_nn_projection_schema())?;
+            validate_native_nn_projection(&batch, original)?;
+            return Ok(batch);
+        }
         // The official producer validated this captured Source's text and ranges.
         // Canonical identities still belong to the original FILE publication;
         // an unrelated Source commit cannot replace that provenance.
@@ -62,7 +67,8 @@ pub fn prepare_native_nn_scip(
         canonical_parts.association = file.clone();
         canonical_parts.file_observation = graph.parts.file_observation.clone();
         let canonical =
-            apply_scip_document(canonical_parts, document, text, original).map_err(graph_error)?;
+            apply_scip_document(canonical_parts, document, text, graph.origin, original)
+                .map_err(graph_error)?;
         let canonical = canonical
             .parts
             .nodes
@@ -244,7 +250,13 @@ mod tests {
         })?;
         let batch =
             assemble_scip_source(&document, NativeNnSource::Indexed(&raw), limits, &original)?;
-        let applied = apply_scip_document(batch.into_parts(), &document, text, &original)?;
+        let applied = apply_scip_document(
+            batch.into_parts(),
+            &document,
+            text,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original,
+        )?;
         let prepared = prepare_native_nn_scip(
             &applied,
             &document,

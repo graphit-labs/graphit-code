@@ -9,10 +9,10 @@ license = "MIT"
 
 [workspace.dependencies]
 path-clean = "1.0.1"
-broker-now-wire = { git = "https://github.com/graphit-labs/graphit-broker.git", rev = "d048f5694559f0e5d5d92eec490953d90354bb15", version = "=0.1.0" }
-broker-control = { git = "https://github.com/graphit-labs/graphit-broker.git", rev = "d048f5694559f0e5d5d92eec490953d90354bb15", version = "=0.1.0" }
-broker-presence = { git = "https://github.com/graphit-labs/graphit-broker.git", rev = "d048f5694559f0e5d5d92eec490953d90354bb15", version = "=0.1.0" }
-broker-security = { git = "https://github.com/graphit-labs/graphit-broker.git", rev = "d048f5694559f0e5d5d92eec490953d90354bb15", version = "=0.1.0" }
+broker-now-wire = { git = "https://github.com/graphit-labs/graphit-broker.git", rev = "7ce8c3d6050b18756377c4adf54aeb2971d394d0", version = "=0.1.0" }
+broker-control = { git = "https://github.com/graphit-labs/graphit-broker.git", rev = "7ce8c3d6050b18756377c4adf54aeb2971d394d0", version = "=0.1.0" }
+broker-presence = { git = "https://github.com/graphit-labs/graphit-broker.git", rev = "7ce8c3d6050b18756377c4adf54aeb2971d394d0", version = "=0.1.0" }
+broker-security = { git = "https://github.com/graphit-labs/graphit-broker.git", rev = "7ce8c3d6050b18756377c4adf54aeb2971d394d0", version = "=0.1.0" }
 tree-sitter = "=0.27.0"
 tree-sitter-language = "=0.1.8"
 protobuf = "=3.7.2"

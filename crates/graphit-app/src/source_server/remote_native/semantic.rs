@@ -154,7 +154,7 @@ pub(crate) async fn query(
     {
         for document in documents {
             opened.check(lease)?;
-            let text = projection::document_text(&document).map_err(semantic)?;
+            let text = projection::document_text(original, &document).map_err(semantic)?;
             let fingerprint = projection::fingerprint(&text, &identity).map_err(semantic)?;
             observed.push((document.slug, fingerprint));
         }

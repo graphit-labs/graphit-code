@@ -1,5 +1,5 @@
 import { postAgentStream, type StreamOptions } from "./agentStream";
-import type { AstKey, AstGeneration } from './nativeAst';
+import type { AstKey } from './nativeAst';
 import type { NativeInteger } from './nativeJson';
 
 
@@ -12,7 +12,7 @@ export interface GraphNode {
   file?: string;
 
   line?: NativeInteger;
-  nativeIdentity?: { generation: AstGeneration; table: number; row: string };
+  nativeIdentity?: { table: number; row: string };
   nativeKey?: AstKey;
   properties?: Record<string, unknown>;
 }

@@ -627,17 +627,12 @@ async fn publish_ast_sdk(
         std::fs::read(graph.directory().join("icebug.json")),
         "actual physical Icebug manifest",
     );
-    let graph_metadata: Value = checked(
-        serde_json::from_slice(&graph_bytes),
-        "actual Icebug metadata",
-    );
     let components = [
         NativeComponent {
             role: NativeRole::Graph,
             path: "graph".into(),
             snapshot: NativeSnapshot::Icebug {
                 manifest_path: "icebug.json".into(),
-                generation: wire(&graph_metadata, "generation").into(),
                 manifest_sha256: Sha256::digest(&graph_bytes).into(),
             },
         },
@@ -979,24 +974,21 @@ async fn real_broker_web_reads_installed_remote_ast_without_project_authority() 
             let response=web.post(&cookie,"/api/ast/imported/sample",json!({"source":selected})).await;
             assert_eq!(response.status(),StatusCode::OK);
             let sample:Value=checked(response.json().await,"actual remote sample");
-            assert_eq!(sample["generation"],schema["generation"]);
+            assert!(sample.get("generation").is_none());
+            assert!(schema.get("generation").is_none());
             assert!(sample["nodes"].as_array().expect("sample nodes").iter().any(|node|node["label"]=="File"), "actual File sample node");
-            // Remote sample intentionally omits PK. Resolve the actual key via schema/Cypher.
+            // The sample carries its observed typed key, without an extra query.
             let file_schema = schema["nodes"].as_array().expect("actual schema nodes").iter().find(|node| node["label"] == "File").expect("actual File schema");
             let primary_key = wire(file_schema, "primary_key");
             assert!(primary_key.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_') && !primary_key.is_empty(), "fixture PK is a Cypher identifier");
             let key_column = file_schema["columns"].as_array().expect("actual File columns").iter().find(|column| column[0] == primary_key).expect("actual PK column");
             let key_type = key_column[1].as_str().expect("native PK type");
             assert!(key_type.eq_ignore_ascii_case("STRING"), "actual fixture File string PK");
-            let key_response = web.post(&cookie, "/api/ast/imported/query", json!({"source":selected,"query":{"query":format!("MATCH (f:File) RETURN f.{primary_key} LIMIT 1"),"parameters":{}}})).await;
-            assert_eq!(key_response.status(), StatusCode::OK);
-            let keys: Value = checked(key_response.json().await, "actual File PK query");
-            assert_eq!(keys["columns"].as_array().expect("PK query columns").len(), 1);
-            let rows = keys["rows"].as_array().expect("PK query rows"); assert_eq!(rows.len(), 1);
-            let row = rows[0].as_array().expect("PK query row"); assert_eq!(row.len(), 1);
-            let cell = &row[0]; assert!(wire(cell, "type").eq_ignore_ascii_case(key_type));
-            let key = wire(cell, "value"); assert_eq!(key, "main.rs", "PK came from actual remote query");
-            let anchor = json!({"type":"string","value":key});
+            let sampled = sample["nodes"].as_array().expect("sample nodes").iter().find(|node| node["label"] == "File").expect("sampled File");
+            assert_eq!(sampled["primary_key"]["name"],primary_key);
+            let anchor = sampled["primary_key"]["value"].clone();
+            assert!(wire(&anchor,"type").eq_ignore_ascii_case(key_type));
+            assert_eq!(anchor["value"],"main.rs","PK came from the actual remote sample");
             let response=web.post(&cookie,"/api/ast/imported/query",json!({"source":selected,
                 "query":{"query":"MATCH (f:Function) RETURN f.name","parameters":{}}})).await;
             assert_eq!(response.status(),StatusCode::OK);
@@ -1737,11 +1729,10 @@ async fn cpu_publish_ast(
                 component.path
             ),
             graphit_hub::native_root::NativeSnapshot::Icebug {
-                generation,
                 manifest_path,
                 manifest_sha256,
             } => eprintln!(
-                "WebCPU AST graph pin: role={role}; path={}; generation={generation}; manifest={manifest_path}; sha256={manifest_sha256:02x?}",
+                "WebCPU AST graph pin: role={role}; path={}; manifest={manifest_path}; sha256={manifest_sha256:02x?}",
                 component.path
             ),
         }

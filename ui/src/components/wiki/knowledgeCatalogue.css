@@ -1,0 +1,18 @@
+.knowledge-page-item { min-width: 0; }
+.knowledge-page-item > h3 { margin: 0; }
+.knowledge-page-trigger { padding-inline: 12px; border-radius: 4px; }
+.knowledge-page-trigger.selected { background: hsl(var(--accent)); }
+.knowledge-page-trigger:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: -2px; }
+.knowledge-page-trigger small, .knowledge-page-date { font-size: 12px; font-weight: 400; color: hsl(var(--muted-foreground)); }
+.knowledge-page-date { flex-shrink: 0; }
+.knowledge-inline-reader { margin: 0 0 12px; padding: 20px; border-left: 3px solid hsl(var(--primary)); overflow-wrap: anywhere; }
+.knowledge-inline-reader > h1 { font-size: 24px; font-weight: 600; margin-bottom: 16px; }
+.knowledge-page-sequence { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-block: 16px; }
+.knowledge-page-sequence > div { min-width: 0; }
+.knowledge-page-sequence small { display: block; color: hsl(var(--muted-foreground)); }
+@media (max-width: 767px) {
+  .knowledge-page-trigger { gap: 8px; min-height: 44px; }
+  .knowledge-page-date { display: none; }
+  .knowledge-inline-reader { padding: 16px 12px; }
+  .knowledge-page-sequence { grid-template-columns: minmax(0, 1fr); }
+}

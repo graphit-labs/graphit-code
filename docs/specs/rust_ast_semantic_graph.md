@@ -56,7 +56,10 @@ contain owned observations. Batch.into_parts() returns public AstGraphParts
 fields file_observation, association, nodes, edges, outcomes, diagnostics_json and
 capabilities_json.
 Node.into_parts() moves (label, key, properties); edge.into_parts() moves
-(kind, source_key, target_key, uid). App maps owned values without cloning rows. Serialization cannot recreate
+(kind, source_key, target_key, uid). The serialized batch also retains
+`query_data_key`, `reference_target` and `occurrence_ordinal` on each edge. This
+provenance permits deterministic rederivation when SCIP promotes endpoint keys;
+it is not a physical cursor. App maps owned values without cloning rows. Serialization cannot recreate
 SyntaxIdentity, parser ownership, Source authority, filesystem permission or
 freshness. Root owns Data writer, App callback, publication and captured
 cross-file catalogue integration.
@@ -70,7 +73,7 @@ explicit JSON strings.
 
 | Output | Actual contract |
 | --- | --- |
-| Node key | Mature serde_json serialization of [SyntaxUID, data_key]; uid/data_key remain separate properties. |
+| Node key | `CodePrimaryKey` (`k1:`, 67 ASCII bytes), derived from the typed `CodeUid` and literal `data_key`; both remain separate properties. See [logical identity](rust_ast_symbols.md). |
 | Common properties | uid, data_key, name, raw_name, path, **lang**, grammar, Raw version, full source digest and line_number. GraphNodeSummary reads lang and line_number. |
 | Raw version | Association retains actual u64; node property raw_version is its lossless decimal String. GraphGeneration/NodeId are different identities. |
 | Name anchor | name_start/end_byte, name_start/end_row/column, name_start/end_line; bytes/points are Original, rows/columns zero based, lines one based. |
@@ -179,10 +182,26 @@ Model issues and optional Original origins remain diagnostics. Query capabilitie
 ## Relations
 
 Only LOCAL Resolved targets and genuine Bound sources create edges.
-Endpoint keys reference actual emitted entity tuples. Edge UID serializes kind,
-source key, target key, relation data_key and exact Original capture byte bounds.
-Changing query order does not change that identity. Concordant repeated
-observations coalesce by this UID; every raw occurrence remains in outcomes.
+Endpoint keys reference actual emitted entity projections. `CodeRelationUid`
+(`r1:`, 67 ASCII bytes) binds kind, complete source/target keys and a typed logical
+reference occurrence. The occurrence is assigned in the producer before a deferred
+join: source key, kind, query data_key, observed target name/original global SCIP
+symbol and ordinal among indistinguishable real captures. Its `o1:` representation
+is also fixed at 67 bytes. A local SCIP identifier is retained as an
+observation, not used as durable semantic identity.
+
+Ranges and SDK indices can bind repeated observations during the same parse;
+they never enter these digests. Repeated contributions of the same native capture
+reuse its ordinal. Distinct captures and aliases retain distinct occurrences.
+Deferred resolvers reuse the recorded provenance and do not recount a partial
+update or assign zero per resolution. Structural CONTAINS has one logical relation
+per actual parent/child projection pair. Inserting/reordering indistinguishable
+captures can change their ordinal; inserting unrelated preceding lines does not
+change the semantic fields. Every raw occurrence remains in outcomes.
+
+Generic graph artifacts can contain parallel physical edges with the same UID and
+endpoints. These remain distinct in captured pagination; compact UIDs do not
+authorize dropping members/rows or replacing physical capture identities.
 
 Outcomes preserve query/captures/properties/TargetRule/source evidence and
 Resolved, NotFound, Ambiguous, Unresolved or ObservedOnly states. Go import,
@@ -434,8 +453,50 @@ facts belong to the active native FILE store; there is no second portable
 resolution table or end-of-corpus writer. Staging is not a public protocol or a
 reconstruction of Source/Tree authority.
 
+`apply_scip_document(parts, document, source, origin, original)` requires explicit
+`AstScipDocumentOrigin::Compiler` or `Syntax` from the trusted producer. Syntax
+projection preserves the compact fallback UID and key; its globally formatted
+`graphit-syntax` symbols remain facts/export data and do not cause another semantic
+promotion. Compiler origin promotes real global definitions. The enum is never
+inferred from a UID or symbol prefix. Consequently syntax publication and later
+compiler enrichment compose directly as fallback → compiler identities, without
+an intermediate synthetic hash or persistent alias.
+
+`AstScipGraphDocument.origin` also governs additional compiler-only NN definitions:
+syntax contributes no additional compiler rows after the same Source association
+has been checked. Existing parser projections remain in their normal path.
+
+`apply_scip_document` returns `AstScipGraphDocument.identity_changes`, a vector of
+`AstGraphIdentityChange` records. Each contains `label`, `data_key`, the Original
+name range `start_byte`/`end_byte`, and `previous_uid`/`uid` plus
+`previous_key`/`key`. Only changed projections are listed; the enclosing
+`parts.association` binds the complete map to the same captured Source. `parts`
+already contains promoted nodes, endpoints, definitions/references and outcomes.
+The map is a result of normal compiler enrichment, not an old-format reader.
+
+Consumers outside that batch must apply the map before persisting lexical/NN
+rows or unioning enriched results with earlier projections. They match actual
+rows of the same captured Source and projection; an unchanged compatible vector,
+model/space/recipe and projection digest remain unchanged. UID/key changes require
+recomputing the affected input fingerprint. A map entry without an existing NN row
+does not authorize fabricating an embedding; compiler-only graph rows may be new.
+
+Reference facts retain `query_data_key`, `reference_target` and
+`occurrence_ordinal`. A global SCIP target uses its exact original symbol; a local
+uses the observed logical name, preserving the original local symbol separately.
+Unbound references have no occurrence ordinal. A bound reference without this
+provenance is rejected, rather than assigned zero at resolution. FileFacts persist
+these fields, so changing deployed stores requires the coordinated pointwise rekey
+before activation, without a permanent compatibility decoder.
+
 The common join consumes actual definitions/references and their Source
-association, keeping native keys and original ranges. An explicit export streams
+association and original ranges. Global definitions promote parser UIDs/PKs to
+the compact semantic recipe built from the sorted set of associated original
+global symbols, kind and declaration ordinal. Local-only definitions retain the
+logical fallback; original symbols remain facts for joining and export. Promotion
+preserves entity views, metadata and parallel relation rows while rederiving edge
+UIDs from their recorded logical occurrence, without recounting partial joins.
+An explicit export streams
 the current official documents into `index.scip`
 alongside its captured Graph. Full indexing does not automatically rebuild a
 portable graph or clone Raw/NN after inference. NN publication remains separate,

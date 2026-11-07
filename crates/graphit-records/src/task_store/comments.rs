@@ -97,7 +97,7 @@ mod tests {
         Vec<LifecycleEvent<Task>>,
         Vec<super::super::rows::StoredComment>,
     ) {
-        let actor = "a".repeat(64);
+        let actor = ulid::Ulid::from(10u128).to_string();
         let mut task = Task {
             commit: None,
             specification: TaskSpecification {
@@ -195,7 +195,7 @@ mod tests {
             match case {
                 0 => bad[1].record.session_id = SessionId::new(nz(77)),
                 1 => bad[1].record.specification.id = TaskId::new(nz(77)),
-                2 => bad[1].actor = "b".repeat(64),
+                2 => bad[1].actor = ulid::Ulid::from(11u128).to_string(),
                 3 => bad[1].observed_at = 19,
                 4 => bad[1].record.updated_at = 19,
                 5 => bad[1].record.status = TaskStatus::Open,

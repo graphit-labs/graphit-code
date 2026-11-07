@@ -7,12 +7,15 @@ import type { TaskContext } from './task'
 
 export interface NativeKnowledgeGeneration { corpus_uri: string; version: NativeInteger; physical_branch: string | null; inherited_target: string | null }
 export interface NativeKnowledgeHead { slug: string; title: string; updated_at: string | null }
+export interface NativeKnowledgePageLink { target: string; slug: string | null; title: string | null }
 export interface NativeKnowledgeDocument {
   slug: string; title: string; body: string; kind: string; summary: string; description: string | null; summary_truncated: boolean
   source_path: string; physical_digest: number[] | null; compilation_digest: number[]; recipe: string
   recipe_parameters: { fallback_title: string; kind_on_absent: string; max_summary_bytes: NativeInteger }
   updated_at: string | null; stale_since: string | null; stale_after: { seconds: NativeInteger; nanoseconds: number } | null
   resolved_wiki_targets: string[]
+  previous?: NativeKnowledgePageLink | null
+  next?: NativeKnowledgePageLink | null
 }
 export type NativeKnowledgeHeads = { state: 'no_corpus' } | { state: 'published'; generation: NativeKnowledgeGeneration; heads: NativeKnowledgeHead[] }
 export type NativeKnowledgePage = { state: 'no_corpus' } | { state: 'published'; generation: NativeKnowledgeGeneration; page: { state: 'published_empty' } | { state: 'page_absent' } | { state: 'found'; document: NativeKnowledgeDocument } }

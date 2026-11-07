@@ -1,207 +1,40 @@
 //! Wire adapters for the authorized, retained local live graph.
 use super::*;
 use graphit_ast::{
-    icebug_query::{QueryOptions, QueryResult},
+    icebug_query::{QueryCatalog, QueryOptions},
     live_graph::LiveGraph,
 };
 use graphit_core::file_io::SnapshotContext;
-use serde_json::{Value, json};
+use serde_json::json;
 
-fn invalid() -> ReadFailure {
-    ReadFailure::Query(io::Error::new(
-        io::ErrorKind::InvalidData,
-        "invalid native graph result",
-    ))
-}
-fn quoted(value: &str) -> String {
-    format!("`{}`", value.replace('`', "``"))
-}
-fn body<'a>(value: &'a Value, kind: &str) -> Result<&'a Value, ReadFailure> {
-    if value.get("type").and_then(Value::as_str) != Some(kind) {
-        return Err(invalid());
-    }
-    value.get("value").ok_or_else(invalid)
-}
-fn string(value: &Value) -> Result<&str, ReadFailure> {
-    body(value, "STRING")?.as_str().ok_or_else(invalid)
-}
-fn properties(value: &Value) -> Result<&serde_json::Map<String, Value>, ReadFailure> {
-    body(
-        body(value, "NODE")?.get("properties").ok_or_else(invalid)?,
-        "PROPERTIES",
-    )?
-    .as_object()
-    .ok_or_else(invalid)
-}
-fn native_id(value: &Value, generation: &[u8; 32], edge: bool) -> Result<(u32, u64), ReadFailure> {
-    let value = body(value, "INTERNAL_ID")?;
-    if value.get("generation") != Some(&json!(generation)) {
-        return Err(invalid());
-    }
-    let table = value
-        .get(if edge { "member" } else { "table" })
-        .and_then(Value::as_u64)
-        .and_then(|v| u32::try_from(v).ok())
-        .ok_or_else(invalid)?;
-    let row = value
-        .get("row")
-        .and_then(Value::as_str)
-        .ok_or_else(invalid)?
-        .parse::<u64>()
-        .map_err(|_| invalid())?;
-    Ok((table, row))
-}
-fn identifier(value: &Value, generation: &[u8; 32]) -> Result<NodeId, ReadFailure> {
-    let (table, row) = native_id(value, generation, false)?;
-    Ok(NodeId {
-        table,
-        row: row.to_string(),
-    })
-}
-fn node_key(value: &Value, generation: &[u8; 32]) -> Result<(u32, u64), ReadFailure> {
-    native_id(
-        body(value, "NODE")?.get("id").ok_or_else(invalid)?,
-        generation,
-        false,
-    )
-}
-fn property_from<'a>(name: &'a str, value: &'a Value) -> Result<Property<'a>, ReadFailure> {
-    let v = value.get("value").ok_or_else(invalid)?;
-    let value = if v.is_null() {
-        PropertyValue::Null
-    } else {
-        match value.get("type").and_then(Value::as_str) {
-            Some("STRING") => PropertyValue::String(v.as_str().ok_or_else(invalid)?),
-            Some("INT64") => {
-                let text = v.as_str().ok_or_else(invalid)?;
-                text.parse::<i64>().map_err(|_| invalid())?;
-                PropertyValue::Int64(text.into())
-            }
-            Some("BOOL") => PropertyValue::Bool(v.as_bool().ok_or_else(invalid)?),
-            _ => return Err(invalid()),
-        }
-    };
-    Ok(Property { name, value })
-}
-fn property_values(value: &Value) -> Result<Vec<Property<'_>>, ReadFailure> {
-    body(value, "PROPERTIES")?
-        .as_object()
-        .ok_or_else(invalid)?
-        .iter()
-        .map(|(name, value)| property_from(name, value))
-        .collect()
-}
-fn optional_text<'a>(
-    props: &'a serde_json::Map<String, Value>,
-    name: &str,
-) -> Result<Option<&'a str>, ReadFailure> {
-    match props.get(name) {
-        None => Ok(None),
-        Some(v) if v.get("value").is_some_and(Value::is_null) => Ok(None),
-        Some(v) => string(v).map(Some),
-    }
-}
-fn node<'a>(value: &'a Value, generation: &[u8; 32]) -> Result<Node<'a>, ReadFailure> {
-    let native = body(value, "NODE")?;
-    let props = properties(value)?;
-    let line = match props.get("line_number") {
-        None => None,
-        Some(v) if v.get("value").is_some_and(Value::is_null) => None,
-        Some(v) => {
-            let text = body(v, "INT64")?.as_str().ok_or_else(invalid)?;
-            text.parse::<i64>().map_err(|_| invalid())?;
-            Some(text.to_owned())
-        }
-    };
-    Ok(Node {
-        id: identifier(native.get("id").ok_or_else(invalid)?, generation)?,
-        label: string(native.get("label").ok_or_else(invalid)?)?,
-        name: optional_text(props, "name")?,
-        path: optional_text(props, "path")?,
-        uid: optional_text(props, "uid")?,
-        cluster: optional_text(props, "cluster")?,
-        lang: optional_text(props, "lang")?,
-        line,
-        primary_key: Some(property_from(
-            "entity_key",
-            props.get("entity_key").ok_or_else(invalid)?,
-        )?),
-    })
-}
-fn edge<'a>(value: &'a Value, generation: &[u8; 32]) -> Result<Edge<'a>, ReadFailure> {
-    let native = body(value, "REL")?;
-    let (member, row) = native_id(native.get("id").ok_or_else(invalid)?, generation, true)?;
-    let props = body(native.get("properties").ok_or_else(invalid)?, "PROPERTIES")?
-        .as_object()
-        .ok_or_else(invalid)?;
-    Ok(Edge {
-        id: EdgeId {
-            member,
-            row: row.to_string(),
-        },
-        from: identifier(native.get("from").ok_or_else(invalid)?, generation)?,
-        to: identifier(native.get("to").ok_or_else(invalid)?, generation)?,
-        relationship: string(native.get("label").ok_or_else(invalid)?)?,
-        uid: string(props.get("uid").ok_or_else(invalid)?)?,
-    })
-}
-fn property_node<'a>(
-    value: &'a Value,
-    generation: &[u8; 32],
-) -> Result<PropertyNode<'a>, ReadFailure> {
-    let native = body(value, "NODE")?;
-    Ok(PropertyNode {
-        id: identifier(native.get("id").ok_or_else(invalid)?, generation)?,
-        label: string(native.get("label").ok_or_else(invalid)?)?,
-        properties: property_values(native.get("properties").ok_or_else(invalid)?)?,
-    })
-}
-fn property_edge<'a>(
-    value: &'a Value,
-    generation: &[u8; 32],
-) -> Result<PropertyEdge<'a>, ReadFailure> {
-    let native = edge(value, generation)?;
-    Ok(PropertyEdge {
-        id: native.id,
-        from: native.from,
-        to: native.to,
-        relationship: native.relationship,
-        uid: native.uid,
-        properties: property_values(body(value, "REL")?.get("properties").ok_or_else(invalid)?)?,
-    })
-}
-fn query(
-    graph: &Arc<graphit_data::CapturedLocalGraph>,
-    namespace: [u8; 32],
-    original: &Arc<SnapshotContext>,
-    text: &str,
-    parameters: BTreeMap<String, Value>,
-    options: QueryOptions,
-) -> Result<QueryResult, ReadFailure> {
-    graphit_ast::icebug_query::execute_owned(graph, original, namespace, text, &parameters, options)
-        .map_err(ReadFailure::Query)
-}
 /// Retain only this graph operation's native shard capture and PROJECT admission.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_live(
     index: &LiveGraph,
+    catalog: &QueryCatalog,
     original: &Arc<SnapshotContext>,
+    scope: &NeighborhoodScope,
     operation: Operation,
     input: Option<QueryData>,
     neighborhood: Option<NeighborhoodData>,
     options: QueryOptions,
+    sample_limits: Option<GraphSampleLimits>,
+    neighborhood_limits: Option<GraphNeighborhoodLimits>,
     maximum: usize,
 ) -> Result<Vec<u8>, ReadFailure> {
-    let namespace = index.namespace();
     index
         .with_graph(original, |graph| {
             render_captured(
                 graph,
-                namespace,
+                catalog,
                 original,
+                scope,
                 operation,
                 input,
                 neighborhood,
                 options,
+                sample_limits,
+                neighborhood_limits,
                 maximum,
             )
         })
@@ -211,39 +44,39 @@ pub(crate) fn render_live(
 #[allow(clippy::too_many_arguments)]
 fn render_captured(
     graph: &Arc<graphit_data::CapturedLocalGraph>,
-    namespace: [u8; 32],
+    catalog: &QueryCatalog,
     original: &Arc<SnapshotContext>,
+    scope: &NeighborhoodScope,
     operation: Operation,
     input: Option<QueryData>,
     neighborhood: Option<NeighborhoodData>,
     options: QueryOptions,
+    sample_limits: Option<GraphSampleLimits>,
+    neighborhood_limits: Option<GraphNeighborhoodLimits>,
     maximum: usize,
 ) -> Result<Vec<u8>, ReadFailure> {
     original.check().map_err(ReadFailure::Query)?;
-    let generation = graph
-        .owned_generation(namespace)
-        .map_err(|error| ReadFailure::Query(io::Error::other(error)))?;
-    let schema = graph
-        .schema()
-        .map_err(|error| ReadFailure::Query(io::Error::other(error)))?;
+    graph.revalidate(original).map_err(native_graph_error)?;
     let response = match operation {
         Operation::Imports => return Err(ReadFailure::BadInput),
         Operation::Query => {
             let input = input.ok_or(ReadFailure::BadInput)?;
-            encode(
-                &graphit_ast::icebug_query::execute_owned(
+            let runtime = tokio::runtime::Handle::try_current()
+                .map_err(|error| ReadFailure::Query(io::Error::other(error)))?;
+            let result = catalog
+                .execute(
                     graph,
                     original,
-                    namespace,
+                    &runtime,
                     &input.query,
                     &input.parameters,
                     options,
                 )
-                .map_err(ReadFailure::Query)?,
-                maximum,
-            )?
+                .map_err(ReadFailure::Query)?;
+            encode(&result, maximum)?
         }
         Operation::Schema => {
+            let schema = graph.schema().map_err(native_graph_error)?;
             let mut counts = BTreeMap::<(String, String, String), u64>::new();
             for member in schema.relationships() {
                 let rows = counts
@@ -253,89 +86,28 @@ fn render_captured(
                         member.to_label().to_owned(),
                     ))
                     .or_default();
-                *rows = rows.checked_add(member.rows()).ok_or_else(invalid)?;
+                *rows = rows.checked_add(member.rows()).ok_or_else(|| {
+                    native_graph_error(graphit_data::DataReadError::LimitExceeded(
+                        "relationship rows",
+                    ))
+                })?;
             }
             let relationships = counts.into_iter().map(|((kind, from, to), rows)| {
-                    json!({"kind":kind,"from_label":from,"to_label":to,"rows":rows.to_string(),"properties":[["uid","STRING"]]})
-                }).collect::<Vec<_>>();
+                json!({"kind":kind,"from_label":from,"to_label":to,"rows":rows.to_string(),"properties":[["uid","STRING"]]})
+            }).collect::<Vec<_>>();
             encode(
-                &json!({
-                    "generation":generation,
-                    "nodes":schema.node_tables().map(NodeSchema).collect::<Vec<_>>(),
-                    "relationships":relationships,
-                }),
-                maximum,
-            )
-        }?,
-        Operation::Sample => {
-            if schema.node_tables().len() == 0 {
-                return encode(
-                    &json!({"generation":generation,"nodes":[],"edges":[]}),
-                    maximum,
-                );
-            }
-            let filter = if schema.node_tables().any(|table| {
-                table
-                    .columns()
-                    .any(|(name, kind)| name == "is_file_observation" && kind == "BOOL")
-            }) {
-                "WHERE coalesce(n.is_file_observation,false)=false"
-            } else {
-                ""
-            };
-            let seeds = query(
-                graph,
-                namespace,
-                original,
-                &format!("MATCH(n) {filter} RETURN n LIMIT $limit"),
-                BTreeMap::from([("limit".into(), 300.min(options.max_rows).into())]),
-                options,
-            )?;
-            let relations = if schema.relationships().len() == 0 {
-                QueryResult {
-                    columns: Vec::new(),
-                    rows: Vec::new(),
-                }
-            } else {
-                query(
-                    graph,
-                    namespace,
-                    original,
-                    "MATCH(s)-[r]->(t) RETURN s,r,t LIMIT $limit",
-                    BTreeMap::from([("limit".into(), 1000.min(options.max_rows).into())]),
-                    options,
-                )?
-            };
-            let mut selected = BTreeMap::new();
-            for row in &seeds.rows {
-                let value = row.first().ok_or_else(invalid)?;
-                selected.insert(node_key(value, &generation)?, value);
-            }
-            for row in &relations.rows {
-                if row.len() != 3 {
-                    return Err(invalid());
-                }
-                for value in [&row[0], &row[2]] {
-                    selected.insert(node_key(value, &generation)?, value);
-                }
-            }
-            let nodes = selected
-                .into_values()
-                .map(|v| node(v, &generation))
-                .collect::<Result<Vec<_>, _>>()?;
-            let edges = relations
-                .rows
-                .iter()
-                .map(|r| edge(&r[1], &generation))
-                .collect::<Result<Vec<_>, _>>()?;
-            encode(
-                &Sample {
-                    generation,
-                    nodes,
-                    edges,
-                },
+                &json!({"nodes":schema.node_tables().map(NodeSchema).collect::<Vec<_>>(), "relationships":relationships}),
                 maximum,
             )?
+        }
+        Operation::Sample => {
+            let sample = graph
+                .sample_graph_excluding_marked(
+                    sample_limits.ok_or(ReadFailure::BadInput)?,
+                    "is_file_observation",
+                )
+                .map_err(native_graph_error)?;
+            encode(&sample_wire(&sample), maximum)?
         }
         Operation::Neighborhood => {
             let input = neighborhood.ok_or(ReadFailure::BadInput)?;
@@ -344,150 +116,23 @@ fn render_captured(
                 || input
                     .limit
                     .checked_add(1)
-                    .is_none_or(|v| v > options.max_rows)
+                    .is_none_or(|value| value > options.max_rows)
             {
                 return Err(ReadFailure::BadInput);
             }
-            let key = match &input.anchor_key {
-                Anchor::String(value) => value,
-                Anchor::Int64(_) => return Err(ReadFailure::BadInput),
-            };
-            if !schema
-                .node_tables()
-                .any(|table| table.label() == input.anchor_label)
-                || !schema
-                    .node_tables()
-                    .any(|table| table.label() == input.other_label)
-            {
-                return Err(ReadFailure::BadInput);
-            }
-            let pair = match input.direction {
-                Direction::Outgoing => (input.anchor_label.clone(), input.other_label.clone()),
-                Direction::Incoming => (input.other_label.clone(), input.anchor_label.clone()),
-            };
-            if !schema.relationships().any(|member| {
-                member.kind() == input.relationship
-                    && member.from_label() == pair.0
-                    && member.to_label() == pair.1
-            }) {
-                return Err(ReadFailure::BadInput);
-            }
-            let request = GraphNeighborhoodRequest {
-                anchor_label: &input.anchor_label,
-                anchor_key: GraphAnchorKey::String(key),
-                relationship: &input.relationship,
-                other_label: &input.other_label,
-                direction: match input.direction {
-                    Direction::Outgoing => GraphDirection::Outgoing,
-                    Direction::Incoming => GraphDirection::Incoming,
-                },
-                limit: input.limit,
-                cursor: None,
-            };
-            let fingerprint = graphit_data::neighborhood_fingerprint(&request)
-                .map_err(|_| ReadFailure::BadInput)?;
-            if let Some(cursor) = &input.cursor
-                && (cursor.generation != generation
-                    || cursor.fingerprint != fingerprint
-                    || cursor.last_uid.is_empty())
-            {
-                return Err(ReadFailure::BadInput);
-            }
-            let anchor = query(
-                graph,
-                namespace,
-                original,
-                &format!(
-                    "MATCH(a:{} {{entity_key:$key}}) RETURN a",
-                    quoted(&input.anchor_label)
-                ),
-                BTreeMap::from([("key".into(), key.clone().into())]),
-                options,
-            )?;
-            if anchor.rows.len() != 1 {
-                return Err(ReadFailure::BadInput);
-            }
-            let anchor_cell = anchor.rows[0].first().ok_or_else(invalid)?;
-            let anchor_id = identifier(
-                body(anchor_cell, "NODE")?.get("id").ok_or_else(invalid)?,
-                &generation,
-            )?;
-            let pattern = match input.direction {
-                Direction::Outgoing => format!(
-                    "-[r:{}]->(b:{})",
-                    quoted(&input.relationship),
-                    quoted(&input.other_label)
-                ),
-                Direction::Incoming => format!(
-                    "<-[r:{}]-(b:{})",
-                    quoted(&input.relationship),
-                    quoted(&input.other_label)
-                ),
-            };
-            let after = if input.cursor.is_some() {
-                "WHERE r.uid>$after"
-            } else {
-                ""
-            };
-            let mut parameters = BTreeMap::from([
-                ("key".into(), key.clone().into()),
-                ("limit".into(), (input.limit + 1).into()),
-            ]);
-            if let Some(cursor) = &input.cursor {
-                parameters.insert("after".into(), cursor.last_uid.clone().into());
-            }
-            let mut result = query(
-                graph,
-                namespace,
-                original,
-                &format!(
-                    "MATCH(a:{} {{entity_key:$key}}){pattern} {after} RETURN a,r,b ORDER BY r.uid LIMIT $limit",
-                    quoted(&input.anchor_label)
-                ),
-                parameters,
-                options,
-            )?;
-            let more = result.rows.len() > input.limit;
-            result.rows.truncate(input.limit);
-            let mut selected = BTreeMap::new();
-            selected.insert(node_key(anchor_cell, &generation)?, anchor_cell);
-            for row in &result.rows {
-                if row.len() != 3 {
-                    return Err(invalid());
-                }
-                selected.insert(node_key(&row[2], &generation)?, &row[2]);
-            }
-            let nodes = selected
-                .into_values()
-                .map(|v| property_node(v, &generation))
-                .collect::<Result<Vec<_>, _>>()?;
-            let edges = result
-                .rows
-                .iter()
-                .map(|r| property_edge(&r[1], &generation))
-                .collect::<Result<Vec<_>, _>>()?;
-            let next_cursor = if more {
-                Some(Cursor {
-                    generation,
-                    fingerprint,
-                    last_uid: edges.last().ok_or_else(invalid)?.uid.into(),
-                })
-            } else {
-                None
-            };
-            encode(
-                &NeighborhoodPage {
-                    generation,
-                    anchor: anchor_id,
-                    nodes,
-                    edges,
-                    next_cursor,
-                },
-                maximum,
-            )?
+            let limits = neighborhood_limits.ok_or(ReadFailure::BadInput)?;
+            let request = neighborhood_request(&input, scope)?;
+            let anchor = graph
+                .resolve_node(request.anchor_label, request.anchor_key, limits)
+                .map_err(native_graph_error)?;
+            let page = graph
+                .neighborhood_graph_at(&anchor, request, limits)
+                .map_err(native_graph_error)?;
+            encode(&neighborhood_wire(&page, scope)?, maximum)?
         }
     };
     original.check().map_err(ReadFailure::Query)?;
+    graph.revalidate(original).map_err(native_graph_error)?;
     Ok(response)
 }
 
@@ -495,8 +140,15 @@ fn render_captured(
 mod tests {
     use super::*;
     use graphit_data::graph_writer::{GraphEdge, GraphNode, GraphValue};
+    use serde_json::Value;
     fn original() -> Arc<SnapshotContext> {
         Arc::new(SnapshotContext::service(Cancellation::default()))
+    }
+    fn scope() -> NeighborhoodScope {
+        NeighborhoodScope::Project {
+            project: "fixture".into(),
+            version: "main".into(),
+        }
     }
     fn options() -> QueryOptions {
         QueryOptions {
@@ -506,6 +158,12 @@ mod tests {
             max_bytes: 1024 * 1024,
             max_depth: 32,
         }
+    }
+    fn neighborhood_limits() -> GraphNeighborhoodLimits {
+        GraphNeighborhoodLimits::new(65536, 256, 20000, 20000, 20000, 256).unwrap()
+    }
+    fn sample_limits() -> GraphSampleLimits {
+        GraphSampleLimits::new(300, 1000, 2300, 65536, 20000, 20000, 256).unwrap()
     }
     fn model(key: &str, path: &str) -> GraphNode {
         GraphNode {
@@ -528,11 +186,15 @@ mod tests {
     ) -> Value {
         let bytes = render_live(
             index,
+            &QueryCatalog::new(),
             &original(),
+            &scope(),
             op,
             query,
             neighborhood,
             options(),
+            Some(sample_limits()),
+            Some(neighborhood_limits()),
             1024 * 1024,
         )
         .unwrap_or_else(|_| panic!("live graph render failed"));
@@ -541,13 +203,188 @@ mod tests {
     fn request(cursor: Option<Cursor>) -> NeighborhoodData {
         NeighborhoodData {
             anchor_label: "Function".into(),
-            anchor_key: Anchor::String("a".into()),
-            relationship: "CALLS".into(),
-            other_label: "Function".into(),
-            direction: Direction::Outgoing,
+            anchor_key: GraphKey::String("a".into()),
+            relationship: Some("CALLS".into()),
+            other_label: Some("Function".into()),
+            direction: Some(Direction::Outgoing),
             limit: 1,
             cursor,
         }
+    }
+    #[tokio::test(flavor = "multi_thread")]
+    async fn unfiltered_neighborhood_pages_both_directions_and_preserves_parallel_edges() {
+        tokio::task::spawn_blocking(|| {
+            let dir = tempfile::tempdir().unwrap();
+            let original = original();
+            let graph =
+                LiveGraph::open_path_owned(dir.path().join("graph"), &original, [7; 32], true)
+                    .unwrap();
+            let edges = [
+                ("CALLS", "a", "b", "01-out"),
+                ("CALLS", "a", "b", "02-parallel"),
+                ("CALLS", "b", "a", "03-in"),
+                ("REFERS_TO", "a", "a", "04-self"),
+                ("CALLS", "b", "c", "05-hop"),
+            ]
+            .map(|(kind, source, target, uid)| GraphEdge {
+                kind: kind.into(),
+                source_key: source.into(),
+                target_key: target.into(),
+                uid: uid.into(),
+            });
+            graph
+                .replace_file(
+                    graphit_ast::live_graph::LiveFileInput {
+                        path: "graph.rs",
+                        source_sha256: [9; 32],
+                        raw_version: 1,
+                        nodes: &[
+                            model("a", "graph.rs"),
+                            model("b", "graph.rs"),
+                            model("c", "graph.rs"),
+                        ],
+                        edges: &edges,
+                        definitions: &[],
+                        references: &[],
+                        scip_document: None,
+                        oracle: &[],
+                        oracle_file: None,
+                        pending_compiler: None,
+                        scip_compiler: None,
+                    },
+                    &original,
+                )
+                .unwrap();
+            let page_input = |key: &str, cursor: Value| {
+                serde_json::from_value::<NeighborhoodData>(json!({
+                    "anchor_label":"Function", "anchor_key":{"type":"string","value":key},
+                    "limit":2, "cursor":cursor,
+                }))
+                .unwrap()
+            };
+            let mut maximum_page = page_input("a", Value::Null);
+            maximum_page.limit = 1000;
+            let maximum_page = result(&graph, Operation::Neighborhood, None, Some(maximum_page));
+            assert_eq!(maximum_page["edges"].as_array().unwrap().len(), 4);
+            assert!(maximum_page["next_cursor"].is_null());
+            let first = result(
+                &graph,
+                Operation::Neighborhood,
+                None,
+                Some(page_input("a", Value::Null)),
+            );
+            assert!(first.get("generation").is_none());
+            assert_eq!(
+                first["edges"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|edge| edge["uid"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                ["01-out", "02-parallel"]
+            );
+            let selected = first["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|node| {
+                    node["properties"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|property| {
+                            property["name"] == "uid" && property["value"]["value"] == "a"
+                        })
+                })
+                .unwrap();
+            assert_eq!(
+                selected["primary_key"],
+                json!({"name":"entity_key","value":{"type":"string","value":"a"}})
+            );
+            assert_eq!(
+                first["edges"][0]["position"],
+                json!({
+                    "uid":"01-out","relationship":"CALLS","from_label":"Function",
+                    "from_key":{"type":"string","value":"a"},"to_label":"Function",
+                    "to_key":{"type":"string","value":"b"},"occurrence":"0"
+                })
+            );
+            assert_eq!(
+                first["next_cursor"]["position"],
+                first["edges"].as_array().unwrap().last().unwrap()["position"]
+            );
+            assert!(!first["next_cursor"].is_null());
+            assert!(first["next_cursor"].get("generation").is_none());
+            let second = result(
+                &graph,
+                Operation::Neighborhood,
+                None,
+                Some(page_input("a", first["next_cursor"].clone())),
+            );
+            assert_eq!(
+                second["edges"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|edge| edge["uid"].as_str().unwrap())
+                    .collect::<Vec<_>>(),
+                ["03-in", "04-self"]
+            );
+            assert!(second["next_cursor"].is_null());
+            assert_eq!(second["nodes"].as_array().unwrap().len(), 2);
+            let hop = result(
+                &graph,
+                Operation::Neighborhood,
+                None,
+                Some(page_input("b", Value::Null)),
+            );
+            let hop = result(
+                &graph,
+                Operation::Neighborhood,
+                None,
+                Some(page_input("b", hop["next_cursor"].clone())),
+            );
+            assert!(
+                hop["edges"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|edge| edge["uid"] == "05-hop")
+            );
+            assert!(hop["nodes"].as_array().unwrap().iter().any(|node| {
+                node["properties"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|property| property["name"] == "uid" && property["value"]["value"] == "c")
+            }));
+            for operation in [Operation::Schema, Operation::Sample] {
+                assert!(
+                    result(&graph, operation, None, None)
+                        .get("generation")
+                        .is_none()
+                );
+            }
+            let typed = result(
+                &graph,
+                Operation::Query,
+                Some(QueryData {
+                    query: "MATCH(a:Function {entity_key:$key}) RETURN a".into(),
+                    parameters: BTreeMap::from([("key".into(), "a".into())]),
+                }),
+                None,
+            );
+            assert_eq!(typed["rows"][0][0]["type"], "NODE");
+            assert_eq!(typed["rows"][0][0]["value"]["id"]["type"], "INTERNAL_ID");
+            assert!(typed["rows"][0][0]["value"]["id"]["value"]["row"].is_string());
+            assert!(
+                typed["rows"][0][0]["value"]["id"]["value"]
+                    .get("generation")
+                    .is_none()
+            );
+        })
+        .await
+        .unwrap();
     }
     #[tokio::test(flavor = "multi_thread")]
     async fn real_live_schema_sample_neighborhood_wire_and_keyset() {
@@ -669,8 +506,8 @@ mod tests {
                         == &json!({"name":"line_number","value":{"type":"int64","value":"1"}}))
             );
             let mut incoming = request(None);
-            incoming.direction = Direction::Incoming;
-            incoming.anchor_key = Anchor::String("b".into());
+            incoming.direction = Some(Direction::Incoming);
+            incoming.anchor_key = GraphKey::String("b".into());
             let incoming = result(&graph, Operation::Neighborhood, None, Some(incoming));
             assert_eq!(incoming["edges"][0]["uid"], "01-ab");
             let mut incorrect = cursor.clone();
@@ -678,11 +515,15 @@ mod tests {
             assert!(
                 render_live(
                     &graph,
+                    &QueryCatalog::new(),
                     &original,
+                    &scope(),
                     Operation::Neighborhood,
                     None,
                     Some(request(Some(incorrect))),
                     options(),
+                    Some(sample_limits()),
+                    Some(neighborhood_limits()),
                     1024 * 1024
                 )
                 .is_err()
@@ -700,7 +541,9 @@ mod tests {
             assert!(
                 render_live(
                     &graph,
+                    &QueryCatalog::new(),
                     &original,
+                    &scope(),
                     Operation::Query,
                     Some(QueryData {
                         query: "MATCH(n) DELETE n".into(),
@@ -708,6 +551,8 @@ mod tests {
                     }),
                     None,
                     options(),
+                    Some(sample_limits()),
+                    Some(neighborhood_limits()),
                     1024 * 1024
                 )
                 .is_err()
@@ -743,20 +588,46 @@ mod tests {
                 schema["relationships"][0]["properties"],
                 json!([["uid", "STRING"]])
             );
-            graph.remove_file("c.rs", &original).unwrap();
-            graph.remove_file("b.rs", &original).unwrap();
+            let continued = result(
+                &graph,
+                Operation::Neighborhood,
+                None,
+                Some(request(Some(cursor.clone()))),
+            );
+            assert_eq!(
+                continued["edges"][0]["uid"], "02-ac",
+                "an independent FILE update does not invalidate the logical keyset"
+            );
+            let other_scope = NeighborhoodScope::Project {
+                project: "fixture".into(),
+                version: "other-branch".into(),
+            };
             assert!(
                 render_live(
                     &graph,
+                    &QueryCatalog::new(),
                     &original,
+                    &other_scope,
                     Operation::Neighborhood,
                     None,
-                    Some(request(Some(cursor))),
+                    Some(request(Some(cursor.clone()))),
                     options(),
+                    Some(sample_limits()),
+                    Some(neighborhood_limits()),
                     1024 * 1024
                 )
                 .is_err()
             );
+            graph.remove_file("c.rs", &original).unwrap();
+            graph.remove_file("b.rs", &original).unwrap();
+            let removed = result(
+                &graph,
+                Operation::Neighborhood,
+                None,
+                Some(request(Some(cursor))),
+            );
+            assert_eq!(removed["edges"], json!([]));
+            assert!(removed["next_cursor"].is_null());
             let schema = result(&graph, Operation::Schema, None, None);
             assert_eq!(
                 schema["nodes"]
@@ -771,11 +642,15 @@ mod tests {
             assert!(
                 render_live(
                     &graph,
+                    &QueryCatalog::new(),
                     &original,
+                    &scope(),
                     Operation::Sample,
                     None,
                     None,
                     options(),
+                    Some(sample_limits()),
+                    Some(neighborhood_limits()),
                     1
                 )
                 .is_err()
@@ -783,5 +658,169 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn project_http_sample_projects_summary_columns_and_keeps_neighborhood_anchor() {
+        use graphit_core::tcp_listener::{self, Options, PortSelection};
+        use std::time::Duration;
+
+        let (fixture, server, _) = crate::graph_server::tests::web_fixture().await;
+        let original = original();
+        let live =
+            crate::graph_server::tests::live_project_graph(&fixture, &server, &original).await;
+        let mut wide = model("wide-key", "sample.rs");
+        wide.label = "Auxiliary".into();
+        wide.properties
+            .insert("is_file_observation".into(), GraphValue::Bool(false));
+        wide.properties.insert(
+            "unselected_payload".into(),
+            GraphValue::String("x".repeat(server.0.policy.graph_query.max_bytes + 1)),
+        );
+        let marked = |key: &str| GraphNode {
+            label: "Auxiliary".into(),
+            key: key.into(),
+            properties: BTreeMap::from([
+                ("name".into(), GraphValue::String(key.into())),
+                ("is_file_observation".into(), GraphValue::Bool(true)),
+            ]),
+        };
+        live.graph
+            .replace_file(
+                graphit_ast::live_graph::LiveFileInput {
+                    path: "sample.rs",
+                    source_sha256: [4; 32],
+                    raw_version: 1,
+                    nodes: &[
+                        wide,
+                        marked("marked-endpoint"),
+                        marked("marked-unconnected"),
+                    ],
+                    edges: &[GraphEdge {
+                        kind: "OBSERVES".into(),
+                        source_key: "f1".into(),
+                        target_key: "marked-endpoint".into(),
+                        uid: "marked-edge".into(),
+                    }],
+                    definitions: &[],
+                    references: &[],
+                    scip_document: None,
+                    oracle: &[],
+                    oracle_file: None,
+                    pending_compiler: None,
+                    scip_compiler: None,
+                },
+                &original,
+            )
+            .unwrap();
+        let listener = tcp_listener::reserve(
+            Options {
+                address: "127.0.0.1".parse().unwrap(),
+                ports: PortSelection::Ephemeral,
+                timeout: Duration::from_secs(5),
+            },
+            &Cancellation::default(),
+        )
+        .unwrap();
+        let url = format!("http://{}", listener.address());
+        let owner = server.clone();
+        let serving = tokio::spawn(async move { owner.serve(listener).await });
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap();
+        let request = |operation: &str, body: Value| {
+            client
+                .post(format!("{url}/api/graphs/project/{operation}"))
+                .bearer_auth(&fixture.raw)
+                .header("x-graphit-auth-origin", "runtime")
+                .json(&body)
+        };
+        let response = request("sample", json!({"selection":{}}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "{}",
+            response.text().await.unwrap()
+        );
+        let sample: Value = response.json().await.unwrap();
+        assert!(sample.get("generation").is_none());
+        let nodes = sample["nodes"].as_array().unwrap();
+        assert!(
+            nodes
+                .iter()
+                .all(|node| node["primary_key"]["value"]["type"] == "string")
+        );
+        let has_key = |key: &str| {
+            nodes
+                .iter()
+                .any(|node| node["primary_key"]["value"]["value"] == key)
+        };
+        assert!(has_key("wide-key"));
+        assert!(
+            has_key("marked-endpoint"),
+            "marked relationship endpoints remain in the sample"
+        );
+        assert!(
+            !has_key("marked-unconnected"),
+            "only marked seeds are excluded"
+        );
+        assert_eq!(sample["edges"].as_array().unwrap().len(), 4);
+
+        // This is the real PROJECT query handler: RETURN n cannot fit the wide
+        // property, whereas the sample above reads only the declared summary.
+        let response = request(
+            "query",
+            json!({"selection":{},"query":{
+                "query":"MATCH(n:Auxiliary {entity_key:$key}) RETURN n",
+                "parameters":{"key":"wide-key"}
+            }}),
+        )
+        .send()
+        .await
+        .unwrap();
+        let status = response.status();
+        let error = response.text().await.unwrap();
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
+        assert!(
+            error.contains("query cell exceeds response bytes"),
+            "{error}"
+        );
+
+        let anchor = nodes.iter().find(|node| node["label"] == "File").unwrap();
+        let mut input = json!({"selection":{},"neighborhood":{
+            "anchor_label":"File","anchor_key":anchor["primary_key"]["value"],
+            "relationship":"CONTAINS","other_label":"Function","direction":"outgoing","limit":1
+        }});
+        let response = request("neighborhood", input.clone()).send().await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "{}",
+            response.text().await.unwrap()
+        );
+        let first: Value = response.json().await.unwrap();
+        assert!(first.get("generation").is_none());
+        assert_eq!(first["anchor"], anchor["id"]);
+        assert_eq!(first["edges"][0]["uid"], "u0");
+        assert!(!first["next_cursor"].is_null());
+        input["neighborhood"]["cursor"] = first["next_cursor"].clone();
+        let response = request("neighborhood", input).send().await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "{}",
+            response.text().await.unwrap()
+        );
+        let second: Value = response.json().await.unwrap();
+        assert_eq!(second["anchor"], anchor["id"]);
+        assert_eq!(second["edges"][0]["uid"], "u1");
+        server.shutdown().await.unwrap();
+        serving.await.unwrap().unwrap();
     }
 }

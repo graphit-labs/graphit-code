@@ -36,6 +36,9 @@ pub fn build() -> Result<(), Box<dyn Error>> {
         return Err("prepared Ladybug library is missing".into());
     }
     let mut build = cxx_build::bridge("src/icebug_query.rs");
+    if env::var_os("CARGO_FEATURE_TEST_SUPPORT").is_some() {
+        build.define("GRAPHIT_QUERY_TEST_SUPPORT", None);
+    }
     build
         .define("LBUG_STATIC_DEFINE", None)
         .define("NDEBUG", None)

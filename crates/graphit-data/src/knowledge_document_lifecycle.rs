@@ -1,4 +1,5 @@
 //! Canonical Knowledge source identities are ordinary data, never capture authority.
+use sha2::{Digest, Sha256};
 use std::{
     collections::TryReserveError,
     error::Error,
@@ -86,8 +87,20 @@ fn valid_bytes(bytes: &[u8]) -> bool {
         && bytes != b".."
         && !bytes.iter().any(|b| *b == 0 || *b == b'/')
 }
+fn default_slug(source_path: &str) -> Result<String> {
+    let mut hash = Sha256::new();
+    hash.update(b"graphit.knowledge.default-slug.v1\0");
+    hash.update(source_path.as_bytes());
+    let digest = hash.finalize();
+    let mut bytes = [0; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    let id = ulid::Ulid::from_bytes(bytes);
+    let mut encoded = [0; ulid::ULID_LEN];
+    copy(id.array_to_str(&mut encoded))
+}
 impl KnowledgeSourceIdentity {
-    /// Encode relative components; an authored id is supplied literal data.
+    /// Encode relative components and derive a stable default ULID from their origin.
+    /// An authored id remains supplied literal data; the default encodes no creation time.
     /// This does not inspect a filesystem or authorize reading this path.
     pub fn from_relative_path(
         relative: &Path,
@@ -126,9 +139,8 @@ impl KnowledgeSourceIdentity {
         let suffix_bytes = add(encoded_bytes, count - 1)?;
         let origin_bytes = add(PREFIX.len() + 3, suffix_bytes)?;
         bounded(origin_bytes, max_field_bytes, "source_path")?;
-        let default_bytes = add("source-".len() + 2, suffix_bytes)?;
         if authored_id.is_none() {
-            bounded(default_bytes, max_field_bytes, "slug")?;
+            bounded(ulid::ULID_LEN, max_field_bytes, "slug")?;
         }
         let mut source_path = String::new();
         source_path
@@ -156,17 +168,7 @@ impl KnowledgeSourceIdentity {
         let slug = if let Some(id) = authored_id {
             copy(id)?
         } else {
-            let mut output = String::new();
-            output
-                .try_reserve_exact(default_bytes)
-                .map_err(KnowledgeSourceIdentityError::Allocation)?;
-            output.push_str("source-");
-            output.push('t');
-            for part in source_path[(PREFIX.len() + 3)..].split('/') {
-                output.push('-');
-                output.push_str(part);
-            }
-            output
+            default_slug(&source_path)?
         };
         Ok(Self { slug, source_path })
     }

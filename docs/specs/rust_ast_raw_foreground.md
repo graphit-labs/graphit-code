@@ -57,6 +57,29 @@ Directory lookup uses a shared per-capture native-path index while preserving in
 
 Each FILE chunk checks its own native root/ancestor/leaf binding, same descriptor, Original and applicable present or absent ignore controls. It does not rescan unrelated FILES or sibling controls. Raw retains full selection/content revalidation after stream preparation and before commit, and its existing checks after commit. Thus a changed sibling may leave a local FILE readable while the final whole-source check rejects publication.
 
+Physical Icebug shard maintenance runs at Raw/structural EOF, after the selected
+FILEs and search facts are already readable. FILE publication retains its existing
+Lance index cadence and does not perform physical shard collection. The composing
+caller uses `LiveGraph::maintain_shards` directly: one native call processes at
+most 128 FILEs and returns its report and `more`. It neither groups FILEs nor
+walks or prunes graph storage itself. Already consolidated storage is a no-op.
+
+At EOF, Icebug batches run before Lance index maintenance. An unavailable or slow
+Lance index cannot prevent physical graph publication. A subsequent Lance error
+remains visible and does not undo committed graph batches. The same Original and
+Source preemption are checked again before entering Lance maintenance.
+
+Each maintenance batch retains the existing publication fence in the native
+worker until it returns. The fence and native owner are released between batches;
+the caller yields, rechecks the same Original and respects Source preemption
+before continuing. A new FILE delta can therefore run before the remaining
+maintenance. Unfinished work is discovered from the durable manifest at the next
+EOF, including after a cold reopen. Native publication stays atomic per batch;
+FILE observations and logical row addresses remain the producer's responsibility.
+The SDK performs its single reclaim walk only at the final batch (`more=false`).
+No queue, polling loop, replacement Original, or per-FILE garbage collector is
+introduced by this consumer.
+
 Raw uses the existing `source_schema`: literal UTF-8 path and nullable source.
 Empty text is available; NULL means text not stored; an absent path is different.
 The fixed corpus is `Installation/ast/<ProjectId>/source.lance`, selected through
@@ -69,9 +92,22 @@ the first image too. Named branches retain the empty Main birth and receive thei
 complete selected branch image. The existing parent checks and exclusive rename
 reject a competing corpus birth without adopting or replacing it. Actual parent
 directories created before a later capture failure remain in the failure receipt.
-Delete and rename remove old rows. A matching indexed source image is a noop,
-without a prepared commit or a new recovery key. NULL cannot establish unchanged
-physical content, so a real refresh is retained when text is not stored.
+Delete and rename remove old rows. A matching FILE source image is a content
+noop, without a FILE replacement or its recovery key. Independent index
+maintenance can still publish metadata. NULL cannot establish unchanged physical
+content, so a real refresh is retained when text is not stored.
+
+After materializing the selected Source branch, the writer first asks the SDK's
+`prepare_scalar_append("path", "path_source")` to consolidate an existing index
+backlog before FILE lookups. This metadata-only publication preserves Source
+rows and captured history, with the same authorization, binding checks and CAS.
+Each changed FILE then commits Raw and its graph without waiting for a scalar
+append or history cleanup. Lance reads still cover unindexed fragments. Scalar
+append and SDK history cleanup run at the existing `AST_INDEX_BATCH` cadence,
+after the preceding FILE is readable, and at EOF after graph maintenance.
+Index publications never realign other FILEs' `raw_version`, hashes or spans.
+Historical index files remain subject to the SDK's existing retention and leases;
+consolidating the current index does not promise immediate physical reclamation.
 
 [SDK streaming](../../crates/graphit-data/src/lance_module_store.rs) reaches EOF
 before preparation succeeds. Errors late in a stream publish no partial manifest.

@@ -141,9 +141,7 @@ pub(crate) fn input_budget(
     Ok(())
 }
 pub(super) fn actor(admission: &ProjectWriteAdmission<'_>) -> Result<String, MemoryStoreError> {
-    let mut bytes = [0; 64];
-    admission.actor()?.write_identifier(&mut bytes);
-    String::from_utf8(bytes.to_vec()).map_err(|_| MemoryStoreError::Invalid("actor encoding"))
+    Ok(admission.actor()?.identifier().to_string())
 }
 pub(super) struct WritePin {
     pub pin: BranchSnapshot,

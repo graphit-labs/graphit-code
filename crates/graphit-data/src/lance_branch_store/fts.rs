@@ -129,7 +129,7 @@ impl BranchSnapshot {
         }
         let fragments = self.uncovered_fragments(&indices)?;
         if fragments.is_empty() {
-            return self.prepare_fts_postings(None, indices).await;
+            return self.prepare_index_segments(None, indices).await;
         }
         self.prepare_index_segment(
             column,
@@ -154,8 +154,10 @@ impl BranchSnapshot {
             .await
     }
 
-    /// Create an absent BTree, otherwise add only uncovered fragments. Existing
-    /// segment files and rows remain intact; a complete index publishes nothing.
+    /// Create an absent BTree, otherwise index only uncovered fragments and merge
+    /// comparable native segments. Captured history keeps its original files;
+    /// a covered, consolidated index publishes nothing.
+    /// Fully covered inherited snapshots remain read-only no-ops.
     /// An occupied name with a different column or type is an explicit error.
     pub async fn prepare_scalar_append(
         &self,
@@ -170,7 +172,12 @@ impl BranchSnapshot {
         }
         let fragments = self.uncovered_fragments(&indices)?;
         if fragments.is_empty() {
-            return Ok(None);
+            // A fully covered inherited read does not own physical maintenance.
+            // Preserve its no-op without materializing or writing the branch.
+            if self.inherited_target.is_some() {
+                return Ok(None);
+            }
+            return self.prepare_index_segments(None, indices).await;
         }
         let params = ScalarIndexParams::for_builtin(BuiltinIndexType::BTree);
         self.prepare_index_segment(
@@ -179,7 +186,7 @@ impl BranchSnapshot {
             IndexType::BTree,
             &params,
             Some(fragments),
-            vec![],
+            indices,
         )
         .await
         .map(Some)
@@ -289,16 +296,16 @@ impl BranchSnapshot {
         if metadata.dataset_version != self.version() {
             return Err(BranchError::InvalidVersion);
         }
-        if append && index_type == IndexType::Inverted {
+        if append && matches!(index_type, IndexType::Inverted | IndexType::BTree) {
             return self
-                .prepare_fts_postings(Some(metadata), merge_candidates)
+                .prepare_index_segments(Some(metadata), merge_candidates)
                 .await?
                 .ok_or(BranchError::SchemaMismatch);
         }
         self.prepare_index_publication(vec![metadata], vec![])
     }
 
-    async fn prepare_fts_postings(
+    async fn prepare_index_segments(
         &self,
         new_segment: Option<IndexMetadata>,
         existing: Vec<IndexMetadata>,
@@ -324,7 +331,7 @@ impl BranchSnapshot {
             }
         }
         // A dedicated SDK maintenance session must not retain every obsolete
-        // intermediate posting reader. Search snapshots keep their useful cache.
+        // intermediate index reader. Query snapshots keep their useful cache.
         let session = Session::with_cache_backends(
             CacheSpec::Backend(Arc::new(MokaCacheBackend::no_cache())),
             CacheSpec::Default,
@@ -347,7 +354,7 @@ impl BranchSnapshot {
         let mut tiers: BTreeMap<u32, IndexMetadata> = BTreeMap::new();
         let mut candidates = existing.clone();
         if let Some(metadata) = new_segment {
-            // Fragment-restricted builders emit staged postings; finalize only
+            // Fragment-restricted builders may emit staged segments; finalize only
             // the new segment, without loading all committed segments at once.
             let staged = metadata.uuid;
             let finalized = captured
@@ -375,7 +382,7 @@ impl BranchSnapshot {
                     break;
                 };
                 // Conventional size-tiered compaction: merge two comparable
-                // posting lists, then carry their union into its resulting tier.
+                // segments, then carry their union into its resulting tier.
                 // Pairwise SDK merges also repair old FILE-per-segment layouts
                 // without opening the whole backlog simultaneously.
                 let consumed = [previous.uuid, segment.uuid];

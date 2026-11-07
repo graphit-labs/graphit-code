@@ -15,6 +15,8 @@ related:
   - "docs/specs/daemon_module.md"
   - "docs/specs/mcpstdio_module.md"
 references:
+  - target: {type: task, id: 01M666RGGWZ1EFRFR1Z4N4Y8PN}
+    relation: implements
   - target: {type: task, id: tsk-b45e}
     relation: implements
   - target: {type: task, id: tsk-4504}
@@ -224,6 +226,12 @@ sources are revalidated: symlinks and special sources are rejected.
 
 An owned non-Clone writer holds the stable target-adjacent lock: `.config.json.lock`
 for Global and `.project.json.lock` for Project, shared with ProjectIdentityWriter.
+Both Project producers open the lock relative to a retained brand-directory
+handle without following links, using the same private profile from its first
+creation (Unix 0600; protected explicit owner on Windows). The empty lock keeps
+its physical identity across both kinds of writer; an incompatible existing
+profile fails without repair or replacement. Global retains its separate lock
+acquisition and directory policy.
 `apply(&mut self, changes)` rereads under that lock, preserving other writers'
 keys and, on Project writes, the identity and metadata; metadata writers preserve
 configuration in the other direction. Convenience `set`/`unset` validate input before acquiring it. Handles

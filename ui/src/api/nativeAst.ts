@@ -5,27 +5,30 @@ import type { NativeInteger } from './nativeJson'
 export interface AstSelection { project_dir: TaskContext['project_dir']; project_version: string }
 export const astSelection = (context: TaskContext): AstSelection => ({ project_dir: context.project_dir, project_version: context.project_version })
 export interface AstContexts { contexts: TaskContext[]; current: TaskContext | null }
-export type AstGeneration = number[]
 export type AstColumn = [string, string]
 export interface AstSchemaNode { label: string; primary_key: string; rows: string; columns: AstColumn[]; language_counts: [string, string][] }
 export interface AstSchemaRelationship { kind: string; from_label: string; to_label: string; rows: string; properties: AstColumn[] }
-export interface AstSchema { generation: AstGeneration; nodes: AstSchemaNode[]; relationships: AstSchemaRelationship[] }
+export interface AstSchema { nodes: AstSchemaNode[]; relationships: AstSchemaRelationship[] }
 export interface AstNodeId { table: number; row: string }
 export interface AstEdgeId { member: number; row: string }
 export interface AstSampleNode { id: AstNodeId; label: string; name: string | null; path: string | null; uid: string | null; cluster: string | null; lang: string | null; line: string | null; primary_key?: { name: string; value: AstKey } }
 export interface AstSampleEdge { id: AstEdgeId; from: AstNodeId; to: AstNodeId; relationship: string; uid: string }
-export interface AstSample { generation: AstGeneration; nodes: AstSampleNode[]; edges: AstSampleEdge[] }
+export interface AstSample { nodes: AstSampleNode[]; edges: AstSampleEdge[] }
 export interface AstCell { type: string; value: unknown }
 export interface AstQuery { columns: string[]; rows: AstCell[][] }
 export type AstKey = { type: 'string' | 'int64'; value: string }
-export interface AstCursor { generation: AstGeneration; fingerprint: number[]; last_uid: string }
+export interface AstNeighborhoodPosition {
+  uid: string; relationship: string; from_label: string; from_key: AstKey
+  to_label: string; to_key: AstKey; occurrence: string
+}
+export type AstCursor = unknown
 export interface AstProperty { name: string; value: { type: 'string'; value: string } | { type: 'int64'; value: string } | { type: 'bool'; value: boolean } | { type: 'null'; value?: null } }
-export interface AstNeighborhoodNode { id: AstNodeId; label: string; properties: AstProperty[] }
-export interface AstNeighborhoodEdge { id: AstEdgeId; from: AstNodeId; to: AstNodeId; relationship: string; uid: string; properties: AstProperty[] }
-export interface AstNeighborhood { generation: AstGeneration; anchor: AstNodeId; nodes: AstNeighborhoodNode[]; edges: AstNeighborhoodEdge[]; next_cursor: AstCursor | null }
-export interface AstNeighborhoodInput { anchor_label: string; anchor_key: AstKey; relationship: string; other_label: string; direction: 'incoming' | 'outgoing'; limit: number; cursor?: AstCursor }
+export interface AstNeighborhoodNode { id: AstNodeId; label: string; primary_key: { name: string; value: AstKey }; properties: AstProperty[] }
+export interface AstNeighborhoodEdge { id: AstEdgeId; from: AstNodeId; to: AstNodeId; relationship: string; uid: string; position: AstNeighborhoodPosition; properties: AstProperty[] }
+export interface AstNeighborhood { anchor: AstNodeId; nodes: AstNeighborhoodNode[]; edges: AstNeighborhoodEdge[]; next_cursor: AstCursor | null }
+export interface AstNeighborhoodInput { anchor_label: string; anchor_key: AstKey; relationship?: string; other_label?: string; direction?: 'incoming' | 'outgoing'; limit: number; cursor?: AstCursor }
 export interface AstSourceInput {
-  path: string; entity?: string; entity_type?: string
+  path: string; entity?: string; entity_key?: AstKey; entity_type?: string
   head?: NativeInteger; tail?: NativeInteger; start_line?: NativeInteger; end_line?: NativeInteger
   pattern?: string; regex?: boolean; before?: NativeInteger; after?: NativeInteger; line_numbers?: boolean
 }

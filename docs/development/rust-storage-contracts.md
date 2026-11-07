@@ -197,8 +197,10 @@ Call `CapturedLocalGraph::capture` with a native directory `&Path`, an explicit
 `SnapshotPolicy`, positive `SourceReadLimits`, the original `Arc<SnapshotContext>`
 and a validated `LocalGraphPolicy`. Every manifest/footer/page read uses Core's
 owned captured handles. The context, reader and original physical fingerprint
-remain private. `GraphGeneration`, `NodeId` and `EdgeId` are data identities;
+remain private. `NodeId` and `EdgeId` are coordinates within a captured result;
 serialized values cannot recreate the capture or authorize filesystem access.
+`ResolvedGraphNode` borrows the genuine reader for repeated neighborhood access;
+no graph-generation digest substitutes that ownership.
 Capture and each sample perform full original-source revalidation. A conflict,
 cancellation, deadline, I/O admission failure or decoder error discards the
 entire response; there is no refresh, retry, repair or partial-success result.
@@ -214,11 +216,13 @@ boolean marker excludes a seed. False, NULL or absent markers remain eligible,
 including semantic nodes with the same label as the metadata table. This avoids
 metadata consuming every seed when a project has more than 300 files. Actual
 relationship endpoints still remain observable; the generic installed-artifact
-sample retains its existing selection. Full-table nonnull primary-key uniqueness and full forward
-CSR pointer/target validity are checked even beyond the selected output. Every
+sample retains its existing selection. Selected nodes require typed nonnull,
+unique primary keys. Used CSR ranges and loaded projected bodies retain their
+integrity checks; a preview does not certify unrelated unread bodies. Every
 decoded or skipped row is charged before the initial positive SDK batch.
-Reverse descriptors are bounded and their declared files/schema are checked;
-reverse content equivalence and reverse traversal remain future consumers.
+Reverse descriptors are bounded and their declared files/schema are checked.
+Incoming neighborhoods retain reverse CSR and validate selected forward/reverse
+differences; they do not certify complete unselected content equivalence.
 
 Nodes expose typed IDs, label and optional name/path/uid/cluster/lang/line.
 Missing optional columns and NULL become absent values; line zero is absent.
@@ -447,43 +451,78 @@ projects a nonexistent column. A present schema with a missing or BOOL PK return
 `InvalidAnchorKey` before source I/O. A known STRING/INT64 PK requires the matching
 key type at that same boundary. FLOAT remains rejected during capture.
 
-Both directions scan typed forward members. Identity is the same
-`GraphGeneration`/`NodeId`/`EdgeId` used by `sample_graph`, including physical
-forward member/row identity. Incoming source ordinals come from validated CSR
-pointers, never from reverse-member ordinals. Parallel relation UIDs and a
-physical self-loop once are preserved. Results are globally ordered by UTF-8
-UID bytes across all selected members. A bounded heap retains at most
-`limit + 1` candidates; the extra candidate determines `has_more`. A separate
-bounded set validates every matching UID, including edges before the cursor
-and candidates evicted from the heap. Duplicate UIDs fail instead of silently
-deduplicating or returning a truncated page.
+Node and edge coordinates use the same table/member and logical row ordinals as
+`sample_graph`, without a derived graph-generation digest. `input_limits()` on
+local and remote graphs returns their exact captured `LocalGraphLimits`, without
+source I/O or new defaults; query output row/byte limits are separate.
+`resolve_query_node(label,key,row_batch_size)` (remote additionally takes its
+fresh Original) uses only captured decoded-row/page/chunk bounds. The caller's
+explicit SDK batch must be positive and is clamped to `query_decoded_rows`;
+STRING PK values use `max_chunk_bytes`, not the label's `max_name_bytes`.
+It returns the same reader-borrowed anchor without neighborhood candidate/property
+budgets or response-derived input limits.
+Its `Option` result maps only typed PK absence to `None` after the final guard;
+all other failures remain errors. No Source resolution participates.
+`read_query_node(&anchor, columns, row_batch_size)` (remote additionally takes
+Original) validates that reader borrow and projects only the resolved row,
+requested declared fields and real PK into `GraphPropertyNode`. No repeated PK
+lookup, neighborhood traversal or Source read occurs. Empty columns mean PK only;
+unknown columns and selected-body corruption fail explicitly.
+`resolve_node` prunes
+exact-key lookups using captured Parquet statistics and projects the PK. Modern
+truncated min/max remain conservative bounds; absent or legacy statistics cannot
+exclude a group, and modern inverted bounds fail. It returns a
+`ResolvedGraphNode` borrowing the real reader. `neighborhood_graph_at` rejects an
+anchor from another reader and verifies its selected PK without another lookup.
+Outgoing reads select the anchor's two pointers and adjacency range. Incoming
+reads select reverse CSR when declared and resolve page UIDs in the source's
+forward adjacency, batching requests for the same adjacency into one read while
+preserving parallel occurrences. Without reverse storage, exact-target statistics prune forward
+groups and selected pointer probes resolve source rows. Reverse ordinals never
+become forward identities. Optional relationship/other-label/direction filters
+use None for all kinds and Both. Page size is 1..=1000. A Both traversal emits
+each physical self-loop once, without deduplicating independent occurrences.
+
+Order is UID, relationship, source label and typed PK, target label and typed PK,
+then a zero-based ordinal within that complete logical group. Identical UIDs,
+even with identical endpoints and kind, remain independent records. The prefix
+retained for response/continuation is at most `limit + 1`; necessary UID frontier
+groups receive PK projections for deterministic ordering. The raw coordinate
+buffer is bounded by the existing matching-edge input guard, not a corpus quota.
 
 `GraphNeighborhoodPage` owns private nodes, edges and property values and
 exposes borrowed getters. Endpoint nodes are unique and sorted by typed ID;
 `node(NodeId)` looks them up without copying. Properties are sorted by name and
 retain STRING, INT64, BOOL and NULL, including empty strings, zero and false.
-Node properties include the primary key. Relation properties include UID and
+Node properties include the primary key. `primary_key()` borrows that existing
+`GraphProperty`, preserving its actual name and STRING/INT64 value. Relation properties include UID and
 all ordinary scalar fields, excluding the physical UInt64 `target` column.
-The edge UID getter borrows its UID property. These complete properties differ
+The edge UID getter borrows its UID property. `position()` exposes the full
+`GraphNeighborhoodPosition` including the occurrence ordinal. These complete properties differ
 from the sample's optional summaries, where line zero remains absent.
 
-`next_cursor()` borrows the last returned UID from a nonfinal page. Its data
-contains the generation and a SHA-256 canonical query fingerprint with tagged,
-checked length-prefixed UTF-8 fields and typed INT64 bytes. Direction and every
-query field participate; page size does not, so it may change between pages.
-`GraphNeighborhoodCursor::from_parts` accepts typed input data and does not
-restore a capture or grant. Another generation/query or an empty/oversized UID
-returns `InvalidCursor` before source I/O. A valid cursor beyond the last UID
-returns an empty page containing the present anchor's complete properties.
+`next_cursor()` borrows the full position of the last returned edge from a
+nonfinal page. Its data contains a canonical fingerprint of the logical request
+and `GraphNeighborhoodPosition`; no graph generation participates. The position
+contains UID, relationship, endpoint labels and typed keys, plus occurrence.
+Page size is excluded from the query fingerprint. `from_parts(fingerprint,
+position)` accepts data, never a capture or grant. Another query or invalid
+position fields fail before body I/O. Consumers also bind the cursor to the
+admitted PROJECT/version or exact installed artifact without a global revision.
+Occurrence is u64 internally and a lossless decimal string on the JSON wire.
 
-Samples and neighborhood pages own their vectors and strings directly. A
-neighborhood request bounds each string, properties per record and the number
-of matching edges. The candidate heap retains at most `limit + 1` entries;
-the uniqueness set still checks matching UIDs before the cursor and outside
-that heap. Property counts are checked before projection allocation; edge
-output excludes `target`, while the full projection is bounded by `max_columns`.
-Collections use fallible `try_reserve`. Nonnull and duplicate primary-key checks
-remain independent of output selection.
+The group ordinal is assigned again in each capture; no member/row from another
+capture is interpreted as a stable key. Updating that same logical group can
+change occurrence assignment. A FILE sibling outside the group does not reject
+continuation, and pagination does not promise a retained snapshot of old pages.
+Beyond the last position, the page contains the present anchor and no edges.
+
+Samples and pages own their vectors and strings. Property counts are checked
+before projection allocation; target remains structural. Strings, matching
+edges, actual decoded rows and page work retain the operation's existing input
+guards. Selected PKs must be nonnull and unique across matching key groups.
+No global UID uniqueness proof, estimated heap ledger or new corpus quota is
+introduced. Sample reads likewise preserve repeated UID occurrences.
 
 `tsk-e304` removes approximate catalog/primary-key/DTO heap accounting and the
 redundant aggregate UID-byte budget. `LocalGraphLimits` has no
@@ -501,12 +540,12 @@ forecast or parsed-owner total is charged. An inner decoder/semantic error
 still reaches the original final source/context guard; no replacement request
 is created. These checks do not measure allocator use or RSS.
 
-All anchor, pointer, target/UID, full-property and full-primary-key passes use
-one private `DecodeLimits`/`Work` contract derived from the real operation
-limits. All rowgroups and decoded/skipped rows are charged before initial SDK
-batches. Incoming source mapping may require another complete pointer pass;
-property materialization scans once per needed table/member rather than once
-per returned entity. Pure request validation errors perform no source I/O.
+Anchor lookup, pointer probes, selected target/UID ranges and property projections
+share the private `DecodeLimits`/`Work` contract of the real operation. Every
+loaded projected group retains the SDK decoder, EOF, page/count checks and actual
+decode/work limits. Properties read selected rows. Unloaded bodies are not a
+query integrity certificate; corruption in a selected body or used pointer/target
+remains an error. Pure request validation errors perform no source I/O.
 After the initial physical guard, the same Original and physical bindings are
 checked again before exposing success or an inner semantic/decoder error; a final
 source conflict takes precedence. This recheck does not rehash the entire corpus.

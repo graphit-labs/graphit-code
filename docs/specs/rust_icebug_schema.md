@@ -2,7 +2,7 @@
 
 Task tsk-9706 supplies CapturedLocalGraph::schema() -> Result<GraphSchema<'_>, DataReadError> for the actual local installed GraphExplorer consumer.
 
-The method checks the existing Original and captured-content validation. The view borrows the already validated manifest and Parquet metadata; it copies no strings/buffers and parses no new format. It exposes generation as data, not authority. Public fields/constructors remain private and the view cannot outlive its captured graph.
+The method checks the existing Original and captured-content validation. The view borrows the already validated manifest and Parquet metadata; it copies no strings/buffers and parses no new format. It exposes native manifest metadata as data, not authority; no derived graph-generation digest is returned. Public fields/constructors remain private and the view cannot outlive its captured graph.
 
 GraphSchema::node_tables() yields GraphNodeSchema views with label(), primary_key(), rows(), row_extent(), shards(), columns() borrowed (name,type) pairs and language_counts() borrowed (language,count) pairs. Values come from canonical node declarations whose schema/row counts were checked at capture. This is the complete declared schema, not inference from a sampled page.
 
@@ -32,12 +32,14 @@ The FILE publisher already records exact node totals and language counts in
 `NodeSchema` serializer. Forward CSR members are summed by relationship kind,
 source label and target label, so several FILE shards produce one relationship
 entry with the total row count. Empty retained labels and relationship groups
-remain visible with zero rows. The PROJECT generation, string row counts and
-output-byte boundary stay unchanged; schema metadata does not grant access.
+remain visible with zero rows. String row counts and the output-byte boundary
+remain; schema metadata does not grant access or align independently published
+corpora.
 
-This changes schema delivery only. Sample, neighborhood and arbitrary Cypher
-queries still use the existing in-memory Ladybug engine over captured Parquet
-files. Their query execution, cancellation signals and generation-bound IDs and
-cursors are unchanged. Source locations are
+Samples and typed neighborhoods read captured Parquet directly; arbitrary Cypher
+uses the official in-memory Ladybug engine over those captured files. Physical
+ordinals remain local to the result, resolved anchors borrow their actual reader,
+and keyset cursors bind the logical query and admitted scope rather than a global
+revision. Original cancellation and native snapshot guards remain. Source locations are
 [live_graph.rs](../../crates/graphit-ast/src/live_graph.rs) and
 [graph_server/live.rs](../../crates/graphit-app/src/graph_server/live.rs).

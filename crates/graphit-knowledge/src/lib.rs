@@ -40,6 +40,7 @@ pub mod native_document_mapping;
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 pub mod native_index_publication;
 pub mod native_reference_query;
+pub mod navigation;
 pub mod okf_export;
 pub mod preview;
 pub mod publication_metadata;

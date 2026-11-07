@@ -233,6 +233,7 @@ pub async fn republish_native_documents(
             read: limits.read,
             write: publication.index,
         },
+        crate::embedding_projection::equivalent_body,
     )
     .await
     .map_err(NativeDocumentRepublicationError::Data)

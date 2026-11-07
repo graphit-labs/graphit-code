@@ -19,6 +19,7 @@ pub(super) async fn search_admitted(
         &state.policy.registry,
         id,
         version,
+        state.policy.index,
     )
     .map_err(|error| ReadFailure::Remote(Box::new(error)))?
     else {
@@ -111,6 +112,7 @@ pub(super) async fn read_admitted<'a>(
         &state.policy.registry,
         id,
         version,
+        state.policy.index,
     )
     .map_err(|error| ReadFailure::Remote(Box::new(error)))?
     else {
@@ -157,15 +159,13 @@ pub(super) async fn read_admitted<'a>(
     .map_err(|error| ReadFailure::Remote(Box::new(error)))?;
     let bytes = if let Some(source) = source {
         let selectors = source.selection();
-        let inspected = if let Some(entity) = &source.entity {
+        let inspected = if source.has_entity() {
             let graph = opened
                 .mount
                 .graph(&opened.selection, &lease, state.policy.native_install.graph)
                 .await
                 .map_err(|error| ReadFailure::Remote(Box::new(error)))?;
-            let path = source.path.clone();
-            let entity = entity.clone();
-            let kind = source.entity_type.clone();
+            let input = source.clone();
             let original = Arc::clone(read.request().snapshot());
             let options = state.policy.graph_query;
             let runtime = tokio::runtime::Handle::current();
@@ -174,15 +174,7 @@ pub(super) async fn read_admitted<'a>(
                 let mut jobs = state.jobs.lock().await;
                 while jobs.try_join_next().is_some() {}
                 jobs.spawn_blocking(move || {
-                    let window = graphit_ast::imported_graph::resolve_remote_entity_window(
-                        &graph,
-                        &original,
-                        &runtime,
-                        &path,
-                        &entity,
-                        kind.as_deref(),
-                        options,
-                    );
+                    let window = input.resolve_remote_window(&graph, &original, &runtime, options);
                     let _ = send.send(window);
                 });
             }
@@ -215,6 +207,7 @@ pub(super) async fn read_admitted<'a>(
             .await
             .map_err(|error| ReadFailure::Remote(Box::new(error)))?;
         let owner = Arc::clone(state);
+        let scope = imported_scope(state, id, version)?;
         let original = Arc::clone(read.request().snapshot());
         let (send, receive) = oneshot::channel();
         {
@@ -232,6 +225,7 @@ pub(super) async fn read_admitted<'a>(
                 let bytes = render_operation(
                     &owner,
                     &GraphView::Remote(graph, original),
+                    &scope,
                     operation,
                     query,
                     neighborhood,
@@ -287,6 +281,7 @@ pub(super) fn read_with_auth(
         &state.policy.registry,
         id,
         version,
+        state.policy.index,
     )
     .map_err(|error| ReadFailure::Remote(Box::new(error)))?
     else {
@@ -343,6 +338,7 @@ pub(super) fn read_with_auth(
     let bytes = render_operation(
         state,
         &GraphView::Remote(graph, Arc::clone(request.snapshot())),
+        &imported_scope(state, id, version)?,
         operation,
         query,
         neighborhood,

@@ -20,12 +20,28 @@ async function choose(control: string, option: string) {
 }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(nativeKnowledgeApi.ask).mockResolvedValue(answer) })
 
-it('keeps explicit empty selection, literal model and observed answer/receipt', async () => {
-  render(<NativeKnowledgeAsk selection={selection} heads={heads} />); draft(); submit()
+it('defaults to FTS question retrieval without starting work until Ask', async () => {
+  render(<NativeKnowledgeAsk selection={selection} heads={heads} />)
+  expect(screen.queryByRole('checkbox')).toBeNull()
+  expect(screen.getByRole('combobox', {name:'Knowledge question evidence'}).textContent).toContain('Retrieve pages')
+  expect(screen.getByRole('combobox', {name:'Knowledge question retrieval mode'}).textContent).toBe('fts')
+  expect(nativeKnowledgeApi.ask).not.toHaveBeenCalled()
+  draft(); submit(); await screen.findByText('Observed answer')
+  expect(vi.mocked(nativeKnowledgeApi.ask).mock.calls[0][1]).toEqual({query:' literal question ',model:' literal model ',retrieval:{mode:'fts',top_k:5}})
+})
+
+it('keeps explicit manual opt-in, empty selection, literal model and observed answer/receipt', async () => {
+  render(<NativeKnowledgeAsk selection={selection} heads={heads} />)
+  await choose('Knowledge question evidence','Choose pages manually')
+  draft(); submit()
+  expect(screen.getByRole('group', {name:'Choose pages for this question'})).toBeTruthy()
+  expect(screen.getByText(/This list is the published library, not ranked search results/)).toBeTruthy()
+  expect(screen.getByText('No pages selected.')).toBeTruthy()
   await screen.findByText('Observed answer')
   expect(vi.mocked(nativeKnowledgeApi.ask).mock.calls[0][1]).toEqual({ query: ' literal question ', model: ' literal model ', selected_slugs: [] })
   expect(screen.getByText(/"ordinal": 18446744073709551615/)).toBeTruthy()
   fireEvent.click(screen.getByRole('checkbox', { name: /Evidence page/ })); submit()
+  expect(screen.getByText('1 page selected.')).toBeTruthy()
   await waitFor(() => expect(nativeKnowledgeApi.ask).toHaveBeenCalledTimes(2))
   expect(vi.mocked(nativeKnowledgeApi.ask).mock.calls[1][1]).toEqual({ query: ' literal question ', model: ' literal model ', selected_slugs: [heads[0].slug] })
 })
@@ -77,6 +93,7 @@ it('aborts on cancel and scope change, hiding late progress, answer and denial',
 it('keeps every published page selectable in a large evidence list', async () => {
   const pages = Array.from({ length: 200 }, (_, index) => ({ slug: `docs/page-${index}.md`, title: `Evidence ${index}`, updated_at: null }))
   render(<NativeKnowledgeAsk selection={selection} heads={pages} />)
+  await choose('Knowledge question evidence','Choose pages manually')
   expect(screen.getAllByRole('checkbox')).toHaveLength(pages.length)
   fireEvent.click(screen.getByRole('checkbox', { name: 'Evidence 199 docs/page-199.md' }))
   fireEvent.click(screen.getByRole('checkbox', { name: 'Evidence 0 docs/page-0.md' }))

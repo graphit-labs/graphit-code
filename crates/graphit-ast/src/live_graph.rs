@@ -12,6 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
+mod maintenance;
 mod oracle;
 mod pending;
 mod portable;
@@ -61,6 +62,18 @@ pub struct LiveFileObservation {
     pub file_revision: u64,
     pub raw_version: u64,
     pub scip_compiler: Option<String>,
+}
+
+/// One bounded publication. Reclaimed bytes count logical sizes of removed files.
+#[derive(Clone, Debug)]
+pub struct LiveGraphMaintenance {
+    pub revision: u64,
+    pub files: u64,
+    pub consolidated_files: u64,
+    pub more: bool,
+    pub reclaimed_files: u64,
+    pub reclaimed_directories: u64,
+    pub reclaimed_bytes: u64,
 }
 
 #[derive(Debug)]
@@ -159,15 +172,43 @@ impl LiveGraph {
         let manifest = path.join("icebug.json");
         let catalog = match std::fs::File::open(&manifest) {
             Ok(file) => {
-                let manifest: Value =
-                    serde_json::from_reader(file).map_err(|error| invalid(error.to_string()))?;
-                serde_json::from_value::<Catalog>(
-                    manifest
-                        .get("live")
-                        .cloned()
-                        .ok_or_else(|| invalid("local graph has no FILE catalogue"))?,
-                )
-                .map_err(|error| invalid(error.to_string()))?
+                struct LiveManifest(Catalog);
+                impl<'de> Deserialize<'de> for LiveManifest {
+                    fn deserialize<D: serde::Deserializer<'de>>(
+                        deserializer: D,
+                    ) -> Result<Self, D::Error> {
+                        struct ManifestObject;
+                        impl<'de> serde::de::Visitor<'de> for ManifestObject {
+                            type Value = Catalog;
+                            fn expecting(
+                                &self,
+                                f: &mut std::fmt::Formatter<'_>,
+                            ) -> std::fmt::Result {
+                                f.write_str("a local graph manifest object")
+                            }
+                            fn visit_map<M: serde::de::MapAccess<'de>>(
+                                self,
+                                mut fields: M,
+                            ) -> Result<Catalog, M::Error> {
+                                let mut catalog = None;
+                                while let Some(field) = fields.next_key::<String>()? {
+                                    if field == "live" {
+                                        catalog = Some(fields.next_value()?);
+                                    } else {
+                                        fields.next_value::<serde::de::IgnoredAny>()?;
+                                    }
+                                }
+                                catalog.ok_or_else(|| {
+                                    serde::de::Error::custom("local graph has no FILE catalogue")
+                                })
+                            }
+                        }
+                        deserializer.deserialize_map(ManifestObject).map(Self)
+                    }
+                }
+                let manifest: LiveManifest = serde_json::from_reader(std::io::BufReader::new(file))
+                    .map_err(|error| invalid(error.to_string()))?;
+                manifest.0
             }
             Err(error) if create && error.kind() == io::ErrorKind::NotFound => {
                 let catalog = Catalog::new(namespace);
@@ -213,12 +254,6 @@ impl LiveGraph {
     }
     pub fn namespace(&self) -> [u8; 32] {
         self.namespace
-    }
-    pub fn generation(&self) -> io::Result<[u8; 32]> {
-        let mut hash = Sha256::new();
-        hash.update(self.namespace);
-        hash.update(self.revision()?.to_le_bytes());
-        Ok(hash.finalize().into())
     }
     pub fn files(&self, original: &Arc<SnapshotContext>) -> io::Result<Vec<LiveFileObservation>> {
         self.files_under("", original)
@@ -304,10 +339,10 @@ impl LiveGraph {
         original: &Arc<SnapshotContext>,
     ) -> io::Result<QueryResult> {
         self.with_graph(original, |graph| {
-            crate::icebug_query::execute_owned(
+            crate::icebug_query::execute(
                 graph,
                 original,
-                self.namespace,
+                &tokio::runtime::Handle::try_current().map_err(io::Error::other)?,
                 query,
                 parameters,
                 options,
@@ -338,9 +373,6 @@ impl LiveGraph {
             )
             .map_err(io::Error::other)?,
         );
-        graph
-            .owned_generation(self.namespace)
-            .map_err(io::Error::other)?;
         let result = read(&graph);
         original.check()?;
         Ok(result)

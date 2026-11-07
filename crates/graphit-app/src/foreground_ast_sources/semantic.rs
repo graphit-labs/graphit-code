@@ -656,7 +656,7 @@ impl ForegroundAstSources {
                         recheck()?;
                         for (_, inputs, _) in &scip_outputs { inputs.recheck(original)?; }
                         if !background_cancellation.is_cancelled() {
-                            progressive.maintain_indices(&recheck).await?;
+                            progressive.finish_maintenance(&recheck, Some(background_cancellation)).await?;
                             progressive.clean_history(&recheck).await?;
                         }
                         Ok::<_, io::Error>(())

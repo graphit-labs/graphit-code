@@ -305,26 +305,20 @@ impl PreparedRead {
         source.validate().map_err(|message| {
             ReadError::Operation(io::Error::new(io::ErrorKind::InvalidInput, message))
         })?;
-        if source.entity.is_some() {
+        if source.has_entity() {
             self.open_live(installation, registry, policy, base, live)
                 .await?;
         }
-        let entity = match source.entity.as_deref() {
-            Some(name) => {
-                let live = self.live_index().ok_or(ReadError::Absent)?;
-                Some(
-                    graphit_ast::project_entity_source::resolve_live_project_entity_source(
-                        &live.graph,
-                        &self.original,
-                        &source.path,
-                        name,
-                        source.entity_type.as_deref(),
-                        policy.graph_query,
-                    )
-                    .map_err(ReadError::Entity)?,
-                )
-            }
-            None => None,
+        let entity = if source.has_entity() {
+            let live = self.live_index().ok_or(ReadError::Absent)?;
+            Some(
+                tokio::task::block_in_place(|| {
+                    source.resolve_live_entity(&live.graph, &self.original, policy.graph_query)
+                })
+                .map_err(ReadError::Entity)?,
+            )
+        } else {
+            None
         };
         let selection = source.selection();
         let result = graphit_ast::source_handler::inspect_captured_source(
@@ -348,7 +342,7 @@ impl PreparedRead {
         )
         .await;
         self.check_active(live)?;
-        if source.entity.is_some() {
+        if source.has_entity() {
             self.check(policy, base, live)?;
         }
         self.original.check()?;

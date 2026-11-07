@@ -435,7 +435,8 @@ impl Failure {
         use axum::http::StatusCode as S;
         match e {
             KnowledgeIndexError::Auth(e) => Self::auth_response(e),
-            KnowledgeIndexError::Request(_) => (S::REQUEST_TIMEOUT, "request_cancelled_or_expired"),
+            KnowledgeIndexError::Request(error) if error.kind()==io::ErrorKind::InvalidData => (S::INTERNAL_SERVER_ERROR,"invalid_knowledge_corpus"),
+            KnowledgeIndexError::Request(error) => Self::io_response(error),
             KnowledgeIndexError::Projection(graphit_data::knowledge_document_projection::KnowledgeDocumentProjectionError::Request(_)) => (S::REQUEST_TIMEOUT, "request_cancelled_or_expired"),
             KnowledgeIndexError::LimitExceeded(_) => (S::PAYLOAD_TOO_LARGE, "knowledge_read_limit"),
             _ => (S::INTERNAL_SERVER_ERROR, "knowledge_index_failure"),
@@ -682,8 +683,16 @@ pub(crate) async fn read<'a>(
         != &(HubScope::Global {
             installation_id: installation_id.as_str().to_owned(),
         })
-        || policy.registry.path().parent() != Some(scope.live.owner_root())
     {
+        return Err(ImportedKnowledgeReadError::InvalidRegistryScope.into());
+    }
+    let path = policy.registry.path();
+    let parent = path
+        .parent()
+        .ok_or(ImportedKnowledgeReadError::InvalidRegistryScope)?;
+    let physical_parent = graphit_core::local_files::canonical_directory(parent);
+    original.check().map_err(Failure::Physical)?;
+    if physical_parent.map_err(Failure::Physical)? != scope.live.owner_root() {
         return Err(ImportedKnowledgeReadError::InvalidRegistryScope.into());
     }
     if let Some((id, version)) = &selected
@@ -692,6 +701,7 @@ pub(crate) async fn read<'a>(
             &policy.registry,
             id,
             version,
+            policy.directory,
         )?
     {
         let bytes = remote::read(
@@ -900,6 +910,18 @@ pub(crate) async fn read<'a>(
                     let page = reader
                         .page(&input.slug, foreground_knowledge::limits(resources.policy)?)
                         .await?;
+                    let navigation = match &page {
+                        KnowledgeSnapshotPage::Found { document, .. } => {
+                            foreground_knowledge::navigation::imported(
+                                original.snapshot(),
+                                reader,
+                                document,
+                                foreground_knowledge::limits(resources.policy)?,
+                            )
+                            .await?
+                        }
+                        _ => graphit_knowledge::navigation::DocumentNavigation::default(),
+                    };
                     let focused_source = match &page {
                         KnowledgeSnapshotPage::Found { focused_source, .. } => {
                             focused_source.as_deref()
@@ -913,7 +935,7 @@ pub(crate) async fn read<'a>(
                             focused_source,
                             native: PageRead::Published {
                                 generation: &reader.observation().generation,
-                                page: foreground_knowledge::PageView(&page),
+                                page: foreground_knowledge::PageView(&page, &navigation),
                             },
                         },
                         original.snapshot(),

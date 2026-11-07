@@ -200,13 +200,14 @@ async fn knowledge_sync_history_real_stream_delta_noop_cursor_cutoff_and_corrupt
         &source,
         image.clone(),
         lifecycle,
+        |_, old, new| Ok(old == new),
     )
     .await?
     else {
         panic!("expected FILE delta")
     };
     assert!(
-        matches!(reconcile_native_knowledge_source_file(ctx.snapshot(), &read, &write, &second, &source, image.clone(), lifecycle).await?, KnowledgeDocumentUpdateResult::Unchanged { generation } if generation == second)
+        matches!(reconcile_native_knowledge_source_file(ctx.snapshot(), &read, &write, &second, &source, image.clone(), lifecycle, |_, old, new| Ok(old == new)).await?, KnowledgeDocumentUpdateResult::Unchanged { generation } if generation == second)
     );
     let KnowledgeSyncHistoryRead::Published {
         entries,
@@ -445,6 +446,7 @@ async fn knowledge_sync_history_direct_update_and_named_actual_noncontiguous_ref
         &replacement,
         &decisions(),
         limits,
+        |_, old, new| Ok(old == new),
     )
     .await?
     else {
@@ -511,6 +513,7 @@ async fn knowledge_sync_history_direct_update_and_named_actual_noncontiguous_ref
         &named_rows,
         &decisions(),
         limits,
+        |_, old, new| Ok(old == new),
     )
     .await?
     else {

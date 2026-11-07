@@ -168,6 +168,7 @@ async fn subset_preserves_full18_removed_old_pin_and_recomputes_some_witness()
             &update,
             &[preserve("b")],
             limits(),
+            |_, old, new| Ok(old == new),
         )
         .await?,
     );
@@ -219,6 +220,7 @@ async fn subset_preserves_full18_removed_old_pin_and_recomputes_some_witness()
             &row_a,
             &[preserve("a")],
             limits(),
+            |_, old, new| Ok(old == new),
         )
         .await?,
     );
@@ -290,6 +292,7 @@ async fn none_preserve_explicit_clear_literal_replace_and_true_noop() -> Result<
             &rows,
             &[preserve("a")],
             limits(),
+            |_, old, new| Ok(old == new),
         )
         .await?,
     );
@@ -309,6 +312,7 @@ async fn none_preserve_explicit_clear_literal_replace_and_true_noop() -> Result<
             &rows,
             &clear,
             limits(),
+            |_, old, new| Ok(old == new),
         )
         .await?,
     );
@@ -317,7 +321,7 @@ async fn none_preserve_explicit_clear_literal_replace_and_true_noop() -> Result<
     assert!(!image(&snapshot).await?["a"].column(17).is_null(0));
     // Exact same values including empty Some are genuinely unchanged.
     assert!(
-        matches!(update_existing_native_knowledge_documents(ctx.snapshot(),&read,&write,&current,&rows,&clear,limits()).await?,
+        matches!(update_existing_native_knowledge_documents(ctx.snapshot(),&read,&write,&current,&rows,&clear,limits(), |_, old, new| Ok(old == new)).await?,
         KnowledgeDocumentUpdateResult::Unchanged{generation:g} if g==current)
     );
     assert_eq!(
@@ -339,6 +343,7 @@ async fn none_preserve_explicit_clear_literal_replace_and_true_noop() -> Result<
             &mixed,
             &[preserve("a"), preserve("b")],
             limits(),
+            |_, old, new| Ok(old == new),
         )
         .await?,
     );
@@ -360,6 +365,7 @@ async fn none_preserve_explicit_clear_literal_replace_and_true_noop() -> Result<
             &rows,
             &replace,
             limits(),
+            |_, old, new| Ok(old == new),
         )
         .await?,
     );
@@ -373,7 +379,8 @@ async fn none_preserve_explicit_clear_literal_replace_and_true_noop() -> Result<
             &current,
             &rows,
             &[preserve("a")],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await?,
         KnowledgeDocumentUpdateResult::Unchanged { .. }
@@ -387,7 +394,8 @@ async fn none_preserve_explicit_clear_literal_replace_and_true_noop() -> Result<
             &current,
             &empty,
             &[],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await?,
         KnowledgeDocumentUpdateResult::Unchanged { .. }
@@ -408,7 +416,7 @@ async fn none_preserve_explicit_clear_literal_replace_and_true_noop() -> Result<
         },
     ] {
         assert!(
-            matches!(update_existing_native_knowledge_documents(ctx.snapshot(),&read,&write,&stale,&empty,&[],limits()).await,
+            matches!(update_existing_native_knowledge_documents(ctx.snapshot(),&read,&write,&stale,&empty,&[],limits(), |_, old, new| Ok(old == new)).await,
             Err(KnowledgeDocumentUpdateError::GenerationChanged{observed}) if observed==current)
         );
     }
@@ -442,7 +450,8 @@ async fn no_birth_unknown_removed_and_reference_map_errors() -> Result<(), Box<d
             &expected,
             &rows,
             &[preserve("a")],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentUpdateError::NoCorpus)
@@ -485,7 +494,8 @@ async fn no_birth_unknown_removed_and_reference_map_errors() -> Result<(), Box<d
                 &current,
                 &rows,
                 &[preserve(slug)],
-                limits()
+                limits(),
+                |_, old, new| Ok(old == new)
             )
             .await,
             Err(KnowledgeDocumentUpdateError::UnknownSource)
@@ -504,7 +514,8 @@ async fn no_birth_unknown_removed_and_reference_map_errors() -> Result<(), Box<d
                 &current,
                 &rows,
                 &refs,
-                limits()
+                limits(),
+                |_, old, new| Ok(old == new)
             )
             .await,
             Err(KnowledgeDocumentUpdateError::InvalidInput(
@@ -528,7 +539,8 @@ async fn no_birth_unknown_removed_and_reference_map_errors() -> Result<(), Box<d
                 &current,
                 &duplicate,
                 &[preserve("a"), preserve("a")],
-                limits()
+                limits(),
+                |_, old, new| Ok(old == new)
             )
             .await
             .is_err()
@@ -579,7 +591,8 @@ async fn named_physical_updates_and_inherited_noop_without_materialization()
             &inherited,
             &rows,
             &[preserve("a")],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await?,
         KnowledgeDocumentUpdateResult::Unchanged { .. }
@@ -595,7 +608,8 @@ async fn named_physical_updates_and_inherited_noop_without_materialization()
             &inherited,
             &change,
             &[preserve("a")],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentUpdateError::InheritedTarget)
@@ -624,6 +638,7 @@ async fn named_physical_updates_and_inherited_noop_without_materialization()
             &change,
             &[preserve("a")],
             limits(),
+            |_, old, new| Ok(old == new),
         )
         .await?,
     );
@@ -644,7 +659,8 @@ async fn named_physical_updates_and_inherited_noop_without_materialization()
                 &new,
                 &rows,
                 &[preserve("a")],
-                limits()
+                limits(),
+                |_, old, new| Ok(old == new)
             )
             .await?
             {
@@ -662,7 +678,8 @@ async fn named_physical_updates_and_inherited_noop_without_materialization()
             &first,
             &rows,
             &[preserve("a")],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentUpdateError::ScopeMismatch)
@@ -754,6 +771,7 @@ async fn full_eof_rejects_late_corruption_even_for_empty_updates() -> Result<(),
             &empty,
             &[],
             limits(),
+            |_, old, new| Ok(old == new),
         )
         .await
         .unwrap_err();
@@ -813,7 +831,8 @@ async fn real_bearer_revocation_wrong_module_original_and_scope_are_denied()
             &first,
             &rows,
             &[preserve("a")],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentUpdateError::Data(
@@ -830,7 +849,8 @@ async fn real_bearer_revocation_wrong_module_original_and_scope_are_denied()
             &first,
             &rows,
             &[preserve("a")],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentUpdateError::Data(
@@ -848,7 +868,8 @@ async fn real_bearer_revocation_wrong_module_original_and_scope_are_denied()
             &first,
             &rows,
             &[preserve("a")],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentUpdateError::Data(
@@ -887,7 +908,8 @@ async fn real_bearer_revocation_wrong_module_original_and_scope_are_denied()
             &first,
             &rows,
             &[preserve("a")],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentUpdateError::ScopeMismatch)
@@ -933,7 +955,8 @@ async fn real_bearer_revocation_wrong_module_original_and_scope_are_denied()
             &first,
             &rows,
             &[preserve("a")],
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
         .await,
         Err(KnowledgeDocumentUpdateError::ScopeMismatch)
@@ -947,6 +970,7 @@ async fn real_bearer_revocation_wrong_module_original_and_scope_are_denied()
         &rows,
         &[preserve("a")],
         limits(),
+        |_, old, new| Ok(old == new),
     )
     .await
     .unwrap_err();
@@ -989,7 +1013,7 @@ async fn whole_image_read_write_and_utf8_identifier_limits_are_exact() -> Result
         content.max_identifier_bytes = n(64);
         assert!(matches!(update_existing_native_knowledge_documents(
             ctx.snapshot(), &read, &write, &first, &a, &[preserve("a")], policy
-        ).await?, KnowledgeDocumentUpdateResult::Unchanged { ref generation } if generation == &first));
+        , |_, old, new| Ok(old == new)).await?, KnowledgeDocumentUpdateResult::Unchanged { ref generation } if generation == &first));
         let content = if side == 0 {
             &mut policy.read.content
         } else {
@@ -1004,7 +1028,8 @@ async fn whole_image_read_write_and_utf8_identifier_limits_are_exact() -> Result
                 &first,
                 &a,
                 &[preserve("a")],
-                policy
+                policy,
+                |_, old, new| Ok(old == new)
             )
             .await,
             Err(KnowledgeDocumentUpdateError::Data(
@@ -1048,7 +1073,8 @@ async fn cooperative_writer_serializes_loser_and_cancel_while_waiting() -> Resul
             &first,
             &xr,
             &changes,
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         ),
         update_existing_native_knowledge_documents(
             ctx.snapshot(),
@@ -1057,7 +1083,8 @@ async fn cooperative_writer_serializes_loser_and_cancel_while_waiting() -> Resul
             &first,
             &yr,
             &changes,
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         )
     );
     assert!(matches!(
@@ -1082,7 +1109,8 @@ async fn cooperative_writer_serializes_loser_and_cancel_while_waiting() -> Resul
             &expected,
             &xr,
             &changes,
-            limits()
+            limits(),
+            |_, old, new| Ok(old == new)
         ),
         async {
             tokio::time::sleep(std::time::Duration::from_millis(25)).await;

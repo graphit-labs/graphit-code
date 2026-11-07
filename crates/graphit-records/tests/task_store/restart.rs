@@ -67,8 +67,7 @@ async fn runtime_claims_survive_real_key_and_issuer_restart_with_current_authori
         )
         .await
         .unwrap();
-        let mut old_actor = [0; 64];
-        write.actor().unwrap().write_identifier(&mut old_actor);
+        let old_actor = write.actor().unwrap().identifier();
         (task, session, task_claim, session_claim, old_actor)
     };
     assert_eq!(Arc::strong_count(&f.runtime), 1);
@@ -115,8 +114,7 @@ async fn runtime_claims_survive_real_key_and_issuer_restart_with_current_authori
             ProjectWriteOperation::CoordinateTask,
         )
         .unwrap();
-    let mut new_actor = [0; 64];
-    write.actor().unwrap().write_identifier(&mut new_actor);
+    let new_actor = write.actor().unwrap().identifier();
     assert_ne!(old_actor, new_actor);
     let repeated = NativeTaskStore::claim_task(
         ctx.snapshot(),

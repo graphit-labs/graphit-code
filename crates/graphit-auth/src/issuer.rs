@@ -89,14 +89,22 @@ impl RoleBearer {
     }
 }
 /// Server-minted attribution, never an input accepted as authority.
+/// ```compile_fail
+/// let _ = graphit_auth::Actor(ulid::Ulid::nil());
+/// ```
 #[derive(Clone, PartialEq, Eq)]
-pub struct Actor(Id);
+pub struct Actor(ulid::Ulid);
 impl Actor {
-    pub fn write_identifier(&self, output: &mut [u8; 64]) {
-        for (i, b) in self.0.iter().enumerate() {
-            output[i * 2] = b"0123456789abcdef"[(b >> 4) as usize];
-            output[i * 2 + 1] = b"0123456789abcdef"[(b & 15) as usize];
-        }
+    fn from_digest(digest: Id) -> Self {
+        let mut bytes = [0; 16];
+        bytes.copy_from_slice(&digest[..16]);
+        Self(ulid::Ulid::from_bytes(bytes))
+    }
+
+    /// Public 128-bit attribution, truncated from the originating full digest.
+    /// This is neither a bijection of that digest nor a creation timestamp.
+    pub fn identifier(&self) -> ulid::Ulid {
+        self.0
     }
 }
 /// ```compile_fail
@@ -1106,7 +1114,7 @@ impl RoleIssuer {
         actor_hash.update(self.epoch);
         actor_hash.update(run);
         actor_hash.update(role.as_str().as_bytes());
-        let actor = Actor(actor_hash.finalize().into());
+        let actor = Actor::from_digest(actor_hash.finalize().into());
         let (bearer, hash) = nonce;
         if state.tokens.contains_key(&hash) {
             return Err(AuthError::Entropy);
@@ -1336,7 +1344,7 @@ impl RoleIssuer {
                 parent: Some(parent.id),
                 permissions,
                 expiry,
-                actor: Actor(actor_hash.finalize().into()),
+                actor: Actor::from_digest(actor_hash.finalize().into()),
             },
         );
         state.tokens.insert(hash, credential_id);
@@ -1403,7 +1411,7 @@ impl AuthenticatedCaller<'_> {
         hash.update(b"graphit-source-actor-v1\0");
         hash.update(self.issuer.epoch);
         self.source.update_actor(&mut hash);
-        Ok(Actor(hash.finalize().into()))
+        Ok(Actor::from_digest(hash.finalize().into()))
     }
 }
 impl<'a> AdminParent<'a> {

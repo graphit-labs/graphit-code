@@ -131,13 +131,9 @@ fn assert_nn<'profile: 'source, 'source>(
     };
     for (row, &index) in indices.iter().enumerate() {
         let entity = &document.entities()[index];
-        let node = graph
-            .nodes()
-            .iter()
-            .find(|node| {
-                node.key() == serde_json::to_string(&[entity.uid(), entity.data_key()]).unwrap()
-            })
-            .unwrap();
+        let uid: graphit_data::CodeUid = entity.uid().parse()?;
+        let key = graphit_data::CodePrimaryKey::derive(uid, entity.data_key())?.to_string();
+        let node = graph.nodes().iter().find(|node| node.key() == key).unwrap();
         for (column, key) in [
             ("uid", "uid"),
             ("data_key", "data_key"),
@@ -387,7 +383,8 @@ async fn native_tsql_shipped_graph_keeps_source_extent_identity_and_observed_cal
         let row = graph.nodes().iter().find(|n| n.label() == "Table").unwrap();
         assert_eq!(
             row.key(),
-            serde_json::to_string(&[table.uid(), table.data_key()])?
+            graphit_data::CodePrimaryKey::derive(table.uid().parse()?, table.data_key())?
+                .to_string()
         );
         assert_eq!(
             row.properties()["start_byte"],

@@ -59,12 +59,11 @@ pub(super) async fn execute(
         max_output_bytes: positive(content.max_output_bytes)?,
         max_body_scalars: NonZeroUsize::new(1000).expect("existing preview length is positive"),
     };
-    let mut actor = [0; 64];
-    grant
+    let actor = grant
         .actor()
         .map_err(|_| error("authentication_or_permission_denied"))?
-        .write_identifier(&mut actor);
-    let actor = std::str::from_utf8(&actor).map_err(|_| error("invalid_role_actor"))?;
+        .identifier()
+        .to_string();
     let project = read
         .project()
         .map_err(|_| error("authentication_or_permission_denied"))?;

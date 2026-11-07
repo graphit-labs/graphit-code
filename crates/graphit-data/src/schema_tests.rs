@@ -39,7 +39,6 @@ fn complete_schema_borrows_declared_tables_and_validated_forward_members() {
     save(dir.path(), &manifest);
     let graph = capture(dir.path(), context(), policy()).unwrap();
     let schema = graph.schema().unwrap();
-    assert_eq!(schema.generation(), graph.generation());
     let nodes = schema.node_tables().collect::<Vec<_>>();
     assert_eq!(nodes.len(), 2);
     let file = nodes.iter().find(|node| node.label() == "File").unwrap();

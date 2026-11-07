@@ -69,6 +69,8 @@ struct Page {
     targets: Vec<String>,
     prefix_bytes: usize,
     fallback_title: String,
+    source_path: String,
+    guide: crate::navigation::DocumentNavigation,
 }
 /// One document at a time is rendered to a private file. Only navigation metadata
 /// remains in memory. `finish` is called by the consumer after its validated EOF.
@@ -120,6 +122,8 @@ impl<'original> MarkdownExportStage<'original> {
     pub fn push(&mut self, original: &SnapshotContext, d: KnowledgeDocument) -> Result<()> {
         self.recheck(original)?;
         self.format.validate_document(&d)?;
+        let guide = crate::navigation::declared_navigation(original, &d)
+            .map_err(MarkdownExportError::Parse)?;
         if self.pages.contains_key(&d.slug) {
             return Err(MarkdownExportError::References(
                 ReferenceError::DuplicatePage,
@@ -193,6 +197,8 @@ impl<'original> MarkdownExportStage<'original> {
                 targets: d.resolved_wiki_targets,
                 prefix_bytes,
                 fallback_title: d.recipe_parameters.fallback_title,
+                source_path: d.source_path,
+                guide,
             },
         );
         Ok(())
@@ -222,6 +228,13 @@ impl<'original> MarkdownExportStage<'original> {
         let communities = classify_document_communities(original, &graph)
             .map_err(MarkdownExportError::Communities)?;
         let output = self.staging.path().join("payload");
+        let mut origins = BTreeMap::<&str, Option<&str>>::new();
+        for (slug, page) in &self.pages {
+            origins
+                .entry(&page.source_path)
+                .and_modify(|value| *value = None)
+                .or_insert(Some(slug));
+        }
         let index = output.join("index.md");
         let mut writer = ExportWriter::new(
             original,
@@ -258,6 +271,7 @@ impl<'original> MarkdownExportStage<'original> {
                 &mut Read::by_ref(&mut reader).take(page.prefix_bytes as u64),
                 &mut writer,
             )?;
+            guide_navigation(&mut writer, slug, page, &self.pages, &origins)?;
             navigation(
                 &mut writer,
                 "References",
@@ -494,6 +508,77 @@ fn heading<W: Write>(
     events.heading(writer.original, level, label)?;
     serialize(writer, events)
 }
+fn guide_navigation<W: Write>(
+    writer: &mut ExportWriter<'_, W>,
+    slug: &str,
+    page: &Page,
+    pages: &BTreeMap<String, Page>,
+    origins: &BTreeMap<&str, Option<&str>>,
+) -> Result<()> {
+    if page.guide.previous.is_none() && page.guide.next.is_none() {
+        return Ok(());
+    }
+    heading(writer, HeadingLevel::H2, "Guide")?;
+    writer.append(b"\n\n")?;
+    for (label, link) in [
+        ("Previous", &page.guide.previous),
+        ("Next", &page.guide.next),
+    ] {
+        let Some(link) = link else {
+            continue;
+        };
+        check(writer.original)?;
+        let destination = crate::navigation::navigation_destination(
+            writer.original,
+            slug,
+            &page.source_path,
+            &link.target,
+            writer.limits.references.max_identifier_bytes,
+        )
+        .map_err(MarkdownExportError::Request)?;
+        let target = match destination {
+            Some(crate::navigation::NavigationDestination::Slug(slug)) => {
+                pages.get_key_value(&slug)
+            }
+            Some(crate::navigation::NavigationDestination::SourcePath(path)) => origins
+                .get(path.as_str())
+                .copied()
+                .flatten()
+                .and_then(|slug| pages.get_key_value(slug)),
+            None => None,
+        };
+        let prefix = format!("{label}: ");
+        let unavailable = format!("{} (unavailable)", link.target);
+        let mut events = Events { values: Vec::new() };
+        events.push(writer.original, Event::Start(Tag::List(None)))?;
+        events.push(writer.original, Event::Start(Tag::Item))?;
+        events.push(
+            writer.original,
+            Event::Text(display(writer.original, &prefix)?),
+        )?;
+        match target {
+            Some((slug, page)) => events.link(
+                writer.original,
+                if page.title.trim().is_empty() {
+                    slug
+                } else {
+                    &page.title
+                },
+                filename(slug),
+            )?,
+            None => events.push(
+                writer.original,
+                Event::Text(display(writer.original, &unavailable)?),
+            )?,
+        }
+        events.push(writer.original, Event::End(TagEnd::Item))?;
+        events.push(writer.original, Event::End(TagEnd::List(false)))?;
+        serialize(writer, events)?;
+        writer.append(b"\n")?;
+    }
+    writer.append(b"\n")
+}
+
 fn navigation<'a, W: Write>(
     writer: &mut ExportWriter<'_, W>,
     label: &str,

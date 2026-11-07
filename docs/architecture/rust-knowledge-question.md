@@ -679,3 +679,12 @@ A [extensão Kimi](../specs/rust_kimi_completion.md#incoming-conversation-contin
 ## Conversation documental com Antigravity (qualificada)
 
 A [extensão Antigravity](../specs/rust_antigravity_completion.md#incoming-conversation-continuation) reutiliza stdin stream-json, store USER e custódia Process/Remaining. O ID privado observado em Init é retomado somente com --conversation ID; o resultado deve confirmar essa identidade. USER/PROJECT/Original e bindings atuais, sucesso nativo, exit/EOFs/cleanup/join reais e commit governam a entrega. Apenas response pertence ao turno atual; usage, num_turns e duração continuam metadados cumulativos do fornecedor, sem métricas artificiais. O getter de engine é exaustivo para os providers ativos, sem None morto; serviço não configurado ainda é erro real antes de efeitos. A rejeição de configuração ausente usa um executável AGY realmente indisponível; Gemini CLI foi retirado do catálogo.
+
+## Escolha inicial de evidência na UI
+
+Uma nova pergunta no browser usa recuperação FTS de evidência por padrão, sem
+exigir selecionar a biblioteca inteira antes de escrever. Busca localiza e
+mostra páginas; a evidência escolhida limita o que a resposta pode consumir.
+Seleção manual continua uma escolha explícita, e `selected_slugs: []` continua
+sem documentos. Essa escolha da UI não muda defaults API/CLI/MCP nem ativa
+embedding, busca semântica ou reranking.

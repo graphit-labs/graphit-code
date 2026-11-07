@@ -74,8 +74,7 @@ fn typed_cells_preserve_precision_null_unicode_and_exact_encoded_bounds() {
     sink.atom("INT64", "", ffi::AtomKind::Null, "").unwrap();
     sink.end_cell().unwrap();
     sink.end_cell().unwrap();
-    sink.identity("", &[7; 32], 3, 9007199254740993, false)
-        .unwrap();
+    sink.identity("", 3, 9007199254740993, false).unwrap();
     sink.end_row().unwrap();
     let encoded = serde_json::to_vec(&sink.result).unwrap();
     assert_eq!(sink.encoded_bytes, encoded.len());
@@ -148,6 +147,9 @@ enum Column<'a> {
     OptionalInts(&'a [Option<i64>]),
 }
 fn parquet(path: &Path, schema: &str, values: &[Column<'_>]) {
+    parquet_groups(path, schema, &[values]);
+}
+fn parquet_groups(path: &Path, schema: &str, groups: &[&[Column<'_>]]) {
     use parquet_graph_fixture::{
         basic::Compression,
         data_type::{ByteArray, ByteArrayType, Int64Type},
@@ -175,49 +177,50 @@ fn parquet(path: &Path, schema: &str, values: &[Column<'_>]) {
         properties,
     )
     .unwrap();
-    if values.iter().all(|column| match column {
-        Column::Ints(values) => values.is_empty(),
-        Column::Strings(values) => values.is_empty(),
-        Column::OptionalInts(values) => values.is_empty(),
-    }) {
-        writer.close().unwrap();
-        return;
-    }
-    let mut group = writer.next_row_group().unwrap();
-    for value in values {
-        let mut column = group.next_column().unwrap().unwrap();
-        match value {
-            Column::Ints(values) => {
-                column
-                    .typed::<Int64Type>()
-                    .write_batch(values, None, None)
-                    .unwrap();
-            }
-            Column::Strings(values) => {
-                let bytes = values
-                    .iter()
-                    .map(|value| ByteArray::from(*value))
-                    .collect::<Vec<_>>();
-                column
-                    .typed::<ByteArrayType>()
-                    .write_batch(&bytes, None, None)
-                    .unwrap();
-            }
-            Column::OptionalInts(values) => {
-                let bytes = values.iter().flatten().copied().collect::<Vec<_>>();
-                let definitions = values
-                    .iter()
-                    .map(|value| i16::from(value.is_some()))
-                    .collect::<Vec<_>>();
-                column
-                    .typed::<Int64Type>()
-                    .write_batch(&bytes, Some(&definitions), None)
-                    .unwrap();
-            }
+    for &values in groups {
+        if values.iter().all(|column| match column {
+            Column::Ints(values) => values.is_empty(),
+            Column::Strings(values) => values.is_empty(),
+            Column::OptionalInts(values) => values.is_empty(),
+        }) {
+            continue;
         }
-        column.close().unwrap();
+        let mut group = writer.next_row_group().unwrap();
+        for value in values {
+            let mut column = group.next_column().unwrap().unwrap();
+            match value {
+                Column::Ints(values) => {
+                    column
+                        .typed::<Int64Type>()
+                        .write_batch(values, None, None)
+                        .unwrap();
+                }
+                Column::Strings(values) => {
+                    let bytes = values
+                        .iter()
+                        .map(|value| ByteArray::from(*value))
+                        .collect::<Vec<_>>();
+                    column
+                        .typed::<ByteArrayType>()
+                        .write_batch(&bytes, None, None)
+                        .unwrap();
+                }
+                Column::OptionalInts(values) => {
+                    let bytes = values.iter().flatten().copied().collect::<Vec<_>>();
+                    let definitions = values
+                        .iter()
+                        .map(|value| i16::from(value.is_some()))
+                        .collect::<Vec<_>>();
+                    column
+                        .typed::<Int64Type>()
+                        .write_batch(&bytes, Some(&definitions), None)
+                        .unwrap();
+                }
+            }
+            column.close().unwrap();
+        }
+        group.close().unwrap();
     }
-    group.close().unwrap();
     writer.close().unwrap();
 }
 fn fixture() -> tempfile::TempDir {
@@ -281,7 +284,7 @@ fn fixture() -> tempfile::TempDir {
     let manifest = json!({"manifest_version":3,"format":"icebug-canonical","storage":"direct-parquet","finished":true,"add_reverse_edges":false,"schema_file":"schema.cypher",
         "node_tables":[{"label":"A","rows":3,"shards":[{"file":"A.parquet","row_base":0,"rows":3}],"primary_key":"uid","columns":[{"name":"uid","type":"STRING"},{"name":"name","type":"STRING"}],"lang_counts":[]},{"label":"B","rows":2,"shards":[{"file":"B.parquet","row_base":0,"rows":2}],"primary_key":"uid","columns":[{"name":"uid","type":"STRING"}],"lang_counts":[]}],
         "relationships":[{"type":"LINK","members":[{"from":"A","to":"A","table":"p1","indices":"p1.parquet","indptr":"q1.parquet","rows":3,"source_row_base":0,"source_rows":3,"target_row_base":0,"target_rows":3},{"from":"A","to":"A","table":"p2","indices":"p2.parquet","indptr":"q2.parquet","rows":2,"source_row_base":0,"source_rows":3,"target_row_base":0,"target_rows":3},{"from":"A","to":"B","table":"pb","indices":"pb.parquet","indptr":"qb.parquet","rows":2,"source_row_base":0,"source_rows":3,"target_row_base":0,"target_rows":2}]}],
-        "relation_uids":true,"generation":"real-query","n_edges":7,"repaired_strings":0,"invariants":{"indptr_row_groups":1,"self_loops":"forward-once"}});
+        "relation_uids":true,"n_edges":7,"repaired_strings":0,"invariants":{"indptr_row_groups":1,"self_loops":"forward-once"}});
     fs::write(
         temp.path().join("icebug.json"),
         serde_json::to_vec(&manifest).unwrap(),
@@ -290,6 +293,14 @@ fn fixture() -> tempfile::TempDir {
     temp
 }
 fn capture(path: &Path, ctx: &Arc<SnapshotContext>) -> Arc<CapturedLocalGraph> {
+    let config = ConfigSnapshot::new(&Brand::default(), []).unwrap();
+    capture_policy(path, ctx, LocalGraphPolicy::resolve(&config, ctx).unwrap())
+}
+fn capture_policy(
+    path: &Path,
+    ctx: &Arc<SnapshotContext>,
+    graph_policy: LocalGraphPolicy,
+) -> Arc<CapturedLocalGraph> {
     let retained = RetainedBytesLimits::new(4096, 4, 4096).unwrap();
     let file = SnapshotPolicy::new(
         CopyPolicy::RejectFileLinks,
@@ -298,14 +309,13 @@ fn capture(path: &Path, ctx: &Arc<SnapshotContext>) -> Arc<CapturedLocalGraph> {
         retained,
     )
     .unwrap();
-    let config = ConfigSnapshot::new(&Brand::default(), []).unwrap();
     Arc::new(
         CapturedLocalGraph::capture(
             path,
             &file,
             SourceReadLimits::new(1024 * 1024, 4096, 16 * 1024 * 1024).unwrap(),
             Arc::clone(ctx),
-            LocalGraphPolicy::resolve(&config, ctx).unwrap(),
+            graph_policy,
         )
         .unwrap(),
     )
@@ -392,6 +402,17 @@ fn native_multipart_nodes_skip_empty_shards_and_preserve_later_relations() {
         "MATCH(a:A) RETURN count(a)",
         "3",
     );
+    let located = execute(
+        &graph,
+        &ctx,
+        runtime.handle(),
+        "MATCH(a:A) WHERE a.uid='a2' RETURN a.uid",
+        &BTreeMap::new(),
+        options(),
+    )
+    .unwrap();
+    assert_eq!(located.rows.len(), 1);
+    assert_eq!(located.rows[0][0]["value"], "a2");
     count(
         &graph,
         &ctx,
@@ -415,10 +436,10 @@ fn native_node_queries_do_not_open_unrelated_shards() {
     let graph = capture(temp.path(), &ctx);
     let runtime = runtime();
     let run = |query: &str| {
-        let (mut io, schema) = mount_schema(QueryGraph::Local(Arc::clone(&graph)), None).unwrap();
+        let (mut io, layout, mount) = capture_mount(QueryGraph::Local(Arc::clone(&graph))).unwrap();
         // Keep B in the catalog, but make its physical open fail at the captured
         // filesystem boundary. A query must not open unrelated node readers.
-        for relative in io.files.values_mut() {
+        for relative in Arc::make_mut(&mut io.files).values_mut() {
             if relative == "B.parquet" {
                 *relative = "not-captured.parquet".into();
             }
@@ -427,14 +448,51 @@ fn native_node_queries_do_not_open_unrelated_shards() {
             original: Arc::clone(&ctx),
             complete: Cancellation::default(),
             runtime: runtime.handle().clone(),
+
+            #[cfg(feature = "test-support")]
+            observer: None,
         });
         let mut result = ResultSink::new(options()).unwrap();
-        ffi::run_query(io, signal, &schema, query, "{}", &options(), &mut result)
-            .map(|()| result.result)
+        run_native_schema(io, signal, &layout, mount, query, &mut result).map(|()| result.result)
     };
     let selected = run("MATCH (a:A) RETURN count(a)").unwrap();
     assert_eq!(selected.rows[0][0]["value"], "3");
     assert!(run("MATCH (b:B) RETURN b.uid").is_err());
+}
+
+#[test]
+fn native_parquet_views_reject_unaligned_and_overflowing_slices() {
+    let temp = fixture();
+    let ctx = original(Duration::from_secs(30));
+    let graph = capture(temp.path(), &ctx);
+    let runtime = runtime();
+    for (offset, rows) in [(1, 2), (u64::MAX, 1), (0, 4)] {
+        let (io, layout, mut mount) = capture_mount(QueryGraph::Local(Arc::clone(&graph))).unwrap();
+        mount.nodes[0].shards[0].row_offset = offset;
+        mount.nodes[0].shards[0].rows = rows;
+        let signal = Box::new(QuerySignal {
+            original: Arc::clone(&ctx),
+            complete: Cancellation::default(),
+            runtime: runtime.handle().clone(),
+
+            #[cfg(feature = "test-support")]
+            observer: None,
+        });
+        let mut result = ResultSink::new(options()).unwrap();
+        let error = run_native_schema(
+            io,
+            signal,
+            &layout,
+            mount,
+            "MATCH(a:A) RETURN count(a)",
+            &mut result,
+        )
+        .unwrap_err();
+        assert!(
+            error.to_string().contains("captured Parquet slice"),
+            "{error}"
+        );
+    }
 }
 
 #[test]
@@ -959,6 +1017,7 @@ fn native_queries_keep_every_member_graph_identity_and_parameters() {
         .find(|row| row[3]["value"] == "r0")
         .unwrap();
     assert_eq!(r0[1]["value"]["member"], 0);
+    assert!(r0[1]["value"].get("generation").is_none());
     assert_eq!(r0[1]["value"]["row"], "0");
     assert!(r0[4].to_string().contains("9007199254740993"));
     let r1 = result
@@ -1243,6 +1302,9 @@ fn optional_query_signal_distinguishes_native_timeout_and_finishing_controls() {
         original: Arc::clone(&ctx),
         complete: Cancellation::default(),
         runtime: runtime.handle().clone(),
+
+        #[cfg(feature = "test-support")]
+        observer: None,
     };
     assert_eq!(signal.remaining_ms().unwrap(), 0);
     std::thread::scope(|scope| {
@@ -1256,6 +1318,9 @@ fn optional_query_signal_distinguishes_native_timeout_and_finishing_controls() {
         original: Arc::new(SnapshotContext::service(Cancellation::default())),
         complete: Cancellation::default(),
         runtime: runtime.handle().clone(),
+
+        #[cfg(feature = "test-support")]
+        observer: None,
     };
     cancelled.original.cancellation().cancel();
     assert!(cancelled.wait_interrupt());
@@ -1268,12 +1333,18 @@ fn optional_query_signal_distinguishes_native_timeout_and_finishing_controls() {
         original: original(Duration::from_secs(30)),
         complete: Cancellation::default(),
         runtime: runtime.handle().clone(),
+
+        #[cfg(feature = "test-support")]
+        observer: None,
     };
     assert!(finite.remaining_ms().unwrap() > 0);
     let expired = QuerySignal {
         original: original(Duration::ZERO),
         complete: Cancellation::default(),
         runtime: runtime.handle().clone(),
+
+        #[cfg(feature = "test-support")]
+        observer: None,
     };
     assert_eq!(
         expired.remaining_ms().unwrap_err().kind(),
@@ -1592,4 +1663,938 @@ fn installed_reader_checks_actual_runtime_auth_registry_and_original_before_deli
             .query(runtime.handle(), "RETURN 1", &BTreeMap::new(), options())
             .is_err()
     );
+}
+
+#[test]
+fn native_catalogue_reuse_boundary_measurement() {
+    let temp = fixture();
+    let switched = fixture();
+    let manifest_path = switched.path().join("icebug.json");
+    let manifest = std::fs::read_to_string(&manifest_path)
+        .unwrap()
+        .replace("\"A\"", "\"C\"");
+    std::fs::write(&manifest_path, manifest).unwrap();
+    let runtime = runtime();
+    runtime.block_on(tokio::task::yield_now());
+    #[cfg(target_os = "linux")]
+    cypher_process_memory("before_slot");
+    let catalogue = QueryCatalog::new();
+    for iteration in 0..10 {
+        let started = Instant::now();
+        let ctx = original(Duration::from_secs(30));
+        let graph = capture(temp.path(), &ctx);
+        let captured = started.elapsed();
+        let started = Instant::now();
+        let result = catalogue
+            .execute(
+                &graph,
+                &ctx,
+                runtime.handle(),
+                "MATCH (a:A)-[r:LINK]->(b) RETURN a.uid,r.uid,b.uid ORDER BY r.uid",
+                &BTreeMap::new(),
+                options(),
+            )
+            .unwrap();
+        let execution = started.elapsed();
+        assert_eq!(result.rows.len(), 7);
+        let started = Instant::now();
+        let bytes = serde_json::to_vec(&result).unwrap();
+        let serialization = started.elapsed();
+        let size = bytes.len();
+        assert!(size > 0);
+        drop(bytes);
+        drop(result);
+        let previous = Arc::downgrade(&ctx);
+        ctx.cancellation().cancel();
+        drop(graph);
+        drop(ctx);
+        assert!(
+            previous.upgrade().is_none(),
+            "execution state retained a previous Original"
+        );
+        eprintln!(
+            "cypher_fixture iteration={iteration} capture_us={} native_total_us={} serialization_us={} bytes={size}",
+            captured.as_micros(),
+            execution.as_micros(),
+            serialization.as_micros()
+        );
+        #[cfg(target_os = "linux")]
+        if iteration == 0 {
+            cypher_process_memory("first_call_captures_dropped");
+        }
+    }
+    #[cfg(target_os = "linux")]
+    cypher_process_memory("warm_captures_dropped");
+    let ctx = original(Duration::from_secs(30));
+    let graph = capture(switched.path(), &ctx);
+    let started = Instant::now();
+    let result = catalogue
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH (n:C) RETURN count(n)",
+            &BTreeMap::new(),
+            options(),
+        )
+        .unwrap();
+    eprintln!(
+        "cypher_switch native_total_us={}",
+        started.elapsed().as_micros()
+    );
+    assert_eq!(result.rows[0][0]["value"], "3");
+    drop(result);
+    let previous = Arc::downgrade(&ctx);
+    ctx.cancellation().cancel();
+    drop(graph);
+    drop(ctx);
+    assert!(previous.upgrade().is_none());
+    #[cfg(target_os = "linux")]
+    cypher_process_memory("different_schema_captures_dropped");
+    drop(catalogue);
+    #[cfg(target_os = "linux")]
+    cypher_process_memory("execution_state_dropped");
+}
+
+#[cfg(target_os = "linux")]
+fn cypher_process_memory(stage: &str) {
+    let snapshot = std::fs::read_to_string("/proc/self/smaps_rollup").unwrap();
+    let value = |field: &str| {
+        snapshot.lines().find_map(|line| {
+            let (key, value) = line.split_once(':')?;
+            (key == field).then(|| {
+                value
+                    .split_whitespace()
+                    .next()
+                    .unwrap()
+                    .parse::<u64>()
+                    .unwrap()
+            })
+        })
+    };
+    let private = value("Private_Clean").unwrap()
+        + value("Private_Dirty").unwrap()
+        + value("Private_Hugetlb").unwrap_or(0);
+    eprintln!(
+        "cypher_memory stage={stage} private_kib={private} pss_kib={}",
+        value("Pss").unwrap()
+    );
+}
+
+#[test]
+fn reused_catalogue_revalidates_physical_bindings_even_for_cached_counts() {
+    let temp = fixture();
+    let ctx = original(Duration::from_secs(30));
+    let graph = capture(temp.path(), &ctx);
+    let runtime = runtime();
+    let catalogue = QueryCatalog::new();
+    let before = catalogue
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH (a:A) RETURN count(a)",
+            &BTreeMap::new(),
+            options(),
+        )
+        .unwrap();
+    assert_eq!(before.rows[0][0]["value"], "3");
+    std::fs::write(temp.path().join("A.parquet"), b"changed captured file").unwrap();
+    assert!(
+        catalogue
+            .execute(
+                &graph,
+                &ctx,
+                runtime.handle(),
+                "MATCH (a:A) RETURN count(a)",
+                &BTreeMap::new(),
+                options()
+            )
+            .is_err()
+    );
+}
+
+#[test]
+fn shared_catalogue_isolates_connections_limits_cancellation_and_expired_originals() {
+    let temp = fixture();
+    let runtime = runtime();
+    let first = original(Duration::from_secs(30));
+    let graph = capture(temp.path(), &first);
+    let catalogue = QueryCatalog::new();
+    let initial = catalogue
+        .execute(
+            &graph,
+            &first,
+            runtime.handle(),
+            "MATCH (a:A) RETURN count(a)",
+            &BTreeMap::new(),
+            options(),
+        )
+        .unwrap();
+    assert_eq!(initial.rows[0][0]["value"], "3");
+    let previous = Arc::downgrade(&first);
+    first.cancellation().cancel();
+    drop(graph);
+    drop(first);
+    assert!(previous.upgrade().is_none());
+    let active = original(Duration::from_secs(30));
+    let graph = capture(temp.path(), &active);
+    let sibling_original = original(Duration::from_secs(30));
+    let sibling = capture(temp.path(), &sibling_original);
+    std::thread::scope(|scope| {
+        let worker = scope.spawn(|| catalogue.execute(
+            &graph, &active, runtime.handle(),
+            "MATCH (a:A)-[r:LINK]->(b) UNWIND range(1,10000) AS x UNWIND range(1,10000) AS y RETURN sum(size(reverse(CAST(x+y AS STRING))))",
+            &BTreeMap::new(), options(),
+        ));
+        std::thread::sleep(Duration::from_millis(25));
+        active.cancellation().cancel();
+        let result = catalogue
+            .execute(
+                &sibling,
+                &sibling_original,
+                runtime.handle(),
+                "MATCH (a:A) RETURN count(a)",
+                &BTreeMap::new(),
+                options(),
+            )
+            .unwrap();
+        assert_eq!(result.rows[0][0]["value"], "3");
+        assert_eq!(
+            worker.join().unwrap().unwrap_err().kind(),
+            io::ErrorKind::Interrupted
+        );
+    });
+    for selected in [
+        QueryOptions {
+            max_rows: 1,
+            ..options()
+        },
+        QueryOptions {
+            max_bytes: 100,
+            ..options()
+        },
+    ] {
+        assert!(
+            catalogue
+                .execute(
+                    &sibling,
+                    &sibling_original,
+                    runtime.handle(),
+                    "MATCH (a:A) RETURN a",
+                    &BTreeMap::new(),
+                    selected
+                )
+                .is_err()
+        );
+    }
+    let expired = Arc::new(SnapshotContext::new(
+        Instant::now(),
+        Cancellation::default(),
+    ));
+    assert_eq!(
+        catalogue
+            .execute(
+                &sibling,
+                &expired,
+                runtime.handle(),
+                "RETURN 1",
+                &BTreeMap::new(),
+                options()
+            )
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::TimedOut
+    );
+    let finite = original(Duration::from_secs(1));
+    let finite_graph = capture(temp.path(), &finite);
+    let error = catalogue.execute(&finite_graph,&finite,runtime.handle(),
+        "MATCH (a:A)-[r:LINK]->(b) UNWIND range(1,10000) AS x UNWIND range(1,10000) AS y RETURN sum(size(reverse(CAST(x+y AS STRING))))",
+        &BTreeMap::new(),options()).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    let result = catalogue
+        .execute(
+            &sibling,
+            &sibling_original,
+            runtime.handle(),
+            "MATCH (a:A)-[r:LINK]->(b) RETURN count(r)",
+            &BTreeMap::new(),
+            options(),
+        )
+        .unwrap();
+    assert_eq!(result.rows[0][0]["value"], "7");
+}
+
+fn run_native_schema(
+    io: Box<GraphIo>,
+    control: Box<QuerySignal>,
+    layout: &GraphLayout,
+    mount: ffi::GraphMount,
+    query: &str,
+    result: &mut ResultSink,
+) -> Result<(), cxx::Exception> {
+    let constructor_io = Box::new(GraphIo {
+        graph: io.graph.clone(),
+        files: Arc::clone(&io.files),
+    });
+    let catalogue = ffi::prepare_catalog(
+        constructor_io,
+        signal(&control.original, &control.runtime),
+        &serde_json::to_string(layout).unwrap(),
+        mount,
+        &options(),
+    )?;
+    ffi::run_query(&catalogue, io, control, query, "{}", &options(), result)
+}
+
+#[test]
+fn concurrent_requests_keep_all_rowgroups_with_operation_owned_connections() {
+    use graphit_data::graph_writer::{GraphNode, GraphValue, IcebugWriter};
+    use parquet_graph_fixture::file::reader::{FileReader, SerializedFileReader};
+    let ctx = original(Duration::from_secs(60));
+    let output = IcebugWriter::new(Arc::clone(&ctx))
+        .unwrap()
+        .push_file(
+            (0..5000).map(|index| GraphNode {
+                label: "Many".into(),
+                key: format!("key-{index}"),
+                properties: BTreeMap::from([(
+                    "name".into(),
+                    GraphValue::String(format!("{index:05}")),
+                )]),
+            }),
+            [],
+        )
+        .unwrap()
+        .finish()
+        .unwrap();
+    let graph = capture(&output.directory(), &ctx);
+    let first_file = graph
+        .schema()
+        .unwrap()
+        .node_tables()
+        .next()
+        .unwrap()
+        .shards()
+        .next()
+        .unwrap()
+        .storage_file()
+        .to_owned();
+    assert!(
+        SerializedFileReader::new(fs::File::open(output.directory().join(first_file)).unwrap())
+            .unwrap()
+            .num_row_groups()
+            > 1
+    );
+    let runtime = runtime();
+    let selected = QueryOptions {
+        max_rows: 5000,
+        max_bytes: 4 * 1024 * 1024,
+        ..options()
+    };
+    let catalogue = QueryCatalog::new();
+    let next = original(Duration::from_secs(60));
+    let sibling = capture(&output.directory(), &next);
+    let start = std::sync::Barrier::new(2);
+    std::thread::scope(|scope| {
+        let run = |graph: &Arc<CapturedLocalGraph>, ctx: &Arc<SnapshotContext>| {
+            start.wait();
+            for _ in 0..4 {
+                let result = catalogue
+                    .execute(
+                        graph,
+                        ctx,
+                        runtime.handle(),
+                        "MATCH (n:Many) RETURN n.name ORDER BY n.name",
+                        &BTreeMap::new(),
+                        selected,
+                    )
+                    .unwrap();
+                assert_eq!(result.rows.len(), 5000);
+                for (index, row) in result.rows.iter().enumerate() {
+                    assert_eq!(row[0]["value"], format!("{index:05}"));
+                }
+            }
+        };
+        let first = scope.spawn(move || run(&graph, &ctx));
+        let second = scope.spawn(move || run(&sibling, &next));
+        first.join().unwrap();
+        second.join().unwrap();
+    });
+}
+
+#[test]
+fn slot_rebinds_different_captures_without_recreating_compatible_ddl() {
+    use graphit_data::graph_writer::{GraphNode, GraphValue, IcebugWriter};
+    let runtime = runtime();
+    let slot = QueryCatalog::new();
+    #[cfg(feature = "test-support")]
+    let observer = slot.test_observer();
+    #[cfg(feature = "test-support")]
+    assert_eq!(observer.counts(), (0, 0), "slot construction is lazy");
+    let mut snapshots = Vec::new();
+    for count in [3, 4] {
+        let owner = original(Duration::from_secs(60));
+        let output = IcebugWriter::new(Arc::clone(&owner))
+            .unwrap()
+            .push_file(
+                (0..count).map(|index| GraphNode {
+                    label: "Many".into(),
+                    key: format!("key-{index}"),
+                    properties: BTreeMap::from([(
+                        "name".into(),
+                        GraphValue::String(format!("source-{count}-{index}")),
+                    )]),
+                }),
+                [],
+            )
+            .unwrap()
+            .finish()
+            .unwrap();
+        snapshots.push((owner, output));
+    }
+    for index in [0, 1, 0] {
+        let ctx = original(Duration::from_secs(30));
+        let graph = capture(&snapshots[index].1.directory(), &ctx);
+        let result = slot
+            .execute(
+                &graph,
+                &ctx,
+                runtime.handle(),
+                "MATCH (n:Many) RETURN n.name ORDER BY n.name",
+                &BTreeMap::new(),
+                options(),
+            )
+            .unwrap();
+        let count = if index == 0 { 3 } else { 4 };
+        assert_eq!(result.rows.len(), count);
+        for (row, values) in result.rows.iter().enumerate() {
+            assert_eq!(values[0]["value"], format!("source-{count}-{row}"));
+        }
+        drop(result);
+        let previous = Arc::downgrade(&ctx);
+        ctx.cancellation().cancel();
+        drop(graph);
+        drop(ctx);
+        assert!(previous.upgrade().is_none());
+        #[cfg(feature = "test-support")]
+        {
+            let witness = observer.last_witness().unwrap();
+            assert!(witness.original.upgrade().is_none());
+            assert!(witness.local.unwrap().upgrade().is_none());
+            assert!(witness.remote.is_none());
+        }
+        #[cfg(feature = "test-support")]
+        assert_eq!(
+            observer.counts(),
+            (1, 1),
+            "actual Database and CREATE DDL are reused"
+        );
+    }
+}
+
+#[test]
+fn queued_slot_wait_observes_original_cancellation_and_deadline() {
+    let temp = fixture();
+    let runtime = runtime();
+    let slot = QueryCatalog::new();
+    for finite in [false, true] {
+        let ctx = if finite {
+            original(Duration::from_millis(100))
+        } else {
+            Arc::new(SnapshotContext::service(Cancellation::default()))
+        };
+        let graph = capture(temp.path(), &ctx);
+        let held = runtime.block_on(slot.state.lock());
+        let (started, ready) = std::sync::mpsc::channel();
+        let (done, result) = std::sync::mpsc::channel();
+        let observed = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                started.send(()).unwrap();
+                done.send(slot.execute(
+                    &graph,
+                    &ctx,
+                    runtime.handle(),
+                    "RETURN 1",
+                    &BTreeMap::new(),
+                    options(),
+                ))
+                .unwrap();
+            });
+            ready.recv_timeout(Duration::from_secs(10)).unwrap();
+            if !finite {
+                ctx.cancellation().cancel();
+            }
+            let observed = result.recv_timeout(Duration::from_secs(10));
+            // Release before joining even when the assertion would fail, avoiding a hung test.
+            drop(held);
+            observed
+        })
+        .expect("cancelled/expired request must leave while the slot is still held");
+        assert_eq!(
+            observed.unwrap_err().kind(),
+            if finite {
+                io::ErrorKind::TimedOut
+            } else {
+                io::ErrorKind::Interrupted
+            }
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn native_auto_pool_retained_memory_measurement() {
+    let first = fixture();
+    let second = fixture();
+    let manifest_path = second.path().join("icebug.json");
+    let manifest = std::fs::read_to_string(&manifest_path)
+        .unwrap()
+        .replace("\"A\"", "\"C\"");
+    std::fs::write(&manifest_path, manifest).unwrap();
+    let runtime = runtime();
+    runtime.block_on(tokio::task::yield_now());
+    cypher_process_memory("auto_before_slot");
+    let slot = QueryCatalog::new();
+    let selected = QueryOptions {
+        buffer_pool_bytes: 0,
+        ..options()
+    };
+    eprintln!(
+        "cypher_auto_options buffer_pool_bytes=0 query_threads={}",
+        selected.query_threads
+    );
+    cypher_process_memory("auto_lazy_slot");
+    let ctx = original(Duration::from_secs(30));
+    let graph = capture(first.path(), &ctx);
+    let result = slot
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH (a:A)-[r:LINK]->(b) RETURN a.uid,r.uid,b.uid ORDER BY r.uid",
+            &BTreeMap::new(),
+            selected,
+        )
+        .unwrap();
+    assert_eq!(result.rows.len(), 7);
+    drop(result);
+    let previous = Arc::downgrade(&ctx);
+    drop(graph);
+    drop(ctx);
+    assert!(previous.upgrade().is_none());
+    cypher_process_memory("auto_warm_captures_dropped");
+    std::thread::sleep(Duration::from_millis(250));
+    cypher_process_memory("auto_idle_captures_dropped");
+    let ctx = original(Duration::from_secs(30));
+    let graph = capture(second.path(), &ctx);
+    let result = slot
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH (n:C) RETURN count(n)",
+            &BTreeMap::new(),
+            selected,
+        )
+        .unwrap();
+    assert_eq!(result.rows[0][0]["value"], "3");
+    drop(result);
+    drop(graph);
+    drop(ctx);
+    cypher_process_memory("auto_different_schema_captures_dropped");
+    drop(slot);
+    std::thread::sleep(Duration::from_millis(250));
+    cypher_process_memory("auto_execution_state_dropped");
+}
+
+#[test]
+fn strict_primary_key_queries_use_captured_input_limits_and_leave_other_forms_to_sdk() {
+    let temp = fixture();
+    let ctx = original(Duration::from_secs(30));
+    let config = ConfigSnapshot::new(&Brand::default(), []).unwrap();
+    let mut input = LocalGraphPolicy::resolve(&config, &ctx).unwrap().limits();
+    input.query_decoded_rows = 1;
+    let graph = capture_policy(temp.path(), &ctx, LocalGraphPolicy::new(input).unwrap());
+    let runtime = runtime();
+    let catalogue = QueryCatalog::new();
+    let parameters = BTreeMap::from([("key".into(), json!("a1"))]);
+    let error = catalogue
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH (n:A) WHERE n.uid=$key RETURN n.uid",
+            &parameters,
+            options(),
+        )
+        .unwrap_err();
+    assert!(error.to_string().contains("decoded rows"), "{error}");
+    let result = catalogue
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH (n:A) WHERE n.uid=$key RETURN n.uid LIMIT 1",
+            &parameters,
+            options(),
+        )
+        .unwrap();
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0]["value"], "a1");
+    let result = catalogue
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH (n:A) WHERE n.uid='missing' OR n.uid='a2' RETURN n.uid",
+            &BTreeMap::new(),
+            options(),
+        )
+        .unwrap();
+    assert_eq!(result.rows.len(), 1);
+    assert_eq!(result.rows[0][0]["value"], "a2");
+    let aggregate = catalogue
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH (n:A) WHERE n.uid=$key RETURN count(n)",
+            &parameters,
+            options(),
+        )
+        .unwrap();
+    assert_eq!(aggregate.rows[0][0]["value"], "1");
+    let optional = catalogue
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "OPTIONAL MATCH (n:A) WHERE n.uid='missing' RETURN n.uid",
+            &BTreeMap::new(),
+            options(),
+        )
+        .unwrap();
+    assert_eq!(optional.rows.len(), 1);
+    assert!(optional.rows[0][0]["value"].is_null());
+}
+
+#[test]
+fn strict_primary_key_lookup_preserves_string_int64_and_absence_across_operations() {
+    let temp = fixture();
+    parquet(
+        &temp.path().join("B.parquet"),
+        "message graph { required int64 key_id; required binary uid (UTF8); }",
+        &[
+            Column::Ints(&[-7, 9223372036854775806]),
+            Column::Strings(&["b0", "b1"]),
+        ],
+    );
+    let manifest_path = temp.path().join("icebug.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["node_tables"][1]["primary_key"] = json!("key_id");
+    manifest["node_tables"][1]["columns"] = json!([
+        {"name":"key_id","type":"INT64"},{"name":"uid","type":"STRING"}
+    ]);
+    fs::write(manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let ctx = original(Duration::from_secs(30));
+    let graph = capture(temp.path(), &ctx);
+    let runtime = runtime();
+    let catalogue = QueryCatalog::new();
+    for (query, key, expected) in [
+        (
+            "MATCH (n:A) WHERE n.uid=$key RETURN n.uid",
+            json!("a1"),
+            Some("a1"),
+        ),
+        (
+            "MATCH (n:B) WHERE $key=n.key_id RETURN n.key_id",
+            json!(-7),
+            Some("-7"),
+        ),
+        (
+            "MATCH (n:B) WHERE n.key_id=$key RETURN n.key_id",
+            json!(9223372036854775806_i64),
+            Some("9223372036854775806"),
+        ),
+        (
+            "MATCH (n:A) WHERE n.uid=$key RETURN n.uid",
+            json!("absent"),
+            None,
+        ),
+        (
+            "MATCH (n:B) WHERE n.key_id=$key RETURN n.key_id",
+            json!(99),
+            None,
+        ),
+        (
+            "MATCH (n:A) WHERE n.uid=$key RETURN n.uid",
+            json!("a2"),
+            Some("a2"),
+        ),
+    ] {
+        let result = catalogue
+            .execute(
+                &graph,
+                &ctx,
+                runtime.handle(),
+                query,
+                &BTreeMap::from([("key".into(), key)]),
+                options(),
+            )
+            .unwrap();
+        match expected {
+            Some(value) => {
+                assert_eq!(result.rows.len(), 1);
+                assert_eq!(result.rows[0][0]["value"], value);
+            }
+            None => assert!(result.rows.is_empty()),
+        }
+    }
+}
+
+#[test]
+fn primary_key_hint_keeps_sparse_logical_coordinates_and_active_counts() {
+    let temp = fixture();
+    let path = temp.path().join("icebug.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    manifest["node_tables"][0]["shards"][0]["row_base"] = json!(4294967396_u64);
+    for relationship in manifest["relationships"].as_array_mut().unwrap() {
+        for member in relationship["members"].as_array_mut().unwrap() {
+            if member["from"] == "A" {
+                member["source_row_base"] = json!(4294967396_u64);
+            }
+            if member["to"] == "A" {
+                member["target_row_base"] = json!(4294967396_u64);
+            }
+        }
+    }
+    fs::write(path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let ctx = original(Duration::from_secs(30));
+    let graph = capture(temp.path(), &ctx);
+    let runtime = runtime();
+    let catalogue = QueryCatalog::new();
+    let located = catalogue
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH(a:A) WHERE a.uid='a1' RETURN a.uid,a",
+            &BTreeMap::new(),
+            options(),
+        )
+        .unwrap();
+    assert_eq!(located.rows.len(), 1);
+    assert_eq!(located.rows[0][0]["value"], "a1");
+    assert_eq!(
+        located.rows[0][1]["value"]["id"]["value"]["row"],
+        "4294967397"
+    );
+    let counted = catalogue
+        .execute(
+            &graph,
+            &ctx,
+            runtime.handle(),
+            "MATCH(a:A) RETURN count(a)",
+            &BTreeMap::new(),
+            options(),
+        )
+        .unwrap();
+    assert_eq!(counted.rows[0][0]["value"], "3");
+}
+#[test]
+fn primary_key_hint_selects_one_sliced_range_and_rowgroup_before_opening_readers() {
+    let temp = fixture();
+    let schema = "message graph { required binary uid (UTF8); required binary name (UTF8); }";
+    parquet_groups(
+        &temp.path().join("A.parquet"),
+        schema,
+        &[
+            &[
+                Column::Strings(&["a0", "a1"]),
+                Column::Strings(&["first", "second"]),
+            ],
+            &[
+                Column::Strings(&["a2", "a3"]),
+                Column::Strings(&["third", "fourth"]),
+            ],
+            &[
+                Column::Strings(&["a4", "a5"]),
+                Column::Strings(&["fifth", "last"]),
+            ],
+        ],
+    );
+    let path = temp.path().join("icebug.json");
+    let mut manifest: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    manifest["node_tables"][0]["rows"] = json!(6);
+    manifest["node_tables"][0]["shards"] = json!([
+        {"file":"A.parquet","row_base":0,"row_offset":0,"rows":2},
+        {"file":"A.parquet","row_base":4294967396_u64,"row_offset":2,"rows":4}
+    ]);
+    manifest["relationships"] = json!([]);
+    manifest["n_edges"] = json!(0);
+    fs::write(path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let ctx = original(Duration::from_secs(30));
+    let graph = capture(temp.path(), &ctx);
+    let runtime = runtime();
+    let catalogue = QueryCatalog::new();
+    for (query, expected) in [
+        ("MATCH(a:A) WHERE a.uid='missing' RETURN a.name", None),
+        ("MATCH(a:A) WHERE a.uid='a5' RETURN a.name", Some("last")),
+        ("MATCH(a:A) RETURN count(a)", Some("6")),
+        ("MATCH(a:A) WHERE a.uid='a0' RETURN a.name", Some("first")),
+    ] {
+        let result = catalogue
+            .execute(
+                &graph,
+                &ctx,
+                runtime.handle(),
+                query,
+                &BTreeMap::new(),
+                options(),
+            )
+            .unwrap();
+        match expected {
+            Some(value) => {
+                assert_eq!(result.rows.len(), 1);
+                assert_eq!(result.rows[0][0]["value"], value);
+            }
+            None => assert!(result.rows.is_empty()),
+        }
+    }
+    let run = |query: &str| {
+        let (io, layout, mut mount) = capture_mount(QueryGraph::Local(Arc::clone(&graph))).unwrap();
+        // This excluded virtual slice cannot be opened: it splits a rowgroup.
+        // The Data lookup still uses the valid captured ranges and verifies PK uniqueness.
+        mount.nodes[0].shards[0].row_offset = 1;
+        let signal = Box::new(QuerySignal {
+            original: Arc::clone(&ctx),
+            complete: Cancellation::default(),
+            runtime: runtime.handle().clone(),
+            #[cfg(feature = "test-support")]
+            observer: None,
+        });
+        let mut result = ResultSink::new(options()).unwrap();
+        run_native_schema(io, signal, &layout, mount, query, &mut result).map(|()| result.result)
+    };
+    assert!(
+        run("MATCH(a:A) WHERE a.uid='missing' RETURN a.name")
+            .unwrap()
+            .rows
+            .is_empty()
+    );
+    let selected = run("MATCH(a:A) WHERE a.uid='a5' RETURN a.name").unwrap();
+    assert_eq!(selected.rows[0][0]["value"], "last");
+    let error = run("MATCH(a:A) RETURN count(a)").unwrap_err();
+    assert!(
+        error.to_string().contains("captured Parquet slice"),
+        "{error}"
+    );
+}
+
+#[test]
+fn native_larger_schema_identity_neighborhood_performance_observation() {
+    use graphit_data::graph_writer::{GraphEdge, GraphNode, GraphValue, IcebugWriter};
+    let setup = original(Duration::from_secs(120));
+    let nodes = (0..16).map(|index| {
+        let mut properties: BTreeMap<_, _> = (0..40)
+            .map(|column| {
+                (
+                    format!("field_{column}"),
+                    GraphValue::String("value".into()),
+                )
+            })
+            .collect();
+        properties.insert("uid".into(), GraphValue::String(format!("uid-{index}")));
+        GraphNode {
+            label: format!("Wide{index}"),
+            key: format!("key-{index}"),
+            properties,
+        }
+    });
+    let edges = (0..16).map(|index| GraphEdge {
+        kind: "LINKS".into(),
+        source_key: format!("key-{index}"),
+        target_key: format!("key-{}", (index + 1) % 16),
+        uid: format!("edge-{index}"),
+    });
+    let output = IcebugWriter::new(Arc::clone(&setup))
+        .unwrap()
+        .push_file(nodes, edges)
+        .unwrap()
+        .finish()
+        .unwrap();
+    let runtime = runtime();
+    let catalogue = QueryCatalog::new();
+    let selected = QueryOptions {
+        buffer_pool_bytes: 0,
+        ..options()
+    };
+    let parameters = BTreeMap::from([("key".into(), json!("key-15"))]);
+    let empty_parameters = BTreeMap::new();
+    let workloads = [
+        (
+            "identity",
+            "MATCH (n:Wide15) WHERE n.entity_key=$key RETURN n.uid",
+        ),
+        (
+            "neighborhood",
+            "MATCH (n:Wide15)-[r:LINKS]->(m:Wide0) WHERE n.entity_key=$key RETURN n.uid,r.uid,m.uid",
+        ),
+        ("schema_count", "MATCH (n) RETURN count(n)"),
+    ];
+    for round in 0..6 {
+        for (workload, query) in workloads {
+            let supplied = if workload == "schema_count" {
+                &empty_parameters
+            } else {
+                &parameters
+            };
+            for reused in [false, true] {
+                let mode = if reused { "reused" } else { "cold" };
+                eprintln!("cypher_focus_begin workload={workload} mode={mode} round={round}");
+                let started = Instant::now();
+                let ctx = original(Duration::from_secs(30));
+                let graph = capture(&output.directory(), &ctx);
+                let captured = started.elapsed();
+                let started = Instant::now();
+                let result = if reused {
+                    catalogue.execute(&graph, &ctx, runtime.handle(), query, supplied, selected)
+                } else {
+                    execute(&graph, &ctx, runtime.handle(), query, supplied, selected)
+                }
+                .unwrap();
+                let executed = started.elapsed();
+                assert_eq!(result.rows.len(), 1);
+                if workload == "schema_count" {
+                    assert_eq!(result.rows[0][0]["value"], "16");
+                } else {
+                    assert_eq!(result.rows[0][0]["value"], "uid-15");
+                    if workload == "neighborhood" {
+                        assert_eq!(result.rows[0][1]["value"], "edge-15");
+                        assert_eq!(result.rows[0][2]["value"], "uid-0");
+                    }
+                }
+                let started = Instant::now();
+                let encoded = serde_json::to_vec(&result).unwrap();
+                let serialized = started.elapsed();
+                let bytes = encoded.len();
+                drop(encoded);
+                drop(result);
+                let witness = Arc::downgrade(&ctx);
+                ctx.cancellation().cancel();
+                drop(graph);
+                drop(ctx);
+                assert!(witness.upgrade().is_none());
+                eprintln!(
+                    "cypher_focus_result workload={workload} mode={mode} round={round} capture_us={} native_total_us={} serialization_us={} bytes={bytes}",
+                    captured.as_micros(),
+                    executed.as_micros(),
+                    serialized.as_micros()
+                );
+            }
+        }
+    }
+    #[cfg(feature = "test-support")]
+    assert_eq!(catalogue.test_observer().counts(), (1, 17));
 }

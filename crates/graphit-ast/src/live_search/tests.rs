@@ -170,7 +170,13 @@ async fn lexical_and_vector_extents_share_last_occupied_line_without_changing_by
             limits,
             &original,
         )?;
-        let graph = apply_scip_document(graph.into_parts(), &document, text, &original)?;
+        let graph = apply_scip_document(
+            graph.into_parts(),
+            &document,
+            text,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original,
+        )?;
         let lexical = entity_search::encode_file(&graph.parts, text, &original)?;
         let entities = entity_search::decode_entities(&lexical)?;
         assert_eq!(entities.len(), 1);

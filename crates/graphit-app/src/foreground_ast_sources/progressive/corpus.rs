@@ -2,6 +2,7 @@
 use super::*;
 use futures_util::TryStreamExt;
 use graphit_ast::corpus;
+use graphit_ast::live_graph::LiveGraphMaintenance;
 use graphit_data::lance_branch_store::{AST_INDEX_BATCH, cleanup_ast_corpus};
 
 pub(crate) struct ProgressivePublication<'a> {
@@ -159,13 +160,21 @@ impl<'a> ProgressivePublication<'a> {
         let _fence = write_fence(&self.cohort.slot.fence, &self.original).await?;
         recheck()?;
         let search = self.capture_search().await?;
-        let previous = file_rows(&search, &file.path, &self.original).await?;
+        let previous = corpus::promote_identities(
+            &file_rows(&search, &file.path, &self.original).await?,
+            &file.identity_changes,
+            &self.original,
+        )?;
         let rows = corpus::encode_file(
             Arc::new(search.schema().clone()),
             concat(graphit_ast::entity_search::schema(), file.search.clone())?,
-            concat(
-                graphit_ast::native_nn::native_nn_projection_schema(),
-                file.projections.clone(),
+            corpus::promote_identities(
+                &concat(
+                    graphit_ast::native_nn::native_nn_projection_schema(),
+                    file.projections.clone(),
+                )?,
+                &file.identity_changes,
+                &self.original,
             )?,
             Some(&previous),
             &self.original,
@@ -207,7 +216,11 @@ impl<'a> ProgressivePublication<'a> {
             return Ok(None);
         }
         let search = self.capture_search().await?;
-        let previous = file_rows(&search, &file.path, &self.original).await?;
+        let previous = corpus::promote_identities(
+            &file_rows(&search, &file.path, &self.original).await?,
+            &file.identity_changes,
+            &self.original,
+        )?;
         let old_lexical = lexical(&previous)?;
         let lexical = union(
             old_lexical,
@@ -215,9 +228,13 @@ impl<'a> ProgressivePublication<'a> {
         )?;
         let prepared = union(
             corpus::projections(&previous, &self.original)?,
-            concat(
-                graphit_ast::native_nn::native_nn_projection_schema(),
-                file.projections.clone(),
+            corpus::promote_identities(
+                &concat(
+                    graphit_ast::native_nn::native_nn_projection_schema(),
+                    file.projections.clone(),
+                )?,
+                &file.identity_changes,
+                &self.original,
             )?,
         )?;
         let rows = corpus::encode_file(
@@ -299,6 +316,79 @@ impl<'a> ProgressivePublication<'a> {
         }
         self.files_since_maintenance = 0;
         Ok(())
+    }
+
+    pub(crate) async fn maintain_shards_batch(
+        &self,
+        recheck: &impl Fn() -> io::Result<()>,
+        source_preemption: Option<&Cancellation>,
+    ) -> io::Result<Option<LiveGraphMaintenance>> {
+        recheck()?;
+        let fence = match source_preemption {
+            Some(source_preemption) => tokio::select! {
+                biased;
+                () = source_preemption.cancelled() => {
+                    recheck()?;
+                    return Ok(None);
+                },
+                fence = write_fence(&self.cohort.slot.fence, &self.original) => fence?,
+            },
+            None => write_fence(&self.cohort.slot.fence, &self.original).await?,
+        };
+        self.cohort.directory.revalidate(&self.original)?;
+        let Some(index) = self.cohort.capture_index(&self.original, false).await? else {
+            return Ok(None);
+        };
+        recheck()?;
+        if source_preemption.is_some_and(Cancellation::is_cancelled) {
+            return Ok(None);
+        }
+        let original = Arc::clone(&self.original);
+        let report = tokio::task::spawn_blocking(move || {
+            // Keep the same publication fence owned until native maintenance
+            // returns, even if the composing future is interrupted.
+            let _fence = fence;
+            index.graph.maintain_shards(&original)
+        })
+        .await
+        .map_err(err)??;
+        recheck()?;
+        self.cohort.directory.revalidate(&self.original)?;
+        Ok(Some(report))
+    }
+
+    pub(crate) async fn finish_maintenance(
+        &mut self,
+        recheck: &impl Fn() -> io::Result<()>,
+        source_preemption: Option<&Cancellation>,
+    ) -> io::Result<()> {
+        recheck()?;
+        if source_preemption.is_some_and(Cancellation::is_cancelled) {
+            return Ok(());
+        }
+        let mut more = self
+            .maintain_shards_batch(recheck, source_preemption)
+            .await?
+            .is_some_and(|report| report.more);
+        while more {
+            // Source deltas take over between bounded atomic batches. The next
+            // real maintenance cadence rediscovers the durable remaining work.
+            tokio::task::yield_now().await;
+            recheck()?;
+            if source_preemption.is_some_and(Cancellation::is_cancelled) {
+                return Ok(());
+            }
+            more = self
+                .maintain_shards_batch(recheck, source_preemption)
+                .await?
+                .is_some_and(|report| report.more);
+        }
+        recheck()?;
+        if source_preemption.is_some_and(Cancellation::is_cancelled) {
+            return Ok(());
+        }
+        // Independent Lance maintenance must not gate physical graph batches.
+        self.maintain_indices(recheck).await
     }
 
     pub(crate) async fn clean_history(

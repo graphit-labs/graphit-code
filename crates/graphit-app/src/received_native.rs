@@ -233,7 +233,7 @@ pub(crate) async fn prepare<'a>(
                 if let Some(identity) = &identity {
                     for document in documents {
                         check()?;
-                        let text = projection::document_text(&document)
+                        let text = projection::document_text(request.snapshot(), &document)
                             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
                         let fingerprint = projection::fingerprint(&text, identity)
                             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;

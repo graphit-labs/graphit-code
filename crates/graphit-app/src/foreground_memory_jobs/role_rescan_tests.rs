@@ -177,8 +177,9 @@ async fn snapshot_generation(
     .unwrap()
 }
 
-// Observe live FILE and dataset generations, after durable NN work is drained.
-async fn ast_generations(foreground: &ForegroundSource, selected: usize) -> (u64, u64, [u8; 32]) {
+// Observe existing Raw/NN dataset versions and the actual published graph manifest bytes.
+// These test observations do not align or authorize the independent publications.
+async fn ast_publications(foreground: &ForegroundSource, selected: usize) -> (u64, u64, Vec<u8>) {
     use graphit_data::lance_branch_store::BranchSnapshot;
     let (paths, id, version) = &foreground.projects.as_ref().unwrap()[selected];
     let source = foreground.server.as_ref().unwrap();
@@ -213,7 +214,7 @@ async fn ast_generations(foreground: &ForegroundSource, selected: usize) -> (u64
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
         let observed: io::Result<_> = async {
-            let (index, _directory) = registry
+            let (index, directory) = registry
                 .capture(
                     foreground.auth.installation(),
                     project,
@@ -266,11 +267,19 @@ async fn ast_generations(foreground: &ForegroundSource, selected: usize) -> (u64
             let graphit_ast::source_index_locator::SourceIndexPresence::Available(raw) = raw else {
                 return Err(io::ErrorKind::NotFound.into());
             };
-            Ok((raw.version(), nn.version(), index.graph.generation()?))
+            let (graph_root, _) = crate::foreground_ast_sources::progressive::location(
+                foreground.auth.installation(),
+                project,
+            )?;
+            directory.revalidate(original)?;
+            let manifest = std::fs::read(graph_root.join("graph/icebug.json"))?;
+            directory.revalidate(original)?;
+            original.check()?;
+            Ok((raw.version(), nn.version(), manifest))
         }
         .await;
         match observed {
-            Ok(generation) => return generation,
+            Ok(publication) => return publication,
             Err(error) if Instant::now() >= deadline => {
                 panic!("live AST publication unavailable: {error}")
             }
@@ -349,7 +358,7 @@ async fn memory_crud_and_unselected_watcher_leave_ast_publications_untouched() {
         &[Permission::Read(Module::Memory), Permission::WriteMemory],
     )
     .await;
-    let before = ast_generations(&foreground, 0).await;
+    let before = ast_publications(&foreground, 0).await;
     // This genuine watcher event has no AST profile. Actual Memory CRUD below
     // also requests a published rescan; neither changes AST inputs or model.
     std::fs::write(
@@ -363,7 +372,7 @@ async fn memory_crud_and_unselected_watcher_leave_ast_publications_untouched() {
     assert_indexed(&foreground, 0, &memory).await;
     drain_memory_rescan(&foreground, 0).await;
     assert_eq!(
-        ast_generations(&foreground, 0).await,
+        ast_publications(&foreground, 0).await,
         before,
         "non-AST watcher events and Memory rescans must not rewrite Raw/NN/Graph"
     );
@@ -381,7 +390,7 @@ async fn memory_crud_and_unselected_watcher_leave_ast_publications_untouched() {
         .unwrap();
     drain_memory_rescan(&foreground, 0).await;
     assert_eq!(
-        ast_generations(&foreground, 0).await,
+        ast_publications(&foreground, 0).await,
         before,
         "a new execution owner with the same model space must not rewrite existing indexes"
     );

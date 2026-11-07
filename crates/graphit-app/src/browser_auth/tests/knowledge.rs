@@ -228,7 +228,7 @@ async fn reopened_heads_full16_dates_and_exact_native_paths_are_preserved_withou
             "source_path":"docs/guide.md","physical_digest":vec![7;32],"compilation_digest":vec![9;32],"recipe":graphit_data::knowledge_document_projection::AUTHORED_RECIPE_ID,
             "recipe_parameters":{"fallback_title":"Fallback","kind_on_absent":"note","max_summary_bytes":512},
             "updated_at":"1000000123","stale_since":"-1000000007","stale_after":{"seconds":3,"nanoseconds":13},
-            "resolved_wiki_targets":["literal target","literal target","a-first"]
+            "resolved_wiki_targets":["literal target","literal target","a-first"],"previous":null,"next":null
         })
     );
     let tail = value(&f, &cookie, "page", &selection, json!({"slug":"z-tail"})).await;
@@ -1420,4 +1420,101 @@ async fn browser_ask_retrieval_uses_existing_cpu_web_lease_and_real_selected_doc
     sources.shutdown().await.unwrap();
     available.service().unwrap().shutdown().await.unwrap();
     foreground.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn guide_navigation_resolves_relative_authored_ids_and_reports_only_real_misses() {
+    let (_temp, tasks, raw) = knowledge_workspace_fixture(None, Duration::from_secs(30));
+    let maximum = NonZeroUsize::new(4096).unwrap();
+    let origin =
+        graphit_data::knowledge_document_lifecycle::KnowledgeSourceIdentity::from_relative_path(
+            std::path::Path::new("docs/guide.md"),
+            None,
+            maximum,
+        )
+        .unwrap();
+    let destination =
+        graphit_data::knowledge_document_lifecycle::KnowledgeSourceIdentity::from_relative_path(
+            std::path::Path::new("docs/next.md"),
+            None,
+            maximum,
+        )
+        .unwrap();
+    let authored = "---\nprevious: missing-guide\nnext: '[Continue](next.md)'\n---\nGuide body stays literal.\n";
+    let mut first = page("guide", authored);
+    first.source_path = origin.source_path();
+    first.resolved_wiki_targets = &[];
+    let mut next = page("authored-next-id", "Next body");
+    next.title = Some("Next guide");
+    next.source_path = destination.source_path();
+    next.resolved_wiki_targets = &[];
+    knowledge_fixture::seed(&tasks, &raw, 0, &[first, next]).await;
+    let selection = memory_fixture::selection(&tasks, 0);
+    let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
+    let cookie = f.login().await;
+    let result = value(&f, &cookie, "page", &selection, json!({"slug":"guide"})).await;
+    let document = &result["native"]["page"]["document"];
+    assert_eq!(document["body"], authored);
+    assert_eq!(
+        document["next"],
+        json!({"target":"[Continue](next.md)","slug":"authored-next-id","title":"Next guide"})
+    );
+    assert_eq!(
+        document["previous"],
+        json!({"target":"missing-guide","slug":null,"title":null})
+    );
+    let next = value(
+        &f,
+        &cookie,
+        "page",
+        &selection,
+        json!({"slug":"authored-next-id"}),
+    )
+    .await;
+    assert!(next["native"]["page"]["document"]["previous"].is_null());
+    assert!(next["native"]["page"]["document"]["next"].is_null());
+}
+
+#[tokio::test]
+async fn guide_destination_integrity_error_is_not_reclassified_as_missing() {
+    let (_temp, tasks, raw) = knowledge_workspace_fixture(None, Duration::from_secs(30));
+    let mut first = page("a-first", "---\nnext: z-tail\n---\nValid body\n");
+    first.resolved_wiki_targets = &[];
+    let mut tail = page("z-tail", "Destination");
+    tail.resolved_wiki_targets = &[];
+    knowledge_fixture::seed(&tasks, &raw, 0, &[first, tail]).await;
+    knowledge_fixture::corrupt_tail_document_state(&tasks).await;
+    let selection = memory_fixture::selection(&tasks, 0);
+    let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
+    let cookie = f.login().await;
+    let response = read(
+        &f,
+        &cookie,
+        "page",
+        body(&selection, json!({"slug":"a-first"})),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let response: Value = response.json().await.unwrap();
+    assert_eq!(response["error"]["code"], "invalid_knowledge_corpus");
+    assert!(response.get("native").is_none());
+}
+
+#[tokio::test]
+async fn malformed_guide_frontmatter_is_integrity_error_instead_of_request_timeout() {
+    let (_temp, tasks, raw) = knowledge_workspace_fixture(None, Duration::from_secs(30));
+    let mut typed = page("invalid-type", "---\nnext: []\n---\n# Body\n");
+    typed.resolved_wiki_targets = &[];
+    let mut syntax = page("invalid-yaml", "---\nprevious: [unclosed\n---\n# Body\n");
+    syntax.resolved_wiki_targets = &[];
+    knowledge_fixture::seed(&tasks, &raw, 0, &[typed, syntax]).await;
+    let selection = memory_fixture::selection(&tasks, 0);
+    let f = Fixture::with_tasks(policy(), Some((tasks, raw))).await;
+    let cookie = f.login().await;
+    for slug in ["invalid-type", "invalid-yaml"] {
+        let response = read(&f, &cookie, "page", body(&selection, json!({"slug":slug}))).await;
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let response: Value = response.json().await.unwrap();
+        assert_eq!(response["error"]["code"], "invalid_knowledge_corpus");
+    }
 }

@@ -86,7 +86,7 @@ pub fn assemble_graph_json(
         for entity in document.entities() {
             original.check()?;
             let uid = entity.identity().uid().as_str();
-            let key = serde_json::to_string(&[uid, entity.data_key()])?;
+            let key = syntax_key(entity.identity(), entity.data_key())?;
             let mut properties = BTreeMap::new();
             for (key, value) in [
                 ("uid", uid),

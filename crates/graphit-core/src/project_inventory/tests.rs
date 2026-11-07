@@ -1014,6 +1014,9 @@ fn unicode_checkout_string_roundtrip_preserves_inventory_identity() {
     let root = f._temp.path().join("checkout ação 日本語 with spaces");
     fs::rename(f.project.root(), &root).unwrap();
     let project = ProjectPaths::at(&root, &f.installation).unwrap();
+    let canonical_root = fs::canonicalize(&root).unwrap();
+    assert_eq!(project.root(), canonical_root);
+    assert_eq!(canonical_root.file_name(), root.file_name());
     let req = request();
     let captured = capture(&project, &req, "release/β");
     let id = captured.identity.id();
@@ -1026,12 +1029,12 @@ fn unicode_checkout_string_roundtrip_preserves_inventory_identity() {
     let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(
         json["projects"][0]["checkouts"][0]["path"],
-        root.to_str().unwrap()
+        canonical_root.to_str().unwrap()
     );
     let snapshot = f.store().load(&req).unwrap();
     let entry = snapshot.get(id).unwrap();
     assert_eq!(entry.versions().collect::<Vec<_>>(), ["main", "release/β"]);
-    assert_eq!(entry.checkouts().next().unwrap().path(), root);
+    assert_eq!(entry.checkouts().next().unwrap().path(), canonical_root);
     assert_eq!(entry.identity.id(), id);
     let mut writer = f.writer(&req);
     assert!(!writer.register_checkout(&captured).unwrap());

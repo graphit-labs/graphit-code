@@ -223,7 +223,15 @@ pub fn assemble_graph_antlr_generic(
             }
             nodes.push(AstGraphNode {
                 label: entity.label().into(),
-                key: serde_json::to_string(&[entity.uid(), entity.data_key()])?,
+                key: graphit_data::CodePrimaryKey::derive(
+                    entity
+                        .uid()
+                        .parse()
+                        .map_err(|_| AstGraphError::NativeContract("invalid generic ANTLR UID"))?,
+                    entity.data_key(),
+                )
+                .map_err(|_| AstGraphError::NativeContract("invalid generic ANTLR projection"))?
+                .to_string(),
                 properties,
             });
         }
@@ -241,19 +249,17 @@ pub fn assemble_graph_antlr_generic(
                 }
                 let source_key = node_key(&nodes, *owner)?;
                 let target_key = node_key(&nodes, child)?;
-                let uid = serde_json::to_string(&(
+                let edge = AstGraphEdge::logical(
+                    logical_file(&association)?,
                     "CONTAINS",
                     source_key,
                     target_key,
-                    entity.declaration(),
-                ))?;
-                if edge_keys.insert(uid.clone()) {
-                    edges.push(AstGraphEdge {
-                        kind: "CONTAINS".into(),
-                        source_key: source_key.into(),
-                        target_key: target_key.into(),
-                        uid,
-                    });
+                    None,
+                    target_key,
+                    0,
+                )?;
+                if edge_keys.insert(edge.uid.clone()) {
+                    edges.push(edge);
                 }
             }
         }

@@ -1,9 +1,9 @@
 //! One selected Knowledge document decoded from a caller-owned SDK pin.
 use crate::{
     knowledge_index::{
-        KnowledgeDocument, KnowledgeHead, KnowledgeHeadReadLimits, KnowledgeIndexError,
-        KnowledgeIndexReadLimits, NamespaceValidation, decode_batch_matching, decode_head_batch,
-        validate_full_batch, validate_slug,
+        KnowledgeDocument, KnowledgeHead, KnowledgeHeadLookup, KnowledgeHeadReadLimits,
+        KnowledgeIndexError, KnowledgeIndexReadLimits, NamespaceValidation, decode_batch_matching,
+        decode_head_batch, validate_full_batch, validate_slug,
     },
     lance_module_store::{ModuleSnapshot, StoreError},
 };
@@ -136,6 +136,71 @@ pub async fn read_knowledge_heads_snapshot_guarded(
     original: &Arc<SnapshotContext>,
     snapshot: &ModuleSnapshot,
     limits: KnowledgeHeadReadLimits,
+    before: impl FnMut() -> Result<(), KnowledgeIndexError>,
+) -> Result<Vec<KnowledgeHead>, KnowledgeIndexError> {
+    read_heads_selected(original, snapshot, limits, None, before).await
+}
+
+/// Resolve one authored source identity on the caller-owned snapshot. Only
+/// head/witness columns are projected, with an SDK equality predicate.
+pub async fn read_knowledge_head_by_source_path_snapshot_guarded(
+    original: &Arc<SnapshotContext>,
+    snapshot: &ModuleSnapshot,
+    source_path: &str,
+    limits: KnowledgeHeadReadLimits,
+    before: impl FnMut() -> Result<(), KnowledgeIndexError>,
+) -> Result<Option<KnowledgeHead>, KnowledgeIndexError> {
+    if source_path.is_empty()
+        || source_path.contains('\0')
+        || source_path.len() > limits.max_slug_bytes.get()
+    {
+        return Err(KnowledgeIndexError::InvalidField("source_path"));
+    }
+    let mut heads = read_heads_selected(
+        original,
+        snapshot,
+        limits,
+        Some(KnowledgeHeadLookup::SourcePath(source_path)),
+        before,
+    )
+    .await?;
+    if heads.len() > 1 {
+        return Err(KnowledgeIndexError::InvalidField("ambiguous_source_path"));
+    }
+    Ok(heads.pop())
+}
+
+/// Select one literal destination slug on the existing snapshot, without its body.
+pub async fn read_knowledge_head_by_slug_snapshot_guarded(
+    original: &Arc<SnapshotContext>,
+    snapshot: &ModuleSnapshot,
+    slug: &str,
+    limits: KnowledgeHeadReadLimits,
+    before: impl FnMut() -> Result<(), KnowledgeIndexError>,
+) -> Result<Option<KnowledgeHead>, KnowledgeIndexError> {
+    validate_slug(slug)?;
+    if slug.len() > limits.max_slug_bytes.get() {
+        return Err(KnowledgeIndexError::LimitExceeded("slug_bytes"));
+    }
+    let mut heads = read_heads_selected(
+        original,
+        snapshot,
+        limits,
+        Some(KnowledgeHeadLookup::Slug(slug)),
+        before,
+    )
+    .await?;
+    if heads.len() > 1 {
+        return Err(KnowledgeIndexError::DuplicateSlug);
+    }
+    Ok(heads.pop())
+}
+
+async fn read_heads_selected(
+    original: &Arc<SnapshotContext>,
+    snapshot: &ModuleSnapshot,
+    limits: KnowledgeHeadReadLimits,
+    selection: Option<KnowledgeHeadLookup<'_>>,
     mut before: impl FnMut() -> Result<(), KnowledgeIndexError>,
 ) -> Result<Vec<KnowledgeHead>, KnowledgeIndexError> {
     original.check()?;
@@ -148,6 +213,16 @@ pub async fn read_knowledge_heads_snapshot_guarded(
     };
     before()?;
     let mut scanner = snapshot.scan();
+    if let Some(selection) = selection {
+        let (column, value) = match selection {
+            KnowledgeHeadLookup::Slug(value) => ("slug", value),
+            KnowledgeHeadLookup::SourcePath(value) => ("source_path", value),
+        };
+        scanner.filter_expr(
+            lance::deps::datafusion::logical_expr::col(column)
+                .eq(lance::deps::datafusion::logical_expr::lit(value)),
+        );
+    }
     scanner
         .project(&[
             "slug",
@@ -178,6 +253,20 @@ pub async fn read_knowledge_heads_snapshot_guarded(
         for row in 0..batch.num_rows() {
             before()?;
             let one = batch.slice(row, 1);
+            if let Some(selection) = selection {
+                let (column, value) = match selection {
+                    KnowledgeHeadLookup::Slug(value) => (0, value),
+                    KnowledgeHeadLookup::SourcePath(value) => (3, value),
+                };
+                let origins = one
+                    .column(column)
+                    .as_any()
+                    .downcast_ref::<StringArray>()
+                    .ok_or(KnowledgeIndexError::InvalidField("array_type"))?;
+                if origins.is_null(0) || origins.value(0) != value {
+                    return Err(KnowledgeIndexError::InvalidField("selected_membership"));
+                }
+            }
             decode_head_batch(&one, limits, &mut counts, &mut heads, &mut before)?;
             let slugs = one
                 .column(0)

@@ -198,7 +198,11 @@ async fn genuine_db2_oracle_models_emit_owned_graph_and_observed_relations() -> 
                 assert_eq!(text_property(node, "raw_name"), entity.name_raw().text());
                 assert_eq!(
                     node.key(),
-                    serde_json::to_string(&[entity.identity().uid().as_str(), entity.data_key()])?
+                    graphit_data::CodePrimaryKey::derive(
+                        entity.identity().uid().code(),
+                        entity.data_key()
+                    )?
+                    .to_string()
                 );
                 assert_eq!(node.label(), entity.identity().label());
                 let m = metadata(node);
@@ -779,7 +783,11 @@ async fn db2_module_type_variable_genuine_raw_nn_graph() -> TestResult {
             assert!(keys.insert(node.key()));
             assert_eq!(
                 node.key(),
-                serde_json::to_string(&[entity.identity().uid().as_str(), entity.data_key()])?
+                graphit_data::CodePrimaryKey::derive(
+                    entity.identity().uid().code(),
+                    entity.data_key()
+                )?
+                .to_string()
             );
             assert_eq!(text_property(node, "name"), entity.name());
             assert_eq!(text_property(node, "raw_name"), entity.name_raw().text());
@@ -1703,15 +1711,44 @@ async fn oracle_local_calls_emit_real_owned_edges_and_source_ordinals() -> TestR
                 assert!(matches!(text_property(target, "name"), "helper" | "sink"));
                 assert!(matches!(target.label(), "Function" | "Procedure"));
                 assert!(edge_ids.insert(edge.uid()));
-                let uid: serde_json::Value = serde_json::from_str(edge.uid())?;
-                assert_eq!(uid[0], "CALLS");
-                assert_eq!(uid[1], edge.source_key());
-                assert_eq!(uid[2], edge.target_key());
-                assert_eq!(uid[3], "calls");
-                assert!(uid[4].as_u64().unwrap() < uid[5].as_u64().unwrap());
+                assert_eq!(edge.query_data_key(), Some("calls"));
+                assert_eq!(edge.reference_target(), text_property(target, "name"));
+                let file = graphit_data::CodeFileId::from_components(&["calls.sql"])?;
+                let occurrence = graphit_data::CodeRelationOccurrence::derive(
+                    file,
+                    graphit_data::GraphAnchorKey::String(edge.source_key()),
+                    edge.kind(),
+                    edge.query_data_key(),
+                    edge.reference_target(),
+                    edge.occurrence_ordinal(),
+                )?;
+                assert_eq!(
+                    edge.uid().parse::<graphit_data::CodeRelationUid>()?,
+                    graphit_data::CodeRelationUid::derive(
+                        file,
+                        graphit_data::GraphAnchorKey::String(edge.source_key()),
+                        graphit_data::GraphAnchorKey::String(edge.target_key()),
+                        edge.kind(),
+                        occurrence,
+                    )?
+                );
             }
             let mut ordinal_differs = false;
             for call in document.oracle_calls() {
+                let occurrence =
+                    &document.parsed().observations().occurrences[call.occurrence_index];
+                let graphit_ast::antlr_engine::semantic::CaptureBinding::Present(capture) =
+                    &occurrence.name
+                else {
+                    panic!("real name capture")
+                };
+                let Some(graphit_ast::prepared_input::OriginalProjection::Exact(anchor)) =
+                    &capture.original
+                else {
+                    panic!("exact Original name")
+                };
+                assert!(anchor.start() < anchor.end());
+                assert_eq!(text.get(anchor.start()..anchor.end()), Some(anchor.text()));
                 let outcome = graph
                     .outcomes()
                     .iter()
@@ -2063,14 +2100,24 @@ async fn oracle_calls_duplicate_queries_keep_capture_uid_and_simultaneous_owners
                 assert_eq!(anchor.text(), "f");
                 assert_eq!(text.get(anchor.start()..anchor.end()), Some(anchor.text()));
                 let source_key = first_graph.nodes()[entity_index].key();
-                let expected_uid = serde_json::to_string(&(
+                let file = graphit_data::CodeFileId::from_components(&["duplicate-calls.sql"])?;
+                // There is one actual f(1) capture; repeated queries observe that capture.
+                let occurrence_id = graphit_data::CodeRelationOccurrence::derive(
+                    file,
+                    graphit_data::GraphAnchorKey::String(source_key),
                     occurrence.query.relation_type().value(),
-                    source_key,
-                    target_key,
-                    occurrence.query.data_key().value(),
-                    anchor.start(),
-                    anchor.end(),
-                ))?;
+                    Some(occurrence.query.data_key().value()),
+                    anchor.text(),
+                    0,
+                )?;
+                let expected_uid = graphit_data::CodeRelationUid::derive(
+                    file,
+                    graphit_data::GraphAnchorKey::String(source_key),
+                    graphit_data::GraphAnchorKey::String(target_key),
+                    occurrence.query.relation_type().value(),
+                    occurrence_id,
+                )?
+                .to_string();
                 assert!(first_graph.edges().iter().any(|e| e.uid() == expected_uid));
                 *keys
                     .entry(occurrence.query.data_key().value().clone())
@@ -2203,10 +2250,17 @@ async fn oracle_target_rules_resolve_unique_real_cross_file_tables_and_file_outc
         assert_eq!(edge.kind(), "SELECTS");
         assert_eq!(edge.source_key(), caller.key());
         assert_eq!(edge.target_key(), target.endpoints()[0].key());
-        let uid: serde_json::Value = serde_json::from_str(edge.uid())?;
-        let start = uid[4].as_u64().unwrap() as usize;
-        let end = uid[5].as_u64().unwrap() as usize;
+        let reference_fact = serde_json::to_value(reference)?;
+        let start = reference_fact["anchor"][0].as_u64().unwrap() as usize;
+        let end = reference_fact["anchor"][1].as_u64().unwrap() as usize;
         assert_eq!(&source[start..end], "target_tab");
+        assert_eq!(edge.reference_target(), reference.lookup_key().unwrap());
+        assert_eq!(
+            edge.uid()
+                .parse::<graphit_data::CodeRelationUid>()?
+                .to_string(),
+            edge.uid()
+        );
         unique_edges.insert(edge.uid().to_owned());
         apply_oracle_graph_resolution(&mut file, &resolution, &original)?;
         let before = file.clone();

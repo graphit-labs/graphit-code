@@ -107,7 +107,13 @@ authentication after issuer restart or credential rotation preserves that Task
 participant. Managed Role grants keep their execution-specific Actor; Broker Task
 writes remain denied. This API supplies no USER subject or broader authority.
 Records Task uses this accessor for attribution and claim comparison. The generic
-`actor()` and its Memory/Knowledge consumers retain their existing identity contract.
+`actor()` and its Memory/Knowledge consumers retain their existing derivation contract.
+Both accessors expose attribution through `Actor::identifier()`: canonical
+26-character ULID text for the first 128 digest bits. Records ownership,
+idempotency and caller binding compare that public identity. It is not a
+bijection of the internal digest or a creation timestamp. Credential proofs and
+private 32-byte tokens/fences remain independent and unchanged; the public ID
+never replaces current admission, Original or permission checks.
 No persisted owner is rewritten or adopted by this change.
 
 Both admissions also expose

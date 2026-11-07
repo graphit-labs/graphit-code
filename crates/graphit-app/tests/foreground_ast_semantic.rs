@@ -1040,8 +1040,8 @@ async fn project_graph_http_queries_real_models_neighborhood_and_current_raw() -
                 }), function_result),
                 (Command::Neighborhood(Neighborhood {
                     selection: Selection::default(), anchor_label: "Function".into(), anchor_key,
-                    key_type: KeyType::String, relationship: "CALLS".into(), other_label: "Function".into(),
-                    direction: Direction::Outgoing, limit: 10, cursor: None, cursor_file: None,
+                    key_type: KeyType::String, relationship: Some("CALLS".into()), other_label: Some("Function".into()),
+                    direction: Some(Direction::Outgoing), limit: 10, cursor: None, cursor_file: None,
                 }), page),
             ];
             for (command, expected) in commands {

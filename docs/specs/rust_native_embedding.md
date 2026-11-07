@@ -205,7 +205,11 @@ GEMM/BLAS backend where supported.
 
 `GGML_SCHED_DEBUG=2` is the existing SDK's explicit local diagnostic setting.
 When positive, the native bootstrap restores the SDK's public default log callbacks;
-otherwise logging remains quiet. Its operation/backend trace distinguishes registered
+otherwise only upstream ERROR/WARN diagnostics reach stderr; INFO/DEBUG and
+verbose metadata remain suppressed. The filter preserves the CUDA error message,
+device, function and statement emitted before a fatal `GGML_ABORT`. It does not
+make that native abort recoverable or isolate the host process. The explicit
+operation/backend trace distinguishes registered
 CUDA model placement from actual per-operation CPU/CUDA scheduling. A selected
 accelerator does not imply that unsupported tensor shapes execute entirely there:
 the SDK may schedule individual operators on CPU without changing the selected
@@ -279,7 +283,9 @@ takes precedence while the underlying native cause remains retained.
 Debug/Display of NativeEmbeddingError reveal only kind/status, not
 model input, identity, paths or raw SDK diagnostics. Fixed native
 exception codes remain available through source(); the SDK installs
-quiet llama/ggml log callbacks at kernel initialization. Callers must
+llama/ggml callbacks that preserve ERROR/WARN at kernel initialization while
+filtering verbose metadata. These diagnostics stay on the process's stderr and
+are not added to public error values or inference responses. Callers must
 not turn retained causes or model payloads into secret-bearing logs.
 
 ## Cargo engine build boundary

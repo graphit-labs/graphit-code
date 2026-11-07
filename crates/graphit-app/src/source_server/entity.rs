@@ -33,18 +33,39 @@ pub(super) async fn inspect(
     } else {
         open_imported_graph_runtime(state.auth.issuer(), credential, input)?
     };
-    graph
-        .entity_source(
-            &tokio::runtime::Handle::current(),
-            &arguments.source.path,
-            arguments
-                .source
-                .entity
-                .as_deref()
-                .ok_or(EntitySourceError::InvalidRequest)?,
-            arguments.source.entity_type.as_deref(),
-            &arguments.source.selection(),
-            state.policy.graph_query,
-        )
-        .await
+    let selectors = arguments.source.selection();
+    if let Some(key) = arguments
+        .source
+        .native_key()
+        .map_err(|_| EntitySourceError::InvalidRequest)?
+    {
+        graph
+            .entity_source_by_key(
+                &arguments.source.path,
+                arguments
+                    .source
+                    .entity_type
+                    .as_deref()
+                    .ok_or(EntitySourceError::InvalidRequest)?,
+                key,
+                &selectors,
+                state.policy.graph_query.max_rows.min(256),
+            )
+            .await
+    } else {
+        graph
+            .entity_source(
+                &tokio::runtime::Handle::current(),
+                &arguments.source.path,
+                arguments
+                    .source
+                    .entity
+                    .as_deref()
+                    .ok_or(EntitySourceError::InvalidRequest)?,
+                arguments.source.entity_type.as_deref(),
+                &selectors,
+                state.policy.graph_query,
+            )
+            .await
+    }
 }

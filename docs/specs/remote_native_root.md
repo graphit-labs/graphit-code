@@ -94,8 +94,8 @@ still validate the actual corpus contents and authority.
 A Lance snapshot has `kind: "lance"`, positive integer `dataset_version`,
 safe dataset-relative `manifest_path`, and `manifest_sha256` as 64 lowercase
 hexadecimal characters. An Icebug snapshot has `kind: "icebug"`,
-`manifest_path: "icebug.json"`, nonempty opaque `generation`, and the same digest
-field. Source/entity_search/wiki require Lance; graph requires Icebug. Optional components
+`manifest_path: "icebug.json"` and the same digest field. It has no duplicate
+`generation` field; the strict codec rejects that retired field. Source/entity_search/wiki require Lance; graph requires Icebug. Optional components
 are absent only when not declared. A declared missing object, denied read or invalid
 schema is an error, never optional absence.
 
@@ -188,8 +188,9 @@ is an error.
 Remote Icebug exposes the same parsed schema metadata and captured table handles.
 The CXX engine requests ranges from those handles, retaining captured object ETag
 and version on SDK requests; it does not download a complete graph or construct a
-second query evaluator. The descriptor's declared generation is compared with
-manifest_generation, separately from the reader's SHA-256 GraphGeneration.
+second query evaluator. Exact manifest bytes are checked against `manifest_sha256`.
+There is no duplicated descriptor generation, derived GraphGeneration or revision
+comparison. The native Icebug parser still validates its own required format fields.
 
 Remote Knowledge readers capture the single Wiki corpus at its declared SDK
 version, validate its physical manifest and documentary schema through EOF,
@@ -245,6 +246,14 @@ existing installation owner, lock and atomic replace. Restore/decode is data onl
 A reader explicitly matches Native versus RemoteNative after current admission.
 Local NativeOrigin cannot consume RemoteNative, and no s3 URI enters NativePath.
 Do not silently fall back to a local corpus on remote errors.
+
+App RemoteNative selection retains the authorized installation directory captured
+under the same Original and uses `HubRegistry::load_captured` for initial reads
+and rechecks. The registry keeps its configured logical parent and existing
+SourceRef/GlobalCache metadata; it is not rebuilt from the canonical IO path.
+Directory bounds come from the existing consumer policy, while the registry's
+own document bound remains authoritative. A foreign physical root, changed
+selection or interrupted Original fails before delivery with its real cause.
 
 The registry qualification uses the real NativeRoot codec and byte hash to cache
 native.json, then the actual HubWriter to register AST and Knowledge versions,
@@ -305,7 +314,7 @@ not qualify the 2026-10-27 layout.
 
 The codec/registry producer must exercise wrong identity/type/role, duplicate and
 unknown/null fields, unsafe/overlapping paths, zero dataset version, invalid
-manifest digest/generation, optional absence, both local and remote GlobalNative
+manifest digest, retired graph-generation fields, optional absence, both local and remote GlobalNative
 records, exact multiversion selection and rejecting host/project/derived mixtures.
 
 The native caller must use real SDK manifests and two versions, compare exact

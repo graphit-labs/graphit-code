@@ -3,13 +3,22 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-namespace lbug::main { class Database; }
 namespace graphit::icebug {
 struct GraphIo;
 struct QuerySignal;
 struct ResultSink;
 struct QueryOptions;
-void validate_live_query(rust::Str query);
-void run_query(rust::Box<GraphIo>, rust::Box<QuerySignal>, rust::Str schema,
+struct GraphMount;
+class NativeCatalog {
+public:
+    struct Impl;
+    std::unique_ptr<Impl> impl;
+    NativeCatalog(rust::Str schema,GraphMount mount,const QueryOptions& options);
+    ~NativeCatalog();
+};
+std::unique_ptr<NativeCatalog> prepare_catalog(rust::Box<GraphIo>,rust::Box<QuerySignal>,
+    rust::Str schema,GraphMount mount,const QueryOptions& options);
+void rebind_catalog(NativeCatalog&,rust::Box<GraphIo>,rust::Box<QuerySignal>,GraphMount mount);
+void run_query(const NativeCatalog&,rust::Box<GraphIo>, rust::Box<QuerySignal>,
     rust::Str query, rust::Str parameters, const QueryOptions& options, ResultSink& result);
 }

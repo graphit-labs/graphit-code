@@ -73,6 +73,15 @@ History validation compares borrowed creation/revision snapshots and returns the
 already owned current head after matching the complete chain, without copying
 the Memory body for every revision.
 
+Read capture opens the current dataset and consumes that new store with
+`LanceBranchStore::into_target`. It selects the opened Main observation without
+resolving Main a second time; retained stores still use `capture_target` to
+refresh their head. Both Main and the selected branch must match the complete
+Memory schema. Local capture/admission checks still surround opening and branch
+selection separately. Remote capture retains current admitted transport parameters,
+checks and the existing distinction between an absent dataset and failed selection.
+Each new operation opens the current head; an already captured pin keeps its version.
+
 Memory metadata/history and embedding-source scans consume one batch at a time.
 Their Lance scanners use native `fragment_readahead(1)` and `batch_readahead(1)`
 so parallel project jobs do not each pre-open and decode a large queue of files.
@@ -156,9 +165,14 @@ Requested logical version is `admission.project()?.version.version()`; only
 `lance_branch()` supplies the SDK branch selector. A named snapshot can inherit
 default rows, and materialization preserves those rows. Physical branch names
 or the absence of an inheritance marker cannot establish an attempt's original
-logical version. Actor comes from the write admission and its
-`Actor::write_identifier` representation of 64 lowercase hexadecimal bytes.
-An Actor is not a USER subject.
+logical version. Actor comes from the write admission. `Actor::identifier()`
+returns the ULID formed from the first 16 bytes of its originating digest; Records
+persists its canonical uppercase 26-character encoding. This is a 128-bit
+identifier truncation, not a bijection of the full SHA-256 value or a creation
+timestamp. Authorship, idempotency actors and caller bindings use that identity.
+The codec rejects the retired hexadecimal form and noncanonical aliases. An Actor
+is not a USER subject; credentials, MACs, fences and tokens retain their existing
+full-width security contracts.
 
 These checks preserve actual admission and conditional SDK publication. They
 do not establish atomic linearization between Auth revocation and the SDK

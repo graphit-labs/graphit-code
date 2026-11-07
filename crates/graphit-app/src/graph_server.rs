@@ -52,6 +52,7 @@ type NativeGate = (
 );
 
 struct Shared {
+    query_catalog: Arc<graphit_ast::icebug_query::QueryCatalog>,
     live_ast: Arc<crate::foreground_ast_sources::progressive::LiveAstRegistry>,
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     native_http: reqwest::Client,
@@ -76,6 +77,9 @@ struct ProjectAccess {
 #[derive(Clone)]
 pub struct GraphServer(Arc<Shared>);
 impl GraphServer {
+    pub(crate) fn query_catalog(&self) -> Arc<graphit_ast::icebug_query::QueryCatalog> {
+        Arc::clone(&self.0.query_catalog)
+    }
     pub(crate) fn live_ast(
         &self,
     ) -> Arc<crate::foreground_ast_sources::progressive::LiveAstRegistry> {
@@ -218,7 +222,7 @@ impl GraphServer {
             selected,
             Arc::clone(request.snapshot()),
         )?;
-        if source.entity.is_some() {
+        if source.has_entity() {
             capture.check(&state.policy, &access.config, &access.live)?;
         }
         let authority = ProjectRecordAuthority::new(state.auth.issuer());
@@ -248,7 +252,7 @@ impl GraphServer {
             )
             .await;
         admission.recheck().map_err(ReadError::Authentication)?;
-        if source.entity.is_some() {
+        if source.has_entity() {
             capture.check(&state.policy, &access.config, &access.live)?;
         } else {
             capture.check_active(&access.live)?;
@@ -329,8 +333,8 @@ impl GraphServer {
                 if name == "graphit_ast_neighborhood" {
                     for key in ["anchor_label", "relationship", "other_label"] {
                         properties.insert(key.into(), json!({"type":"string"}));
-                        required.push(key);
                     }
+                    required.push("anchor_label");
                     properties.insert("anchor_key".into(), json!({"type":"object"}));
                     properties.insert("direction".into(), json!({"enum":["outgoing","incoming"]}));
                     properties.insert(
@@ -338,7 +342,7 @@ impl GraphServer {
                         json!({"type":"integer","minimum":1,"maximum":1000}),
                     );
                     properties.insert("cursor".into(), json!({"type":"object"}));
-                    required.extend(["anchor_key", "direction", "limit"]);
+                    required.extend(["anchor_key", "limit"]);
                 }
                 rmcp::model::Tool::new(
                     name,
@@ -478,6 +482,7 @@ impl GraphServer {
             ));
         }
         Ok(Self(Arc::new(Shared {
+            query_catalog: Arc::new(graphit_ast::icebug_query::QueryCatalog::new()),
             live_ast: Arc::default(),
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             native_http: reqwest::Client::builder()
@@ -841,23 +846,36 @@ struct Neighborhood {
     id: String,
     version: String,
     anchor_label: String,
-    anchor_key: Anchor,
-    relationship: String,
-    other_label: String,
-    direction: Direction,
+    anchor_key: GraphKey,
+    relationship: Option<String>,
+    other_label: Option<String>,
+    direction: Option<Direction>,
     limit: usize,
     cursor: Option<Cursor>,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(
     tag = "type",
     content = "value",
     deny_unknown_fields,
     rename_all = "snake_case"
 )]
-enum Anchor {
+pub enum GraphKey {
     String(String),
     Int64(String),
+}
+impl GraphKey {
+    pub(crate) fn native(&self) -> io::Result<GraphAnchorKey<'_>> {
+        match self {
+            Self::String(value) => Ok(GraphAnchorKey::String(value)),
+            Self::Int64(value) => value.parse().map(GraphAnchorKey::Int64).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid graph INT64 key")
+            }),
+        }
+    }
+    pub(crate) fn schema() -> serde_json::Value {
+        serde_json::json!({"type":"object","properties":{"type":{"enum":["string","int64"]},"value":{"type":"string"}},"required":["type","value"],"additionalProperties":false})
+    }
 }
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -865,12 +883,108 @@ enum Direction {
     Outgoing,
     Incoming,
 }
+/// Logical query binding only. It contains no snapshot, revision or authority.
+#[derive(Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub(crate) enum NeighborhoodScope {
+    Project {
+        project: String,
+        version: String,
+    },
+    Imported {
+        installation: String,
+        id: String,
+        version: String,
+    },
+}
+impl NeighborhoodScope {
+    fn bind(&self, query: [u8; 32]) -> Result<[u8; 32], ReadFailure> {
+        use sha2::{Digest, Sha256};
+        let mut hash = Sha256::new();
+        hash.update(b"graphit/neighborhood-logical-query/v1\0");
+        hash.update(query);
+        hash.update(
+            serde_json::to_vec(self)
+                .map_err(|error| ReadFailure::Output(io::Error::other(error)))?,
+        );
+        Ok(hash.finalize().into())
+    }
+}
+fn imported_scope(
+    state: &Shared,
+    id: &ArtifactId,
+    version: &ConcreteVersion,
+) -> Result<NeighborhoodScope, ReadFailure> {
+    let graphit_core::artifact_store::StoreOwner::Installation { installation_id } =
+        state.auth.installation().live.owner()
+    else {
+        return Err(ReadFailure::Context);
+    };
+    Ok(NeighborhoodScope::Imported {
+        installation: installation_id.as_str().into(),
+        id: id.as_str().into(),
+        version: version.as_str().into(),
+    })
+}
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Cursor {
-    generation: [u8; 32],
     fingerprint: [u8; 32],
-    last_uid: String,
+    position: PositionData,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct PositionData {
+    uid: String,
+    relationship: String,
+    from_label: String,
+    from_key: GraphKey,
+    to_label: String,
+    to_key: GraphKey,
+    occurrence: String,
+}
+#[derive(Serialize)]
+struct CursorWire<'a> {
+    fingerprint: [u8; 32],
+    position: PositionWire<'a>,
+}
+#[derive(Serialize)]
+struct PositionWire<'a> {
+    uid: &'a str,
+    relationship: &'a str,
+    from_label: &'a str,
+    from_key: PropertyValue<'a>,
+    to_label: &'a str,
+    to_key: PropertyValue<'a>,
+    occurrence: String,
+}
+impl PositionData {
+    fn native(&self) -> Result<graphit_data::GraphNeighborhoodPosition<'_>, ReadFailure> {
+        Ok(graphit_data::GraphNeighborhoodPosition {
+            uid: &self.uid,
+            relationship: &self.relationship,
+            from_label: &self.from_label,
+            from_key: anchor_key(&self.from_key)?,
+            to_label: &self.to_label,
+            to_key: anchor_key(&self.to_key)?,
+            occurrence: self.occurrence.parse().map_err(|_| ReadFailure::BadInput)?,
+        })
+    }
+}
+fn position_wire(position: graphit_data::GraphNeighborhoodPosition<'_>) -> PositionWire<'_> {
+    let key = |key| match key {
+        GraphAnchorKey::String(value) => PropertyValue::String(value),
+        GraphAnchorKey::Int64(value) => PropertyValue::Int64(value.to_string()),
+    };
+    PositionWire {
+        uid: position.uid,
+        relationship: position.relationship,
+        from_label: position.from_label,
+        from_key: key(position.from_key),
+        to_label: position.to_label,
+        to_key: key(position.to_key),
+        occurrence: position.occurrence.to_string(),
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -884,10 +998,10 @@ pub(crate) struct QueryData {
 #[serde(deny_unknown_fields)]
 pub(crate) struct NeighborhoodData {
     anchor_label: String,
-    anchor_key: Anchor,
-    relationship: String,
-    other_label: String,
-    direction: Direction,
+    anchor_key: GraphKey,
+    relationship: Option<String>,
+    other_label: Option<String>,
+    direction: Option<Direction>,
     limit: usize,
     cursor: Option<Cursor>,
 }
@@ -921,7 +1035,10 @@ struct ProjectRequest {
 }
 
 enum GraphView<'a, 'r> {
-    Installed(Box<ImportedGraph<'a, 'r>>),
+    Installed(
+        Box<ImportedGraph<'a, 'r>>,
+        Arc<graphit_core::file_io::SnapshotContext>,
+    ),
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     Remote(
         Arc<graphit_data::remote_graph::RemoteIcebugGraph>,
@@ -936,7 +1053,7 @@ enum GraphView<'a, 'r> {
 impl GraphView<'_, '_> {
     fn schema(&self) -> Result<graphit_data::GraphSchema<'_>, ReadFailure> {
         match self {
-            Self::Installed(graph) => graph.schema().map_err(Into::into),
+            Self::Installed(graph, _) => graph.schema().map_err(Into::into),
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             Self::Remote(graph, _) => Ok(graph.schema()),
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -945,15 +1062,23 @@ impl GraphView<'_, '_> {
                 .map_err(|e| ImportedGraphError::Graph(e).into()),
         }
     }
-    fn generation(&self) -> Result<graphit_data::GraphGeneration, ReadFailure> {
-        Ok(self.schema()?.generation())
+    fn revalidate(&self) -> Result<(), ReadFailure> {
+        match self {
+            Self::Installed(graph, _) => graph.revalidate().map_err(Into::into),
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            Self::Remote(_, original) => original.check().map_err(ReadFailure::Query),
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            Self::WebInstalled(graph, original) => {
+                graph.revalidate(original).map_err(native_graph_error)
+            }
+        }
     }
     fn sample_graph(
         &self,
         limits: GraphSampleLimits,
     ) -> Result<graphit_data::GraphSample, ReadFailure> {
         match self {
-            Self::Installed(graph) => graph.sample_graph(limits).map_err(Into::into),
+            Self::Installed(graph, _) => graph.sample_graph(limits).map_err(Into::into),
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             Self::Remote(graph, original) => tokio::runtime::Handle::current()
                 .block_on(graph.sample_graph(limits, Arc::clone(original)))
@@ -982,48 +1107,68 @@ impl GraphView<'_, '_> {
                         error,
                     )))
                 }),
-            Self::Installed(graph) => graph
-                .neighborhood_graph(request, limits)
-                .map_err(Into::into),
+            Self::Installed(graph, _) => {
+                let reader = graph.reader()?;
+                let result = local_neighborhood(reader, request, limits);
+                graph.revalidate()?;
+                result
+            }
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-            Self::WebInstalled(graph, _) => graph
-                .neighborhood_graph(request, limits)
-                .map_err(|e| ImportedGraphError::Graph(e).into()),
+            Self::WebInstalled(graph, original) => {
+                graph.revalidate(original).map_err(native_graph_error)?;
+                let result = local_neighborhood(graph, request, limits);
+                original.check().map_err(ReadFailure::Query)?;
+                graph.revalidate(original).map_err(native_graph_error)?;
+                result
+            }
         }
     }
     fn query(
         &self,
+        catalog: &graphit_ast::icebug_query::QueryCatalog,
         runtime: &tokio::runtime::Handle,
         input: &QueryData,
         options: graphit_ast::icebug_query::QueryOptions,
     ) -> Result<graphit_ast::icebug_query::QueryResult, ReadFailure> {
         match self {
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-            Self::Remote(graph, original) => graphit_ast::icebug_query::execute_remote(
-                graph,
-                original,
-                runtime,
-                &input.query,
-                &input.parameters,
-                options,
-            )
-            .map_err(ReadFailure::Query),
-            Self::Installed(graph) => graph
-                .query(runtime, &input.query, &input.parameters, options)
-                .map_err(|error| match error {
-                    ImportedGraphError::Operation(error) => ReadFailure::Query(error),
-                    error => ReadFailure::Imported(error),
-                }),
+            Self::Remote(graph, original) => catalog
+                .execute_remote(
+                    graph,
+                    original,
+                    runtime,
+                    &input.query,
+                    &input.parameters,
+                    options,
+                )
+                .map_err(ReadFailure::Query),
+            Self::Installed(graph, original) => {
+                let reader = graph.reader()?;
+                let result = catalog
+                    .execute(
+                        reader,
+                        original,
+                        runtime,
+                        &input.query,
+                        &input.parameters,
+                        options,
+                    )
+                    .map_err(ReadFailure::Query);
+                original.check().map_err(ReadFailure::Query)?;
+                graph.revalidate()?;
+                result
+            }
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-            Self::WebInstalled(graph, original) => graphit_ast::icebug_query::execute(
-                graph,
-                original,
-                runtime,
-                &input.query,
-                &input.parameters,
-                options,
-            )
-            .map_err(ReadFailure::Query),
+            Self::WebInstalled(graph, original) => catalog
+                .execute(
+                    graph,
+                    original,
+                    runtime,
+                    &input.query,
+                    &input.parameters,
+                    options,
+                )
+                .map_err(ReadFailure::Query),
         }
     }
 }
@@ -1293,7 +1438,7 @@ fn read(
     } else {
         open_imported_graph_runtime(state.auth.issuer(), raw, input)?
     };
-    let graph = GraphView::Installed(Box::new(graph));
+    let graph = GraphView::Installed(Box::new(graph), Arc::clone(request.snapshot()));
     let query = query.map(|input| QueryData {
         query: input.query,
         parameters: input.parameters,
@@ -1301,6 +1446,7 @@ fn read(
     let response = render_operation(
         state,
         &graph,
+        &imported_scope(state, &id, &version)?,
         operation,
         query,
         neighborhood.map(Into::into),
@@ -1345,7 +1491,14 @@ fn read_project(
             request: &request,
         },
         |capture| {
-            render_project_capture(state, capture, operation, input.query, input.neighborhood)
+            render_project_capture(
+                state,
+                paths,
+                capture,
+                operation,
+                input.query,
+                input.neighborhood,
+            )
         },
     )
     .map_err(ReadFailure::Project)?
@@ -1354,6 +1507,7 @@ fn read_project(
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
 fn render_project_capture(
     state: &Shared,
+    paths: &graphit_core::project_paths::ProjectPaths,
     capture: &crate::project_graph::PreparedRead,
     operation: Operation,
     query: Option<QueryData>,
@@ -1370,13 +1524,77 @@ fn render_project_capture(
         ))
         .map_err(ReadFailure::Project)?;
     if let Some(index) = capture.live_index() {
+        let (sample_limits, neighborhood_limits) =
+            if matches!(operation, Operation::Sample | Operation::Neighborhood) {
+                let config = crate::ast_profile_loader::project_config(
+                    &state.policy.installation,
+                    paths,
+                    &access.config,
+                    capture.original(),
+                )
+                .map_err(|error| {
+                    ReadFailure::Project(crate::project_graph::ReadError::Operation(error))
+                })?;
+                let limits = graphit_data::LocalGraphPolicy::resolve(&config, capture.original())
+                    .map_err(|error| ReadFailure::Query(io::Error::other(error)))?
+                    .limits();
+                let sample = if matches!(operation, Operation::Sample) {
+                    Some(
+                        GraphSampleLimits::new(
+                            300.min(state.policy.graph_query.max_rows),
+                            1000.min(state.policy.graph_query.max_rows),
+                            2300,
+                            state.policy.content.max_scalar_bytes,
+                            limits.query_decoded_rows,
+                            limits.max_pages,
+                            256.min(limits.query_decoded_rows),
+                        )
+                        .map_err(|error| ReadFailure::Query(io::Error::other(error)))?,
+                    )
+                } else {
+                    None
+                };
+                let neighborhood = if matches!(operation, Operation::Neighborhood) {
+                    Some(
+                        GraphNeighborhoodLimits::new(
+                            state.policy.content.max_scalar_bytes,
+                            limits.max_columns,
+                            limits.query_decoded_rows,
+                            limits.query_decoded_rows,
+                            limits.max_pages,
+                            256.min(limits.query_decoded_rows),
+                        )
+                        .map_err(native_graph_error)?,
+                    )
+                } else {
+                    None
+                };
+                (sample, neighborhood)
+            } else {
+                (None, None)
+            };
+
+        let project = capture.project();
+        let graphit_core::artifact_store::StoreOwner::Project { project_id } =
+            project.scope.live.owner()
+        else {
+            return Err(ReadFailure::Context);
+        };
+        let scope = NeighborhoodScope::Project {
+            project: project_id.to_string(),
+            version: project.version.version().into(),
+        };
         let result = live::render_live(
             &index.graph,
+            &state.query_catalog,
             capture.original(),
+            &scope,
             operation,
             query,
             neighborhood,
             state.policy.graph_query,
+            sample_limits,
+            neighborhood_limits,
             state.policy.content.max_output_bytes,
         );
         capture
@@ -1446,19 +1664,26 @@ fn select_project(
 fn render_operation(
     state: &Shared,
     graph: &GraphView<'_, '_>,
+    scope: &NeighborhoodScope,
     operation: Operation,
     query: Option<QueryData>,
     neighborhood: Option<NeighborhoodData>,
     policy: graphit_data::LocalGraphPolicy,
 ) -> Result<Vec<u8>, ReadFailure> {
     let limits = policy.limits();
+    graph.revalidate()?;
     let response = match operation {
         Operation::Imports => return Err(ReadFailure::BadInput),
         Operation::Query => {
             let input = query.ok_or(ReadFailure::BadInput)?;
             let runtime = tokio::runtime::Handle::try_current()
                 .map_err(|error| ReadFailure::Output(io::Error::other(error)))?;
-            let result = graph.query(&runtime, &input, state.policy.graph_query)?;
+            let result = graph.query(
+                &state.query_catalog,
+                &runtime,
+                &input,
+                state.policy.graph_query,
+            )?;
             encode(&result, state.policy.content.max_output_bytes)?
         }
         Operation::Schema => encode(
@@ -1477,24 +1702,7 @@ fn render_operation(
             )
             .map_err(ImportedGraphError::Graph)?;
             encode(
-                &sample_wire(
-                    &graph.sample_graph(limits)?,
-                    match graph {
-                        GraphView::Installed(_) => false,
-                        #[cfg(any(
-                            target_os = "linux",
-                            target_os = "windows",
-                            target_os = "macos"
-                        ))]
-                        GraphView::Remote(..) => false,
-                        #[cfg(any(
-                            target_os = "linux",
-                            target_os = "windows",
-                            target_os = "macos"
-                        ))]
-                        GraphView::WebInstalled(..) => true,
-                    },
-                ),
+                &sample_wire(&graph.sample_graph(limits)?),
                 state.policy.content.max_output_bytes,
             )?
         }
@@ -1503,24 +1711,7 @@ fn render_operation(
             if input.limit == 0 || input.limit > 1000 {
                 return Err(ReadFailure::BadInput);
             }
-            let generation = graph.generation()?;
-            let cursor = match &input.cursor {
-                Some(cursor) if cursor.generation == generation.bytes() => {
-                    Some(GraphNeighborhoodCursor::from_parts(
-                        generation,
-                        cursor.fingerprint,
-                        &cursor.last_uid,
-                    ))
-                }
-                Some(_) => return Err(ReadFailure::BadInput),
-                None => None,
-            };
-            let anchor_key = match &input.anchor_key {
-                Anchor::String(value) => GraphAnchorKey::String(value),
-                Anchor::Int64(value) => {
-                    GraphAnchorKey::Int64(value.parse().map_err(|_| ReadFailure::BadInput)?)
-                }
-            };
+            let request = neighborhood_request(&input, scope)?;
             let limits = GraphNeighborhoodLimits::new(
                 state.policy.content.max_scalar_bytes,
                 limits.max_columns,
@@ -1530,29 +1721,76 @@ fn render_operation(
                 256.min(limits.query_decoded_rows),
             )
             .map_err(ImportedGraphError::Graph)?;
-            let page = graph.neighborhood_graph(
-                GraphNeighborhoodRequest {
-                    anchor_label: &input.anchor_label,
-                    anchor_key,
-                    relationship: &input.relationship,
-                    other_label: &input.other_label,
-                    direction: match input.direction {
-                        Direction::Outgoing => GraphDirection::Outgoing,
-                        Direction::Incoming => GraphDirection::Incoming,
-                    },
-                    limit: input.limit,
-                    cursor,
-                },
-                limits,
-            )?;
+            let page = graph.neighborhood_graph(request, limits)?;
             encode(
-                &neighborhood_wire(&page),
+                &neighborhood_wire(&page, scope)?,
                 state.policy.content.max_output_bytes,
             )?
         }
     };
-    graph.generation()?;
+    graph.revalidate()?;
     Ok(response)
+}
+
+fn local_neighborhood(
+    graph: &graphit_data::CapturedLocalGraph,
+    request: GraphNeighborhoodRequest<'_>,
+    limits: GraphNeighborhoodLimits,
+) -> Result<graphit_data::GraphNeighborhoodPage, ReadFailure> {
+    let anchor = graph
+        .resolve_node(request.anchor_label, request.anchor_key, limits)
+        .map_err(native_graph_error)?;
+    graph
+        .neighborhood_graph_at(&anchor, request, limits)
+        .map_err(native_graph_error)
+}
+fn native_graph_error(error: graphit_data::DataReadError) -> ReadFailure {
+    use graphit_data::DataReadError as E;
+    match error {
+        E::Source(error) => ReadFailure::Query(error),
+        E::InvalidNeighborhoodRequest
+        | E::InvalidCursor
+        | E::UnknownNodeLabel
+        | E::UnknownRelationship
+        | E::UnavailableRelationshipEndpoint
+        | E::InvalidAnchorKey
+        | E::AnchorNotFound => {
+            ReadFailure::Query(io::Error::new(io::ErrorKind::InvalidInput, error))
+        }
+        _ => ReadFailure::Imported(ImportedGraphError::Graph(error)),
+    }
+}
+fn anchor_key(anchor: &GraphKey) -> Result<GraphAnchorKey<'_>, ReadFailure> {
+    anchor.native().map_err(ReadFailure::Query)
+}
+fn neighborhood_request<'a>(
+    input: &'a NeighborhoodData,
+    scope: &NeighborhoodScope,
+) -> Result<GraphNeighborhoodRequest<'a>, ReadFailure> {
+    let mut request = GraphNeighborhoodRequest {
+        anchor_label: &input.anchor_label,
+        anchor_key: anchor_key(&input.anchor_key)?,
+        relationship: input.relationship.as_deref(),
+        other_label: input.other_label.as_deref(),
+        direction: input.direction.as_ref().map(|direction| match direction {
+            Direction::Outgoing => GraphDirection::Outgoing,
+            Direction::Incoming => GraphDirection::Incoming,
+        }),
+        limit: input.limit,
+        cursor: None,
+    };
+    if let Some(cursor) = &input.cursor {
+        let fingerprint =
+            graphit_data::neighborhood_fingerprint(&request).map_err(native_graph_error)?;
+        if scope.bind(fingerprint)? != cursor.fingerprint {
+            return Err(ReadFailure::BadInput);
+        }
+        request.cursor = Some(GraphNeighborhoodCursor::from_parts(
+            fingerprint,
+            cursor.position.native()?,
+        ));
+    }
+    Ok(request)
 }
 
 // Enforce the actual JSON output boundary while serde writes bytes, not a heap estimate.
@@ -1587,7 +1825,6 @@ fn encode(value: &impl Serialize, maximum: usize) -> Result<Vec<u8>, ReadFailure
 
 #[derive(Serialize)]
 struct Schema<'a> {
-    generation: [u8; 32],
     nodes: Vec<NodeSchema<'a>>,
     relationships: Vec<RelationshipSchema<'a>>,
 }
@@ -1626,7 +1863,6 @@ impl Serialize for RelationshipSchema<'_> {
 }
 fn schema_wire<'a>(schema: &'a graphit_data::GraphSchema<'a>) -> Schema<'a> {
     Schema {
-        generation: schema.generation().bytes(),
         nodes: schema.node_tables().map(NodeSchema).collect(),
         relationships: schema.relationships().map(RelationshipSchema).collect(),
     }
@@ -1661,7 +1897,6 @@ struct EdgeId {
 }
 #[derive(Serialize)]
 struct Sample<'a> {
-    generation: [u8; 32],
     nodes: Vec<Node<'a>>,
     edges: Vec<Edge<'a>>,
 }
@@ -1686,9 +1921,8 @@ struct Edge<'a> {
     relationship: &'a str,
     uid: &'a str,
 }
-fn sample_wire(sample: &graphit_data::GraphSample, native: bool) -> Sample<'_> {
+fn sample_wire(sample: &graphit_data::GraphSample) -> Sample<'_> {
     Sample {
-        generation: sample.generation().bytes(),
         nodes: sample
             .nodes()
             .iter()
@@ -1701,7 +1935,7 @@ fn sample_wire(sample: &graphit_data::GraphSample, native: bool) -> Sample<'_> {
                 cluster: n.cluster(),
                 lang: n.lang(),
                 line: n.line().map(|v| v.to_string()),
-                primary_key: native.then(|| n.primary_key()).flatten().map(property),
+                primary_key: n.primary_key().map(property),
             })
             .collect(),
         edges: sample
@@ -1722,16 +1956,16 @@ fn sample_wire(sample: &graphit_data::GraphSample, native: bool) -> Sample<'_> {
 }
 #[derive(Serialize)]
 struct NeighborhoodPage<'a> {
-    generation: [u8; 32],
     anchor: NodeId,
     nodes: Vec<PropertyNode<'a>>,
     edges: Vec<PropertyEdge<'a>>,
-    next_cursor: Option<Cursor>,
+    next_cursor: Option<CursorWire<'a>>,
 }
 #[derive(Serialize)]
 struct PropertyNode<'a> {
     id: NodeId,
     label: &'a str,
+    primary_key: Property<'a>,
     properties: Vec<Property<'a>>,
 }
 #[derive(Serialize)]
@@ -1741,6 +1975,7 @@ struct PropertyEdge<'a> {
     to: NodeId,
     relationship: &'a str,
     uid: &'a str,
+    position: PositionWire<'a>,
     properties: Vec<Property<'a>>,
 }
 #[derive(Serialize)]
@@ -1770,9 +2005,20 @@ fn property(p: &graphit_data::GraphProperty) -> Property<'_> {
 fn properties(values: &[graphit_data::GraphProperty]) -> Vec<Property<'_>> {
     values.iter().map(property).collect()
 }
-fn neighborhood_wire(page: &graphit_data::GraphNeighborhoodPage) -> NeighborhoodPage<'_> {
-    NeighborhoodPage {
-        generation: page.generation().bytes(),
+fn neighborhood_wire<'a>(
+    page: &'a graphit_data::GraphNeighborhoodPage,
+    scope: &NeighborhoodScope,
+) -> Result<NeighborhoodPage<'a>, ReadFailure> {
+    let next_cursor = page
+        .next_cursor()
+        .map(|cursor| {
+            Ok::<_, ReadFailure>(CursorWire {
+                fingerprint: scope.bind(cursor.query_fingerprint())?,
+                position: position_wire(cursor.position()),
+            })
+        })
+        .transpose()?;
+    Ok(NeighborhoodPage {
         anchor: node_id(page.anchor()),
         nodes: page
             .nodes()
@@ -1780,6 +2026,7 @@ fn neighborhood_wire(page: &graphit_data::GraphNeighborhoodPage) -> Neighborhood
             .map(|n| PropertyNode {
                 id: node_id(n.id()),
                 label: n.label(),
+                primary_key: property(n.primary_key()),
                 properties: properties(n.properties()),
             })
             .collect(),
@@ -1795,13 +2042,10 @@ fn neighborhood_wire(page: &graphit_data::GraphNeighborhoodPage) -> Neighborhood
                 to: node_id(e.to()),
                 relationship: e.relationship(),
                 uid: e.uid(),
+                position: position_wire(e.position()),
                 properties: properties(e.properties()),
             })
             .collect(),
-        next_cursor: page.next_cursor().map(|c| Cursor {
-            generation: c.generation().bytes(),
-            fingerprint: c.query_fingerprint(),
-            last_uid: c.last_uid().into(),
-        }),
-    }
+        next_cursor,
+    })
 }

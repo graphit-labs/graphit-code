@@ -111,13 +111,22 @@ impl CapturedAstContext<'_> {
             GraphPin::Project => {
                 let index = self.project_index().await?;
                 self.recheck()?;
+                let catalog = self.server.query_catalog();
+                let scope = crate::graph_server::NeighborhoodScope::Project {
+                    project: self.selected.selection.id.clone(),
+                    version: self.selected.selection.version.clone(),
+                };
                 let bytes = crate::graph_server::live::render_live(
                     &index.graph,
+                    &catalog,
                     &self.original,
+                    &scope,
                     crate::graph_server::Operation::Schema,
                     None,
                     None,
                     self.source.policy().graph_query,
+                    None,
+                    None,
                     self.source.policy().content.max_output_bytes,
                 )
                 .map_err(|error| match error {
@@ -144,6 +153,7 @@ impl CapturedAstContext<'_> {
         let original = Arc::clone(&self.original);
         let runtime = tokio::runtime::Handle::current();
         let options = self.source.policy().graph_query;
+        let catalog = self.server.query_catalog();
         #[cfg(all(test, target_os = "linux"))]
         let join_gate = take_query_join(&original);
         let result = match &self.graph {
@@ -152,10 +162,19 @@ impl CapturedAstContext<'_> {
                 self.recheck()?;
                 let index = Arc::clone(&index);
                 tokio::task::spawn_blocking(move || {
-                    let result =
-                        index
-                            .graph
-                            .query(&input.query, &input.parameters, options, &original);
+                    let result = index
+                        .graph
+                        .with_graph(&original, |graph| {
+                            catalog.execute(
+                                graph,
+                                &original,
+                                &runtime,
+                                &input.query,
+                                &input.parameters,
+                                options,
+                            )
+                        })
+                        .and_then(|result| result);
                     #[cfg(all(test, target_os = "linux"))]
                     if let Some(gate) = join_gate {
                         gate.after_execute(result.is_ok())?;
@@ -168,7 +187,7 @@ impl CapturedAstContext<'_> {
             GraphPin::Local(graph) => {
                 let graph = Arc::clone(graph);
                 tokio::task::spawn_blocking(move || {
-                    let result = graphit_ast::icebug_query::execute(
+                    let result = catalog.execute(
                         &graph,
                         &original,
                         &runtime,
@@ -188,7 +207,7 @@ impl CapturedAstContext<'_> {
             GraphPin::Remote(graph) => {
                 let graph = Arc::clone(graph);
                 tokio::task::spawn_blocking(move || {
-                    let result = graphit_ast::icebug_query::execute_remote(
+                    let result = catalog.execute_remote(
                         &graph,
                         &original,
                         &runtime,
@@ -231,7 +250,7 @@ impl CapturedAstContext<'_> {
                     SourceIndexPresence::Absent => None,
                     SourceIndexPresence::Available(raw) => Some(raw),
                 };
-                let entity = if input.entity.is_some() {
+                let entity = if input.has_entity() {
                     Some(self.project_entity(input).await?)
                 } else {
                     None
@@ -308,7 +327,7 @@ impl CapturedAstContext<'_> {
                     Reader::Project { .. } => unreachable!(),
                 }
                 .ok_or_else(absent)?;
-                let window = if input.entity.is_some() {
+                let window = if input.has_entity() {
                     Some(self.entity_window(input).await?)
                 } else {
                     None
@@ -353,15 +372,9 @@ impl CapturedAstContext<'_> {
             let input = input.clone();
             let options = self.source.policy().graph_query;
             return tokio::task::spawn_blocking(move || {
-                graphit_ast::project_entity_source::resolve_live_project_entity_source(
-                    &index.graph,
-                    &original,
-                    &input.path,
-                    input.entity.as_deref().ok_or_else(invalid)?,
-                    input.entity_type.as_deref(),
-                    options,
-                )
-                .map_err(io::Error::other)
+                input
+                    .resolve_live_entity(&index.graph, &original, options)
+                    .map_err(io::Error::other)
             })
             .await
             .map_err(io::Error::other)?;
@@ -375,16 +388,9 @@ impl CapturedAstContext<'_> {
         let options = self.source.policy().graph_query;
         let runtime = tokio::runtime::Handle::current();
         tokio::task::spawn_blocking(move || {
-            graphit_ast::project_entity_source::resolve_project_entity_source(
-                &graph,
-                &original,
-                &runtime,
-                &input.path,
-                input.entity.as_deref().ok_or_else(invalid)?,
-                input.entity_type.as_deref(),
-                options,
-            )
-            .map_err(io::Error::other)
+            input
+                .resolve_project_entity(&graph, &original, &runtime, options)
+                .map_err(io::Error::other)
         })
         .await
         .map_err(io::Error::other)?
@@ -399,16 +405,9 @@ impl CapturedAstContext<'_> {
             GraphPin::Local(graph) => {
                 let graph = Arc::clone(graph);
                 tokio::task::spawn_blocking(move || {
-                    graphit_ast::imported_graph::resolve_imported_entity_window(
-                        &graph,
-                        &original,
-                        &runtime,
-                        &input.path,
-                        input.entity.as_deref().ok_or_else(invalid)?,
-                        input.entity_type.as_deref(),
-                        options,
-                    )
-                    .map_err(io::Error::other)
+                    input
+                        .resolve_imported_window(&graph, &original, &runtime, options)
+                        .map_err(io::Error::other)
                 })
                 .await
                 .map_err(io::Error::other)?
@@ -416,16 +415,9 @@ impl CapturedAstContext<'_> {
             GraphPin::Remote(graph) => {
                 let graph = Arc::clone(graph);
                 tokio::task::spawn_blocking(move || {
-                    graphit_ast::imported_graph::resolve_remote_entity_window(
-                        &graph,
-                        &original,
-                        &runtime,
-                        &input.path,
-                        input.entity.as_deref().ok_or_else(invalid)?,
-                        input.entity_type.as_deref(),
-                        options,
-                    )
-                    .map_err(io::Error::other)
+                    input
+                        .resolve_remote_window(&graph, &original, &runtime, options)
+                        .map_err(io::Error::other)
                 })
                 .await
                 .map_err(io::Error::other)?

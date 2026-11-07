@@ -5,6 +5,7 @@ import { StyledSelect } from "@/components/shared/StyledSelect";
 import { WorkBadge, WorkEmpty, WorkSearch } from "@/components/shared/EngineeringUI";
 import { groupGraph, groupOf, languageOf, clusterOf, observedGraph, type Grouping } from "./relationshipModel";
 import "./relationship-explorer.css";
+import { NativeEntityDetails } from "./NativeEntityDetails";
 import { usePageRefresh } from "@/components/layout/WorkspaceRefresh";
 import type { Neighborhood, NeighborhoodLoader } from "./neighborhood";
 
@@ -15,15 +16,16 @@ interface Props {
   loadNeighborhood?: NeighborhoodLoader;
   loading?: boolean;
   error?: boolean;
+  scope?: string;
 }
 const entityIdentity = (n: GraphNode): string | null => {
-  if (n.nativeIdentity) return n.id;
+  if (n.nativeKey) return JSON.stringify([n.label, n.nativeKey.type, n.nativeKey.value]);
   const identity = n.label === "File" || n.label === "Directory" ? n.properties?.path : n.properties?.uid;
   return typeof identity === "string" && identity ? JSON.stringify([n.label, identity]) : null;
 };
 const groupingLabels: Record<Grouping, string> = { directory: "Directory", file: "File", language: "Language", cluster: "Configured cluster" };
 
-export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood, loading = false, error = false }: Props) {
+export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood, loading = false, error = false, scope }: Props) {
   const [grouping, setGrouping] = useState<Grouping>("directory");
   const [groupName, setGroupName] = useState<string | null>(null);
   const [focusId, setFocusId] = useState<string | null>(null);
@@ -44,7 +46,7 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
       const data = await loadNeighborhood(node, previous, controller.signal);
       if (!controller.signal.aborted) setNeighborhood(data);
     } catch (e) {
-      if (!controller.signal.aborted) setNeighborhoodError((e as Error).message);
+      if (!controller.signal.aborted) setNeighborhoodError(e instanceof Error && e.message ? e.message : "The relationship request failed.");
     } finally {
       if (!controller.signal.aborted) setNeighborhoodLoading(false);
     }
@@ -73,8 +75,7 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
   const incoming = focus ? evidence.links.filter(e => e.target === focus.id && e.source !== focus.id) : [];
   const outgoing = focus ? evidence.links.filter(e => e.source === focus.id && e.target !== focus.id) : [];
   const self = focus ? evidence.links.filter(e => e.source === focus.id && e.target === focus.id) : [];
-  const pending = neighborhood?.partitions.filter(p => p.more || p.error) || [];
-  const failed = neighborhood?.partitions.filter(p => p.error) || [];
+  const pending = Boolean(neighborhood && neighborhood.nextCursor !== null);
   const select = (n: GraphNode | null) => {
     request.current?.abort();
     const identity = n ? entityIdentity(n) : null;
@@ -98,7 +99,7 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
   const clearFilters = () => { setFilter(""); setLanguage(""); setEntityType(""); setEdgeType(""); };
   function entity(n: GraphNode, prefix: string) {
     return <button key={prefix + n.id} className="relationship-entity" onClick={() => follow(n)}>
-      <span className="relationship-entity-name"><span>{n.properties?.search_rank != null && <>#{String(n.properties.search_rank)} </>}{n.name || n.id}</span><ArrowRight size={14} aria-hidden="true" /></span>
+      <span className="relationship-entity-name"><span>{n.properties?.search_rank != null && <>#{String(n.properties.search_rank)} </>}{n.name || n.label}</span><ArrowRight size={14} aria-hidden="true" /></span>
       <span className="relationship-entity-location">{n.file || "No indexed source path"}{n.line ? `:${n.line}` : ""}</span>
       <span className="relationship-entity-meta">{n.label} <span>{languageOf(n)}</span></span>
       {typeof n.properties?.rerank_score === "number" && <span className="relationship-entity-meta">Rerank score: {String(n.properties.rerank_score)}</span>}
@@ -114,7 +115,7 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
         {entity(endpoint, prefix)}
         {!focus && <small>{side === "incoming" ? "To " : "From "}<button className="relationship-inline" onClick={() => follow(inner)}>{inner.name}</button></small>}
       </div>;
-    }) : <p className="relationship-none">{selectionError ? "Relationship coverage is unavailable." : focus && loadNeighborhood ? (neighborhoodLoading ? "Loading " + side + " relationships…" : neighborhoodError || failed.length ? "Relationship coverage is incomplete." : "No " + side + " relationships found in the queried index.") : "No " + side + " relationships in this result."}</p>;
+    }) : <p className="relationship-none">{selectionError ? "Relationship coverage is unavailable." : focus && loadNeighborhood ? (neighborhoodLoading ? "Loading " + side + " relationships…" : neighborhoodError || pending ? (side === "incoming" ? "Incoming" : "Outgoing") + " relationships have not been fully loaded." : "No " + side + " relationships found in the queried index.") : "No " + side + " relationships in this result."}</p>;
   }
   return <section className="relationship-explorer" aria-label="Relationship exploration">
     <div className="relationship-filters">
@@ -148,18 +149,18 @@ export function RelationshipExplorer({ nodes, links, onInspect, loadNeighborhood
         {selectionError && <p role="alert">{selectionError}</p>}
         {!active && !focus ? <WorkEmpty title="No matching entities" action={<button className="work-button" onClick={clearFilters}>Clear filters</button>}>Try another path, name or filter.</WorkEmpty> : focus ? <>
           <header className="relationship-reader-header"><div className="relationship-breadcrumb"><button className="work-button" onClick={() => { select(null); setHistory([]); }}>All boundaries</button>{history.length > 0 && <button className="work-button" onClick={() => { select(history[history.length-1]); setHistory(h => h.slice(0,-1)); }}><ArrowLeft size={14} />Back</button>}<span>Entity neighborhood</span></div>
-            <div className="relationship-focus-heading"><div><WorkBadge>{focus.label}</WorkBadge><h2>{focus.name || focus.id}</h2><code>{focus.file || "No indexed source path"}{focus.line ? `:${focus.line}` : ""}</code></div><button className="work-button primary" onClick={() => onInspect(focus)}><FileCode2 size={16} />Inspect source & impact</button></div>
+            <div className="relationship-focus-heading"><div><WorkBadge>{focus.label}</WorkBadge><h2>{focus.name || focus.label}</h2><code>{focus.file || "No indexed source path"}{focus.line ? `:${focus.line}` : ""}</code></div><button className="work-button primary" onClick={() => onInspect(focus)}><FileCode2 size={16} />Inspect source & impact</button></div>
           </header>
           {loadNeighborhood && !selectionError && <div className="relationship-neighborhood-status" aria-live="polite">
-            <p>{neighborhoodLoading ? "Loading indexed neighborhood…" : "Direct relationships from the selected index. Search results and catalogue remain unchanged."}</p>
+            {neighborhoodLoading && <p>{neighborhood ? "Loading more relationships…" : "Loading indexed neighborhood…"}</p>}
+            {neighborhood && <p>{evidence.links.length} {evidence.links.length === 1 ? "relationship" : "relationships"} loaded. {(neighborhoodLoading || neighborhoodError || pending) ? "Evidence is partial." : "This neighborhood read is complete."}</p>}
             {neighborhoodError && <p role="alert">{neighborhoodError}</p>}
-            {failed.length > 0 && <details><summary>{failed.length} relationship queries failed · partial evidence</summary><ul>{failed.map(p => <li key={[p.direction,p.type,p.target.label].join(":")}>{p.direction} · {p.type} · {p.target.label}: {p.error}</li>)}</ul></details>}
-            {pending.some(p => p.more && !p.error) && <p>More relationships are available. Up to 100 neighbors per direction, relationship and entity type are loaded at a time.</p>}
-            {!neighborhoodLoading && (neighborhoodError || pending.length > 0) && <button className="work-button" onClick={() => void fetchNeighborhood(focus, neighborhood || undefined)}>{neighborhoodError ? "Retry neighborhood" : failed.length ? "Retry / load remaining relationships" : "Load more relationships"}</button>}
+            {pending && <p>More relationships are available. Up to 100 relationships are loaded per page, across incoming and outgoing types.</p>}
+            {!neighborhoodLoading && (neighborhoodError || pending) && <button className="work-button" onClick={() => { reader.current?.focus({ preventScroll: true }); void fetchNeighborhood(focus, neighborhood || undefined); }}>{neighborhoodError ? "Retry neighborhood" : "Load more relationships"}</button>}
           </div>}
           <div className="relationship-flow">
             <section><h3>Incoming <span>{incoming.length}</span></h3><p>Entities pointing to this one</p>{edges(incoming,"incoming","focus-in")}</section>
-            <section className="relationship-anchor"><Crosshair size={22} aria-hidden="true" /><span>Selected entity</span><strong>{focus.name || focus.id}</strong><WorkBadge>{languageOf(focus)}</WorkBadge><dl><dt>UID</dt><dd><code>{typeof focus.properties?.uid === "string" ? focus.properties.uid : "Unavailable"}</code></dd>{focus.nativeKey && <><dt>Primary key</dt><dd><code>{focus.nativeKey.value}</code> ({focus.nativeKey.type})</dd></>}<dt>Directory</dt><dd>{groupOf(focus,"directory")}</dd><dt>Configured cluster</dt><dd>{clusterOf(focus)}</dd></dl>{self.length > 0 && <p>Self relationships: {self.map(e=>e.type).join(", ")}</p>}</section>
+            <section className="relationship-anchor"><Crosshair size={22} aria-hidden="true" /><span>Selected entity</span><strong>{focus.name || focus.label}</strong><WorkBadge>{languageOf(focus)}</WorkBadge><dl><dt>Directory</dt><dd>{groupOf(focus,"directory")}</dd><dt>Configured cluster</dt><dd>{clusterOf(focus)}</dd></dl><NativeEntityDetails key={focus.id} node={focus} scope={scope} />{self.length > 0 && <p>Self relationships: {self.map(e=>e.type).join(", ")}</p>}</section>
             <section><h3>Outgoing <span>{outgoing.length}</span></h3><p>Entities this one points to</p>{edges(outgoing,"outgoing","focus-out")}</section>
           </div>
         </> : active && <>

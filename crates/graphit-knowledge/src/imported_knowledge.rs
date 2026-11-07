@@ -497,6 +497,70 @@ impl<'a> CapturedImportedKnowledge<'a> {
         self.revalidate()?;
         Ok(page)
     }
+
+    /// Resolve an authored Markdown source on this already admitted artifact pin.
+    pub async fn head_by_slug(
+        &self,
+        slug: &str,
+        limits: KnowledgeHeadReadLimits,
+    ) -> Result<Option<graphit_data::knowledge_index::KnowledgeHead>, ImportedKnowledgeReadError>
+    {
+        self.revalidate()?;
+        let mut failure = None;
+        let result =
+            graphit_data::knowledge_snapshot::read_knowledge_head_by_slug_snapshot_guarded(
+                self.admission.request().snapshot(),
+                &self.snapshot,
+                slug,
+                limits,
+                || match self.revalidate() {
+                    Ok(()) => Ok(()),
+                    Err(error) => {
+                        failure = Some(error);
+                        Err(KnowledgeIndexError::InvalidField("external_guard"))
+                    }
+                },
+            )
+            .await;
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        let head = result.map_err(ImportedKnowledgeReadError::Data)?;
+        self.revalidate()?;
+        Ok(head)
+    }
+
+    /// Resolve an authored Markdown source on this already admitted artifact pin.
+    pub async fn head_by_source_path(
+        &self,
+        source_path: &str,
+        limits: KnowledgeHeadReadLimits,
+    ) -> Result<Option<graphit_data::knowledge_index::KnowledgeHead>, ImportedKnowledgeReadError>
+    {
+        self.revalidate()?;
+        let mut failure = None;
+        let result =
+            graphit_data::knowledge_snapshot::read_knowledge_head_by_source_path_snapshot_guarded(
+                self.admission.request().snapshot(),
+                &self.snapshot,
+                source_path,
+                limits,
+                || match self.revalidate() {
+                    Ok(()) => Ok(()),
+                    Err(error) => {
+                        failure = Some(error);
+                        Err(KnowledgeIndexError::InvalidField("external_guard"))
+                    }
+                },
+            )
+            .await;
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        let head = result.map_err(ImportedKnowledgeReadError::Data)?;
+        self.revalidate()?;
+        Ok(head)
+    }
     pub async fn heads(
         &self,
         limits: KnowledgeHeadReadLimits,

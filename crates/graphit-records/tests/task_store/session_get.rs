@@ -679,9 +679,9 @@ async fn current_skips_old_corruption_but_selected_pages_and_last_transition_rej
         revised
     );
     corrupt(uri, revised.revision, |value| {
-        let first = "a".repeat(64);
+        let first = ulid::Ulid::from(10u128).to_string();
         let other = if value["record"]["actor"].as_str() == Some(first.as_str()) {
-            "b".repeat(64)
+            ulid::Ulid::from(11u128).to_string()
         } else {
             first
         };

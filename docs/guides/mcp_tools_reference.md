@@ -3,7 +3,7 @@ title: "MCP Tools Reference"
 description: "Complete reference of all MCP tools available to AI agents through Graphit Code."
 content-type: reference
 audience: developers, ai-agents
-updated: 2026-10-29
+updated: 2026-11-06
 keywords:
   - mcp
   - tools
@@ -16,6 +16,8 @@ related:
   - "docs/guides/user_manual.md"
   - "docs/guides/troubleshooting.md"
 references:
+  - target: {type: task, id: 01M5C6B85MCWH5HX932YVEKN3Z}
+    relation: implements
   - target: {type: task, id: tsk-be6e}
     relation: reuses
   - target: {type: task, id: tsk-1b8b}
@@ -76,10 +78,11 @@ references:
 
 # MCP Tools Reference
 
-This reference describes the current Rust **Root** catalog: 67 tools in the inspected build.
-The [complete input schemas](../reference/mcp-input-schemas.json) contain nested required fields,
-enums, nullability, bounds and `additionalProperties` rules. They were captured from an isolated
-`graphit mcp --stdio` client on 2026-10-29 and checked against the source catalogs. There is no
+This reference describes the Rust **Root** tools. The
+[input schemas](../reference/mcp-input-schemas.json) contain nested required fields,
+enums, nullability, bounds and `additionalProperties` rules. The original 67-tool snapshot
+was captured from an isolated `graphit mcp --stdio` client on 2026-10-29. The added
+`graphit_knowledge_id` entry is checked against the real SDK catalog in its focused tests. There is no
 legacy flat-argument compatibility layer. Inspect `tools/list` on your actual endpoint when using
 a different build, native binding or Role/Live credential.
 
@@ -225,10 +228,34 @@ readability. Discovery metadata does not imply that the current caller can execu
 
 | Tool | Required root fields | Purpose |
 |---|---|---|
+| `graphit_knowledge_id` | `path` | Calculate the deterministic default document ID with the publisher's KnowledgeSourceIdentity factory. The relative Unicode path is data; it is not opened. No corpus, model, provider or write is needed. Requires authenticated Runtime/Local Read(Knowledge); the result grants no access. |
 | `graphit_knowledge_search` | `search` | Search an authorized PROJECT or installed Knowledge corpus in fts, semantic or hybrid mode, using configured embeddings only when the captured index is ready. Results retain native namespace, generation, opaque cursor and optional Markdown preview. Selectors and cursors grant no access. |
 | `graphit_knowledge_export` | `output` | Export authorized PROJECT or installed Knowledge as an installable native package or a Markdown, OKF or Obsidian directory. Requires explicit filesystem publication permission. Output must be an absolute NativePath outside the datasets; selectors grant no access. |
 | `graphit_knowledge_live_history` | `operation` | Read or control Live history owned by the authenticated installation. Execution is independently owned; disconnecting a reader does not cancel a run. |
 | `graphit_knowledge_ask` | `query`, `model` | Answer a question from explicitly selected slugs or ranked retrieval in one authorized PROJECT Knowledge corpus using the startup Antigravity, Claude, Codex, Cursor, Grok, Qwen, Kimi, Copilot, Kiro or OpenCode completion provider. Progress contains observed native events; provided slugs and requested model do not confirm model citations or execution identity. |
+
+For a new page without an explicit frontmatter `id`, agents call the MCP utility:
+
+```json
+{"name":"graphit_knowledge_id","arguments":{"path":"docs/guides/new page.md","ai_optimized":false}}
+```
+
+Its JSON result is exactly `{"id":"<26-character canonical ULID>"}`. Omitted or true
+`ai_optimized` returns TOON through the normal MCP formatter. This is a deterministic
+128-bit identity derived by the publisher from its canonical relative source origin;
+it does not encode the page creation time. Repeated calls with the same native
+relative path return the same ID. Use the path supplied to the publisher, including
+its native separators; Unicode and spaces are preserved. Absolute paths, parent
+traversal, NUL and policy limits fail. Nothing is created, opened, indexed or published
+by the calculation, and no model/provider is consulted. An explicit frontmatter `id`
+continues to take precedence in indexing; this utility calculates the default only.
+
+Both endpoints derive the tool name from the validated Brand. Role keeps its normal envelope:
+`{"input":{"path":"docs/guides/new page.md"},"ai_optimized":false}`. Role calls require the
+existing PROJECT selection, run credential and Read(Knowledge) admission/rechecks;
+Root uses native Runtime/Local Read(Knowledge). These authorization boundaries remain
+in force independently of the pure path calculation. Agent templates use the dynamic
+`mcp_tool_knowledge_id` variable rather than a machine-specific executable or path.
 
 ### Wiki source and history
 

@@ -72,8 +72,8 @@ fn memory(input: &CreateMemory) -> Memory {
         tags: input.tags.clone(),
         references: input.references.clone().unwrap(),
         reference_generation: 1,
-        created_by: "a".repeat(64),
-        updated_by: "a".repeat(64),
+        created_by: ulid::Ulid::from(10u128).to_string(),
+        updated_by: ulid::Ulid::from(10u128).to_string(),
         created_at: 11,
         updated_at: 11,
     }

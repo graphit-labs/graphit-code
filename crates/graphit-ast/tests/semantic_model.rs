@@ -883,3 +883,44 @@ fn native_context_queries_drive_json_names_and_report_unresolved_owners() -> Tes
     ));
     Ok(())
 }
+
+#[test]
+fn native_json_logical_uids_survive_prefix_edits_and_repeated_assembly() -> TestResult {
+    type IdentitySnapshot = Vec<(String, String, String)>;
+    fn snapshot(text: &str) -> Result<IdentitySnapshot, Box<dyn Error>> {
+        let draft = catalog(include_bytes!("fixtures/catalog/shipped/json.yaml"));
+        let original = context();
+        let factory = prepare_profile(&draft, &original)?;
+        let mut rows = Vec::new();
+        with_input(text, &original, |input| {
+            let parsed = ParsedJsonDocument::collect(&factory, input, &["stable.json"], limits())?;
+            let first = parsed.assemble()?;
+            let repeated = parsed.assemble()?;
+            for (first, repeated) in first.entities().iter().zip(repeated.entities()) {
+                assert_eq!(
+                    first.identity().uid().as_str(),
+                    repeated.identity().uid().as_str()
+                );
+                assert_eq!(first.identity().uid().as_str().len(), 67);
+                rows.push((
+                    first.identity().label().to_owned(),
+                    first.name().to_owned(),
+                    first.identity().uid().as_str().to_owned(),
+                ));
+            }
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+    let before = snapshot(r#"{"a":1,"a":2,"nest":{"a":1},"":0}"#)?;
+    let after = snapshot("\n\n  {\"a\":1,\"a\":2,\"nest\":{\"a\":1},\"\":0}")?;
+    assert_eq!(before, after);
+    let namesakes: Vec<_> = before
+        .iter()
+        .filter(|(label, name, _)| label == "Pair" && name == "a")
+        .collect();
+    assert_eq!(namesakes.len(), 3);
+    let distinct: std::collections::BTreeSet<_> = namesakes.iter().map(|row| &row.2).collect();
+    assert_eq!(distinct.len(), 3);
+    Ok(())
+}

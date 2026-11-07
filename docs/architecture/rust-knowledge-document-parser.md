@@ -147,6 +147,14 @@ texto vazio usam o próximo candidato; quoted `null` é texto literal. Título n
 é truncado. Resumo corta um prefixo em boundary UTF-8 sob `max_summary_bytes`,
 inclusive para uma description explícita; `summary_truncated` indica descarte.
 
+## Continuidade de guias
+
+`ParsedDocument.previous` e `next` projetam os destinos escalares opcionais do
+frontmatter pela mesma arena YAML. O texto decodificado autoral é conservado;
+resolução e autorização pertencem aos leitores. O contrato completo, os wire
+fields e a exceção de envelope anteriormente vazio estão em
+[continuidade de guias](../specs/rust_knowledge_guide_navigation.md).
+
 ## Limites e erros
 
 Todos os dez limites são `NonZeroUsize` obrigatórios, sem defaults de produto.

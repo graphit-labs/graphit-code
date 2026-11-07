@@ -659,7 +659,7 @@ mod session_revision_history_tests {
             created_at: 10,
             updated_at: 10,
         };
-        let actor = "a".repeat(64);
+        let actor = ulid::Ulid::from(10u128).to_string();
         let creation = Creation {
             actor: actor.clone(),
             record: initial.clone(),
@@ -722,7 +722,7 @@ mod session_revision_history_tests {
                     }
                 }
                 2 => altered[1].record.input.idempotency_key = "different key".into(),
-                3 => altered[1].actor = "b".repeat(64),
+                3 => altered[1].actor = ulid::Ulid::from(11u128).to_string(),
                 4 => altered[1].record.ownership.claim_epoch = 2,
                 5 => altered[1].record.ownership.heartbeat_at = Some(11),
                 6 => altered[1].record.input = altered[0].record.input.clone(),

@@ -177,33 +177,43 @@ pub fn assemble_graph_generic(
             }
             nodes.push(AstGraphNode {
                 label: entity.identity().label().into(),
-                key: serde_json::to_string(&[uid, entity.data_key()])?,
+                key: syntax_key(entity.identity(), entity.data_key())?,
                 properties,
             });
         }
         let mut edges = Vec::new();
         let mut edge_keys = BTreeSet::new();
+        let mut relation_occurrences = LogicalRelationOccurrences::new(logical_file(&association)?);
         let mut push_edge = |kind: &str,
                              from: usize,
                              to: usize,
-                             provenance: Value|
+                             occurrence: Option<ParserRelationOccurrence<'_>>|
          -> Result<String, AstGraphError> {
             let source_key = node_key(&nodes, from)?;
             let target_key = node_key(&nodes, to)?;
-            let uid = serde_json::to_string(&(kind, source_key, target_key, provenance))?;
+            let edge = match occurrence {
+                Some(occurrence) => {
+                    relation_occurrences.admit(source_key, target_key, kind, occurrence)?
+                }
+                None => AstGraphEdge::logical(
+                    relation_occurrences.file,
+                    kind,
+                    source_key,
+                    target_key,
+                    None,
+                    target_key,
+                    0,
+                )?,
+            };
+            let uid = edge.uid.clone();
             if edge_keys.insert(uid.clone()) {
-                edges.push(AstGraphEdge {
-                    kind: kind.into(),
-                    source_key: source_key.into(),
-                    target_key: target_key.into(),
-                    uid: uid.clone(),
-                });
+                edges.push(edge);
             }
             Ok(uid)
         };
         for (index, entity) in document.entities()?.iter().enumerate() {
             if let Some(&parent) = entity.owners().last() {
-                push_edge("CONTAINS", parent, index, json!({"native_owner":true}))?;
+                push_edge("CONTAINS", parent, index, None)?;
             }
         }
         let mut outcomes = Vec::new();
@@ -214,11 +224,18 @@ pub fn assemble_graph_generic(
             let target = match &relation.target {
                 GenericRelationTarget::Resolved { entity_index } => {
                     if let Some(source) = relation.source_index {
+                        let group = &observations.groups[relation.occurrence.query_index];
+                        let capture = &group.matches[relation.occurrence.match_index].captures
+                            [relation.occurrence.name_slot];
                         graph_edge_uids.push(push_edge(
                             &relation.kind,
                             source,
                             *entity_index,
-                            json!({"query":relation.occurrence.query_index,"match":relation.occurrence.match_index,"slot":relation.occurrence.name_slot}),
+                            Some(ParserRelationOccurrence {
+                                query_data_key: Some(group.query.value().data_key().value()),
+                                target: capture.prepared.text(),
+                                anchor: (capture.prepared.start(), capture.prepared.end()),
+                            }),
                         )?);
                     }
                     AstGraphRelationTarget::Resolved {
@@ -289,7 +306,7 @@ pub fn assemble_graph_generic(
                 [occurrence.match_index]
                 .captures[occurrence.name_slot];
             outcomes.push(AstGraphRelationOutcome { relation_index, source_index: relation.source_index, capture_index: Some(occurrence.name_slot), evidence_node_indices: relation.evidence_node_indices.clone(), target,
-                observation_json: serde_json::to_string(&json!({"query_index":occurrence.query_index,"match_index":occurrence.match_index,"name_slot":occurrence.name_slot,"kind":relation.kind,"original":origin_json(&capture.original)?,"graph_edge_uids":graph_edge_uids,"target_rule":{"labels":target_labels}}))? });
+                observation_json: serde_json::to_string(&json!({"query_index":occurrence.query_index,"match_index":occurrence.match_index,"name_slot":occurrence.name_slot,"kind":relation.kind,"data_key":observations.groups[occurrence.query_index].query.value().data_key().value(),"original":origin_json(&capture.original)?,"graph_edge_uids":graph_edge_uids,"target_rule":{"labels":target_labels}}))? });
         }
         let mut diagnostics = document.diagnostics()?.iter().map(|diagnostic| json!({"occurrence":diagnostic.occurrence.map(|o|json!({"query_index":o.query_index,"match_index":o.match_index,"name_slot":o.name_slot,"value_slot":o.value_slot})),"context_index":diagnostic.context_index,"issue":format!("{:?}",diagnostic.issue)})).collect::<Vec<_>>();
         for recovery in document.syntax_recoveries()? {
@@ -490,8 +507,10 @@ pub fn bind_graph_generic_embedded_host(
         return Ok(());
     };
     let entity = &host.entities()?[*host_index];
-    let source_key = serde_json::to_string(&[entity.identity().uid().as_str(), entity.data_key()])?;
+    let source_key = syntax_key(entity.identity(), entity.data_key())?;
     let batch = &mut composition.batch;
+    let mut relation_occurrences =
+        LogicalRelationOccurrences::new(logical_file(&batch.association)?);
     for (relation_index, relation) in child.relations()?.iter().enumerate() {
         if relation.source_index.is_some() {
             continue;
@@ -500,21 +519,20 @@ pub fn bind_graph_generic_embedded_host(
             continue;
         };
         let target_key = node_key(&batch.nodes, entity_index)?.to_owned();
-        let uid = serde_json::to_string(&(
-            &relation.kind,
+        let observations = child.observations()?;
+        let group = &observations.groups[relation.occurrence.query_index];
+        let capture =
+            &group.matches[relation.occurrence.match_index].captures[relation.occurrence.name_slot];
+        batch.edges.push(relation_occurrences.admit(
             &source_key,
             &target_key,
-            block.embedded_index,
-            block.match_index,
-            block.body_slot,
-            relation_index,
-        ))?;
-        batch.edges.push(AstGraphEdge {
-            kind: relation.kind.clone(),
-            source_key: source_key.clone(),
-            target_key,
-            uid,
-        });
+            &relation.kind,
+            ParserRelationOccurrence {
+                query_data_key: Some(group.query.value().data_key().value()),
+                target: capture.prepared.text(),
+                anchor: (capture.prepared.start(), capture.prepared.end()),
+            },
+        )?);
         // The source lives in the host batch; keep its key in observation rather
         // than fabricating an entity index in the child batch.
         let outcome =

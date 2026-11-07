@@ -1,7 +1,8 @@
 //! Immutable FILE-sized Icebug shards. Stable row allocation belongs to the publisher.
 use super::*;
-use parquet::file::{reader::FileReader, serialized_reader::SerializedFileReader};
-use parquet::record::Field;
+use arrow_array_parquet::{Array, BooleanArray, Int64Array, RecordBatchReader, StringArray};
+use arrow_schema_parquet::DataType;
+use std::ops::RangeBounds;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FileNodeShard {
@@ -123,42 +124,79 @@ pub fn write_file_nodes(
     Ok(result)
 }
 
+/// Visit only the physical row range, decoding selected groups in SDK batches.
+/// Unbounded ranges select the complete file; invalid bounds fail before page decoding.
 pub fn visit_node_shard(
     path: &Path,
     label: &str,
+    rows: impl RangeBounds<u64>,
     original: &SnapshotContext,
     mut visitor: impl FnMut(GraphNode) -> io::Result<()>,
 ) -> io::Result<()> {
-    original.check()?;
-    original.check()?;
-    let reader = SerializedFileReader::new(File::open(path)?).map_err(io::Error::other)?;
-    for row in reader.get_row_iter(None).map_err(io::Error::other)? {
-        original.check()?;
-        let row = row.map_err(io::Error::other)?;
-        let mut properties = BTreeMap::new();
-        let mut key = None;
-        for (name, value) in row.get_column_iter() {
-            if name == "entity_key" {
-                let Field::Str(value) = value else {
-                    return Err(invalid("invalid FILE primary key"));
-                };
-                key = Some(value.clone());
-                continue;
-            }
-            let value = match value {
-                Field::Null => continue,
-                Field::Str(value) => GraphValue::String(value.clone()),
-                Field::Long(value) => GraphValue::Int64(*value),
-                Field::Bool(value) => GraphValue::Bool(*value),
-                _ => return Err(invalid("unsupported FILE property")),
-            };
-            properties.insert(name.clone(), value);
+    let reader = super::ranges::read_rows(path, rows, original)?;
+    let schema = reader.schema();
+    let key_index = schema.index_of("entity_key").map_err(io::Error::other)?;
+    for field in schema.fields() {
+        if !matches!(
+            field.data_type(),
+            DataType::Utf8 | DataType::Int64 | DataType::Boolean
+        ) || (field.name() == "entity_key" && field.data_type() != &DataType::Utf8)
+        {
+            return Err(invalid("unsupported FILE property"));
         }
-        visitor(GraphNode {
-            label: label.to_owned(),
-            key: key.ok_or_else(|| invalid("missing FILE primary key"))?,
-            properties,
-        })?;
+    }
+    for batch in reader {
+        original.check()?;
+        let batch = batch.map_err(io::Error::other)?;
+        let keys = batch
+            .column(key_index)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| invalid("invalid FILE primary key"))?;
+        for row in 0..batch.num_rows() {
+            original.check()?;
+            if keys.is_null(row) {
+                return Err(invalid("invalid FILE primary key"));
+            }
+            let mut properties = BTreeMap::new();
+            for (index, field) in schema.fields().iter().enumerate() {
+                let column = batch.column(index);
+                if index == key_index || column.is_null(row) {
+                    continue;
+                }
+                let value = match field.data_type() {
+                    DataType::Utf8 => GraphValue::String(
+                        column
+                            .as_any()
+                            .downcast_ref::<StringArray>()
+                            .ok_or_else(|| invalid("invalid FILE string"))?
+                            .value(row)
+                            .to_owned(),
+                    ),
+                    DataType::Int64 => GraphValue::Int64(
+                        column
+                            .as_any()
+                            .downcast_ref::<Int64Array>()
+                            .ok_or_else(|| invalid("invalid FILE integer"))?
+                            .value(row),
+                    ),
+                    DataType::Boolean => GraphValue::Bool(
+                        column
+                            .as_any()
+                            .downcast_ref::<BooleanArray>()
+                            .ok_or_else(|| invalid("invalid FILE boolean"))?
+                            .value(row),
+                    ),
+                    _ => return Err(invalid("unsupported FILE property")),
+                };
+                properties.insert(field.name().clone(), value);
+            }
+            visitor(GraphNode {
+                label: label.to_owned(),
+                key: keys.value(row).to_owned(),
+                properties,
+            })?;
+        }
     }
     original.check()
 }
@@ -203,59 +241,86 @@ pub fn write_fact_rows(
     original.check()
 }
 
+/// Visit physical payload rows, using the same range semantics as node slices.
 pub fn visit_fact_rows(
     path: &Path,
+    rows: impl RangeBounds<u64>,
     original: &SnapshotContext,
     mut visitor: impl FnMut(&str) -> io::Result<()>,
 ) -> io::Result<()> {
-    original.check()?;
-    let reader = SerializedFileReader::new(File::open(path)?).map_err(io::Error::other)?;
-    for row in reader.get_row_iter(None).map_err(io::Error::other)? {
+    let reader = super::ranges::read_rows(path, rows, original)?;
+    let schema = reader.schema();
+    if schema.fields().len() != 1
+        || schema.field(0).name() != "payload"
+        || schema.field(0).data_type() != &DataType::Utf8
+    {
+        return Err(invalid("invalid fact payload row"));
+    }
+    for batch in reader {
         original.check()?;
-        let row = row.map_err(io::Error::other)?;
-        let mut columns = row.get_column_iter();
-        match (columns.next(), columns.next()) {
-            (Some((name, Field::Str(payload))), None) if name == "payload" => visitor(payload)?,
-            _ => return Err(invalid("invalid fact payload row")),
+        let batch = batch.map_err(io::Error::other)?;
+        let payloads = batch
+            .column(0)
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or_else(|| invalid("invalid fact payload row"))?;
+        for row in 0..batch.num_rows() {
+            original.check()?;
+            if payloads.is_null(row) {
+                return Err(invalid("invalid fact payload row"));
+            }
+            visitor(payloads.value(row))?;
         }
     }
     original.check()
 }
 
 /// Write one source-shard/target-shard member with local offsets and one indptr row group.
+/// Stream fallible rows into private disk staging and return the actual edge count.
 pub fn write_csr_shard(
     directory: &Path,
     source_rows: u64,
     target_rows: u64,
-    rows: &[(u64, u64, String)],
+    rows: impl IntoIterator<Item = io::Result<(u64, u64, String)>>,
     original: &Arc<SnapshotContext>,
-) -> io::Result<()> {
+) -> io::Result<u64> {
+    original.check()?;
+    if source_rows > i64::MAX as u64 || target_rows > i64::MAX as u64 {
+        return Err(invalid("CSR row count overflow"));
+    }
     let staging = tempfile::tempdir()?;
-    let database = Connection::open(staging.path().join("edges.sqlite"))
+    let mut database = Connection::open(staging.path().join("edges.sqlite"))
         .map_err(|error| sqlite_error(original, error))?;
     database.execute_batch("PRAGMA temp_store=FILE; CREATE TABLE csr(kind TEXT,source_label TEXT,target_label TEXT,source_row INTEGER,target_row INTEGER,uid TEXT UNIQUE);").map_err(|error| sqlite_error(original,error))?;
     let cancellation = Arc::clone(original);
     database
         .progress_handler(1024, Some(move || cancellation.check().is_err()))
         .map_err(|error| sqlite_error(original, error))?;
-    for (source, target, uid) in rows {
+    let transaction = database
+        .transaction()
+        .map_err(|error| sqlite_error(original, error))?;
+    let mut insert = transaction
+        .prepare("INSERT INTO csr VALUES ('','','',?1,?2,?3)")
+        .map_err(|error| sqlite_error(original, error))?;
+    for row in rows {
         original.check()?;
-        if *source >= source_rows || *target >= target_rows || uid.is_empty() || uid.contains('\0')
-        {
+        let (source, target, uid) = row?;
+        if source >= source_rows || target >= target_rows || uid.is_empty() || uid.contains('\0') {
             return Err(invalid("invalid FILE CSR endpoint"));
         }
-        database
-            .execute(
-                "INSERT INTO csr VALUES ('','','',?1,?2,?3)",
-                params![
-                    i64::try_from(*source).map_err(|_| invalid("source row overflow"))?,
-                    i64::try_from(*target).map_err(|_| invalid("target row overflow"))?,
-                    uid
-                ],
-            )
+        insert
+            .execute(params![
+                i64::try_from(source).map_err(|_| invalid("source row overflow"))?,
+                i64::try_from(target).map_err(|_| invalid("target row overflow"))?,
+                uid
+            ])
             .map_err(|error| sqlite_error(original, error))?;
     }
-    write_edges(
+    drop(insert);
+    transaction
+        .commit()
+        .map_err(|error| sqlite_error(original, error))?;
+    let count = write_edges(
         &directory.join("edges.indices"),
         &database,
         ("", "", ""),
@@ -276,5 +341,6 @@ pub fn write_csr_shard(
         .write(true)
         .open(directory.join("edges.indptr"))?
         .sync_all()?;
-    original.check()
+    original.check()?;
+    Ok(count)
 }

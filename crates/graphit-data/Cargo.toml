@@ -11,6 +11,7 @@ name = "integration"
 path = "tests/integration.rs"
 
 [dependencies]
+base64.workspace = true
 arrow-schema = "=58.3.0"
 arrow-array = "=58.3.0"
 arrow-ipc = "=58.3.0"

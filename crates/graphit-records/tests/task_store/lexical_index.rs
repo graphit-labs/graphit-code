@@ -1125,10 +1125,10 @@ async fn task_lexical_index_history_and_comment_attribution_validated_before_sdk
                 let mut changed = batch.slice(row, 1);
                 let mut payload: serde_json::Value =
                     serde_json::from_str(text(&changed, "payload", 0)).unwrap();
-                let other_actor = if comment.actor == "a".repeat(64) {
-                    "b".repeat(64)
+                let other_actor = if comment.actor == ulid::Ulid::from(10u128).to_string() {
+                    ulid::Ulid::from(11u128).to_string()
                 } else {
-                    "a".repeat(64)
+                    ulid::Ulid::from(10u128).to_string()
                 };
                 payload["record"]["record"]["actor"] = serde_json::json!(other_actor);
                 let mut columns = changed.columns().to_vec();

@@ -1,5 +1,7 @@
 use super::*;
 use graphit_core::file_lock::Cancellation;
+#[path = "maintenance_tests.rs"]
+mod maintenance;
 fn original() -> Arc<SnapshotContext> {
     Arc::new(SnapshotContext::service(Cancellation::default()))
 }
@@ -146,6 +148,7 @@ fn readers_reject_missing_or_incomplete_graphs_without_initializing() {
     let manifest_path = path.join("icebug.json");
     let mut manifest: Value =
         serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    let complete_catalog = manifest["live"].clone();
     manifest["live"]
         .as_object_mut()
         .unwrap()
@@ -159,6 +162,24 @@ fn readers_reject_missing_or_incomplete_graphs_without_initializing() {
             disk_image(&path),
             "a reader never repairs a malformed catalogue"
         );
+    }
+    for malformed in [json!([complete_catalog]), json!({}), json!({"live": null})] {
+        std::fs::write(&manifest_path, serde_json::to_vec(&malformed).unwrap()).unwrap();
+        let before = disk_image(&path);
+        for create in [false, true] {
+            let error = LiveGraph::open_path_owned(path.clone(), &original(), [17; 32], create)
+                .err()
+                .unwrap();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+            if malformed == json!({}) {
+                assert!(
+                    error
+                        .to_string()
+                        .contains("local graph has no FILE catalogue")
+                );
+            }
+            assert_eq!(before, disk_image(&path));
+        }
     }
 }
 
@@ -571,7 +592,7 @@ fn rollback_readonly_and_cancellation() {
 }
 
 #[test]
-fn bulk_scalar_values_wire_generation_and_native_deadline() {
+fn bulk_scalar_values_coordinates_and_native_deadline() {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -646,14 +667,15 @@ fn bulk_scalar_values_wire_generation_and_native_deadline() {
         .unwrap();
     assert_eq!(neighborhood.rows.len(), 1);
     assert_eq!(neighborhood.rows[0][1]["type"], "REL");
-    assert_eq!(
-        neighborhood.rows[0][0]["value"]["id"]["value"]["generation"],
-        json!(g.generation().unwrap())
-    );
-    assert_eq!(
-        neighborhood.rows[0][1]["value"]["id"]["value"]["generation"],
-        json!(g.generation().unwrap())
-    );
+    for (cell, coordinate) in [
+        (&neighborhood.rows[0][0], "table"),
+        (&neighborhood.rows[0][1], "member"),
+    ] {
+        let identity = &cell["value"]["id"]["value"];
+        assert!(identity.get("generation").is_none());
+        assert!(identity[coordinate].as_u64().is_some());
+        assert!(identity["row"].as_str().unwrap().parse::<u64>().is_ok());
+    }
     let scalar = g
         .query(
             "MATCH(n:Function) WHERE n.ordinal=2 RETURN n.name,n.ordinal,n.enabled",
@@ -719,6 +741,9 @@ fn scip_targets_arrive_change_and_disappear_across_file_commits() {
         symbol_roles: 0,
         kind: Some("CALLS".into()),
         source_key: Some("a".into()),
+        query_data_key: None,
+        reference_target: "scip-rust cargo demo 1 function().".into(),
+        occurrence_ordinal: Some(0),
         relation_index: Some(0),
         source_index: Some(0),
         capture_index: Some(0),
@@ -1154,6 +1179,13 @@ fn batch_scip_references_keep_outcomes_and_edge_identities_associated() {
             symbol_roles: 0,
             kind: Some("CALLS".into()),
             source_key: Some("a".into()),
+            query_data_key: None,
+            reference_target: if i == 0 {
+                "scip-rust cargo demo 1 target().".into()
+            } else {
+                format!("scip-rust cargo demo 1 extra_{i}().")
+            },
+            occurrence_ordinal: Some(0),
             relation_index: Some(i),
             source_index: Some(0),
             capture_index: Some(i),
@@ -1241,6 +1273,7 @@ fn batch_scip_references_keep_outcomes_and_edge_identities_associated() {
         let definitions = portable::read_facts(
             &g.directory,
             &state.catalog.files["b.rs"].facts,
+            state.catalog.files["b.rs"].facts_row,
             &original(),
         )
         .unwrap()
@@ -1253,6 +1286,7 @@ fn batch_scip_references_keep_outcomes_and_edge_identities_associated() {
         let stored = portable::read_facts(
             &g.directory,
             &state.catalog.files["a.rs"].facts,
+            state.catalog.files["a.rs"].facts_row,
             &original(),
         )
         .unwrap()
@@ -1412,7 +1446,6 @@ fn compiler_enrichment_preserves_source_tag_and_rejects_superseded_file() {
         .unwrap(),
         1
     );
-    let before = g.generation().unwrap();
     let enriched = [node("a", "compiler")];
     assert_eq!(
         g.enrich_file(
@@ -1451,7 +1484,16 @@ fn compiler_enrichment_preserves_source_tag_and_rejects_superseded_file() {
         8,
         "a newer Source observation with the same FILE SHA can enrich the retained revision"
     );
-    assert_ne!(g.generation().unwrap(), before);
+    let enriched_names = g
+        .query(
+            "MATCH(n:Function) WHERE n.entity_key='a' RETURN n.name",
+            &BTreeMap::new(),
+            options(),
+            &original(),
+        )
+        .unwrap();
+    assert_eq!(enriched_names.rows.len(), 1);
+    assert_eq!(enriched_names.rows[0][0]["value"], "compiler");
     assert_eq!(
         g.enrich_file(
             LiveFileInput {
@@ -1805,6 +1847,9 @@ fn multiple_profile_observations_resolve_only_their_own_outcomes() {
         symbol_roles: 0,
         kind: Some("CALLS".into()),
         source_key: Some(format!("{language}-caller")),
+        query_data_key: None,
+        reference_target: format!("{language}-symbol"),
+        occurrence_ordinal: Some(0),
         relation_index: Some(0),
         source_index: Some(0),
         capture_index: Some(0),
@@ -2387,7 +2432,7 @@ fn pending_compiler_work_survives_reopen_and_clears_only_after_current_enrichmen
 
 #[cfg(unix)]
 #[test]
-fn cleanup_failure_after_manifest_effect_reopens_the_committed_file() {
+fn file_publication_defers_global_collection_and_reopens_the_committed_file() {
     use std::os::unix::fs::symlink;
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("graph");
@@ -2397,7 +2442,7 @@ fn cleanup_failure_after_manifest_effect_reopens_the_committed_file() {
         path.join("shards/unowned-link"),
     )
     .unwrap();
-    let error = graph
+    graph
         .replace_file(
             LiveFileInput {
                 path: "a.rs",
@@ -2415,13 +2460,7 @@ fn cleanup_failure_after_manifest_effect_reopens_the_committed_file() {
             },
             &original(),
         )
-        .unwrap_err();
-    assert!(
-        error
-            .to_string()
-            .contains("FILE committed at graph revision 1"),
-        "{error}"
-    );
+        .unwrap();
     assert_eq!(graph.revision().unwrap(), 1);
     drop(graph);
     let reopened = LiveGraph::open_path_owned(path.clone(), &original(), [25; 32], false).unwrap();
@@ -2436,6 +2475,57 @@ fn cleanup_failure_after_manifest_effect_reopens_the_committed_file() {
     std::fs::remove_file(path.join("shards/unowned-link")).unwrap();
     reopened.remove_file("a.rs", &original()).unwrap();
     assert_eq!(reopened.revision().unwrap(), 2);
+}
+
+#[test]
+fn empty_file_publications_do_not_leave_empty_staging_directories() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("graph");
+    let graph = LiveGraph::open_path_owned(path.clone(), &original(), [28; 32], true).unwrap();
+    for (file, nodes) in [("a.rs", vec![node("a", "present")]), ("empty.rs", vec![])] {
+        graph
+            .replace_file(
+                LiveFileInput {
+                    path: file,
+                    source_sha256: [1; 32],
+                    raw_version: 1,
+                    nodes: &nodes,
+                    edges: &[],
+                    definitions: &[],
+                    references: &[],
+                    scip_document: None,
+                    oracle: &[],
+                    oracle_file: None,
+                    pending_compiler: None,
+                    scip_compiler: None,
+                },
+                &original(),
+            )
+            .unwrap();
+    }
+    fn assert_populated(path: &Path) {
+        let entries = std::fs::read_dir(path)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert!(
+            !entries.is_empty(),
+            "empty staging directory: {}",
+            path.display()
+        );
+        for entry in entries {
+            if entry.file_type().unwrap().is_dir() {
+                assert_populated(&entry.path());
+            }
+        }
+    }
+    assert_populated(&path.join("shards"));
+    assert!(
+        graph
+            .file_observation("empty.rs", &original())
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[test]
@@ -2505,6 +2595,13 @@ fn retained_scip_reader_blocks_file_replacement_and_shard_collection() {
     read.join().unwrap();
     finished.recv_timeout(Duration::from_secs(10)).unwrap();
     write.join().unwrap();
+    assert!(path.join(&retained.nodes[0].shard.file).exists());
+    // FILE publication does no global scan. Explicit maintenance holds the same
+    // guard before reclaiming storage no longer referenced by any FILE.
+    {
+        let state = graph.state.lock().unwrap();
+        portable::prune(&path, &state.catalog, &original()).unwrap();
+    }
     assert!(!path.join(&retained.nodes[0].shard.file).exists());
     assert!(
         graph

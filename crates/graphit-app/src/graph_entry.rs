@@ -70,7 +70,7 @@ pub struct Search {
     pub rerank: Option<bool>,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
+#[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum KeyType {
     String,
     Int64,
@@ -92,11 +92,11 @@ pub struct Neighborhood {
     #[arg(long, value_enum, default_value = "string")]
     pub key_type: KeyType,
     #[arg(long)]
-    pub relationship: String,
+    pub relationship: Option<String>,
     #[arg(long)]
-    pub other_label: String,
-    #[arg(long, value_enum, default_value = "outgoing")]
-    pub direction: Direction,
+    pub other_label: Option<String>,
+    #[arg(long, value_enum)]
+    pub direction: Option<Direction>,
     #[arg(long, default_value_t = 100)]
     pub limit: usize,
     /// Exact opaque JSON cursor returned by the preceding neighborhood page.
@@ -168,7 +168,23 @@ impl Command {
             Self::Schema(a) => ("graphit_ast_schema", a, Map::new()),
             Self::Sample(a) => ("graphit_ast_sample", a, Map::new()),
             Self::Neighborhood(a) => {
-                let mut args = json!({"anchor_label":a.anchor_label,"anchor_key":{"type":match a.key_type{KeyType::String=>"string",KeyType::Int64=>"int64"},"value":a.anchor_key},"relationship":a.relationship,"other_label":a.other_label,"direction":match a.direction{Direction::Outgoing=>"outgoing",Direction::Incoming=>"incoming"},"limit":a.limit}).as_object().unwrap().clone();
+                let mut args = json!({"anchor_label":a.anchor_label,"anchor_key":{"type":match a.key_type{KeyType::String=>"string",KeyType::Int64=>"int64"},"value":a.anchor_key},"limit":a.limit}).as_object().unwrap().clone();
+                if let Some(relationship) = &a.relationship {
+                    args.insert("relationship".into(), relationship.clone().into());
+                }
+                if let Some(label) = &a.other_label {
+                    args.insert("other_label".into(), label.clone().into());
+                }
+                if let Some(direction) = a.direction {
+                    args.insert(
+                        "direction".into(),
+                        match direction {
+                            Direction::Outgoing => "outgoing",
+                            Direction::Incoming => "incoming",
+                        }
+                        .into(),
+                    );
+                }
                 if a.cursor.is_some() && a.cursor_file.is_some() {
                     return Err(io::ErrorKind::InvalidInput.into());
                 }
@@ -320,10 +336,37 @@ mod tests {
     }
 
     #[test]
+    fn neighborhood_without_filters_requests_one_page_of_all_relationships() {
+        let parsed = Cli::try_parse_from([
+            "graphit",
+            "neighborhood",
+            "--anchor-label",
+            "Function",
+            "--anchor-key",
+            "selected",
+        ])
+        .unwrap();
+        let (tool, wire) = parsed.command.wire(4096).unwrap();
+        assert_eq!(tool, "graphit_ast_neighborhood");
+        assert_eq!(
+            wire["anchor_key"],
+            json!({"type":"string","value":"selected"})
+        );
+        for optional in ["relationship", "other_label", "direction"] {
+            assert!(!wire.contains_key(optional));
+        }
+    }
+
+    #[test]
     fn neighborhood_opaque_cursor_can_be_read_from_a_file() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("cursor.json");
-        let cursor = json!({"generation":[1,2],"last":"ação","optional":null});
+        let cursor = json!({"fingerprint":vec![5;32],"position":{
+            "uid":"ação","relationship":"CALLS","from_label":"Function",
+            "from_key":{"type":"int64","value":"9007199254740993"},
+            "to_label":"Function","to_key":{"type":"string","value":"target"},
+            "occurrence":"9007199254740993"
+        }});
         std::fs::write(&path, serde_json::to_vec(&cursor).unwrap()).unwrap();
         let mut args = vec![
             "graphit",

@@ -904,9 +904,10 @@ async fn foreground_dream_partial_receipt_reissues_same_actor_under_real_limits(
     let authority = ProjectRecordAuthority::new(issuer);
     let admission =
         authority.admit_write(&grant, &original, ProjectWriteOperation::FencedMemory)?;
-    let mut actor = [0u8; 64];
-    admission.actor()?.write_identifier(&mut actor);
-    assert_eq!(survivor.updated_by, std::str::from_utf8(&actor)?);
+    assert_eq!(
+        survivor.updated_by,
+        admission.actor()?.identifier().to_string()
+    );
     assert_eq!(
         fs::read_to_string(f.temp.path().join("attempts.jsonl"))?
             .lines()

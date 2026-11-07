@@ -1078,9 +1078,21 @@ async fn module_skill_captured_precedence_exact_reference_and_denied_module() {
         "hub {{ brand_display }} {{ mcp_tool_task_get }}",
     )
     .unwrap();
+    // The registry retains this logical source spelling; confinement is physical.
+    let installation = server.0.policy.source.installation.root();
+    #[cfg(unix)]
+    let logical_source = {
+        let alias = installation.parent().unwrap().join("skill-source-alias");
+        std::os::unix::fs::symlink(installation, &alias).unwrap();
+        alias.join("skill-source")
+    };
+    #[cfg(not(unix))]
+    let logical_source = installation.join("skill-source");
+    #[cfg(unix)]
+    assert!(!logical_source.starts_with(installation));
     let hub = &server.0.policy.source.native_install.hub;
     let source = graphit_hub::SourceRef::local_link(
-        graphit_core::native_path::NativePath::new(hub_root.clone()).unwrap(),
+        graphit_core::native_path::NativePath::new(logical_source).unwrap(),
         project_snapshot(&server).projects[0].1,
         graphit_hub::ArtifactType::Skill,
         graphit_hub::ArtifactId::new("vendor/task", hub.projection()).unwrap(),
@@ -1117,6 +1129,7 @@ async fn module_skill_captured_precedence_exact_reference_and_denied_module() {
             None,
         )
         .unwrap();
+    let registry_before = std::fs::read(server.0.policy.source.registry.path()).unwrap();
     let selected = server
         .call(
             "graphit_module_skill".into(),
@@ -1132,6 +1145,10 @@ async fn module_skill_captured_precedence_exact_reference_and_denied_module() {
     let value: Value = typed_value(&selected);
     assert_eq!(value["origin"], "Hub");
     assert_eq!(value["source"], "hub graphit graphit_task_get");
+    assert_eq!(
+        std::fs::read(server.0.policy.source.registry.path()).unwrap(),
+        registry_before
+    );
     std::fs::write(project.join("entry.md"), "{{ missing_live_secret }}").unwrap();
     assert_eq!(
         run(json!({"input":{"module":"task"}})).await.is_error,
@@ -4779,3 +4796,80 @@ async fn canonical_installation_binding_pins_global_reads_and_rejects_foreign_ro
     bound.shutdown().await.unwrap();
     original_server.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn role_hub_registry_captures_equivalent_parent_without_rewriting_metadata() {
+    let (_temp, original_server, raw) = fixture();
+    let snapshot = original_server.0.live_projects.snapshot().unwrap();
+    let mut policy = original_server.0.policy.clone();
+    let root = policy.source.installation.root();
+    // Windows canonical captures use a verbatim prefix; the native configured
+    // spelling is also valid without introducing an unsupported linked parent.
+    #[cfg(windows)]
+    let logical = {
+        use std::path::{Component, Prefix};
+        let mut components = root.components();
+        let Some(Component::Prefix(prefix)) = components.next() else {
+            panic!("Windows installation prefix expected")
+        };
+        let Prefix::VerbatimDisk(drive) = prefix.kind() else {
+            panic!("canonical Windows fixture must use a verbatim disk prefix")
+        };
+        let mut native = std::path::PathBuf::from(format!("{}:", char::from(drive)));
+        native.extend(components.map(|component| component.as_os_str()));
+        native
+    };
+    #[cfg(not(windows))]
+    let logical = root.to_path_buf();
+    let logical_paths = InstallationPaths::resolve(
+        policy.source.installation.brand().clone(),
+        policy.source.installation.start_directory(),
+        policy.source.installation.home_directory(),
+        Some(&logical),
+    )
+    .unwrap();
+    let StoreOwner::Installation { installation_id } =
+        original_server.0.auth.installation().live.owner()
+    else {
+        panic!("installation scope expected")
+    };
+    policy.source.registry = HubRegistry::global(
+        &logical_paths,
+        installation_id,
+        policy.source.registry.limits(),
+    )
+    .unwrap();
+    let expected_path = policy.source.registry.path();
+    let bound = RoleToolServer::new(
+        Arc::clone(&original_server.0.auth),
+        Arc::clone(&snapshot.projects),
+        snapshot.current.unwrap(),
+        policy,
+        CancellationToken::new(),
+    )
+    .unwrap();
+    let (_session, _run, reference, bearer) = credential(
+        &bound,
+        &raw,
+        Role::Scout,
+        &[Permission::Read(Module::Hub)],
+        Duration::from_secs(60),
+    );
+    let response = bound
+        .call(
+            "graphit_hub_list".into(),
+            serde_json::from_value(json!({"input":{"scope":"global_installation","limit":8}}))
+                .unwrap(),
+            role_credential(&reference, &bearer, bound.0.task.content),
+            CancellationToken::new(),
+        )
+        .await;
+    assert_eq!(response.is_error, Some(false));
+    assert_eq!(typed_value(&response)["entries"], json!([]));
+    assert_eq!(bound.0.policy.source.registry.path(), expected_path);
+    assert!(!expected_path.exists());
+    bound.shutdown().await.unwrap();
+    original_server.shutdown().await.unwrap();
+}
+
+mod knowledge_id;

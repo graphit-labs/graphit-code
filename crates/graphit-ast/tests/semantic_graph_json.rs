@@ -191,8 +191,13 @@ async fn json_graph_preserves_stock_entities_original_ranges_and_owned_parts() -
             assert_eq!(text_property(node, "lang"), "json");
             assert_eq!(text_property(node, "name_representation"), "JsonName");
             assert_eq!(int_property(node, "line_number"), 2);
-            let pair: Vec<String> = serde_json::from_str(node.key())?;
-            assert_eq!(pair, [entity.identity().uid().as_str(), entity.data_key()]);
+            assert_eq!(
+                node.key().parse::<graphit_data::CodePrimaryKey>()?,
+                graphit_data::CodePrimaryKey::derive(
+                    entity.identity().uid().code(),
+                    entity.data_key()
+                )?
+            );
             let metadata: serde_json::Value =
                 serde_json::from_str(text_property(node, "metadata_json"))?;
             assert_eq!(
@@ -227,7 +232,16 @@ async fn json_graph_preserves_stock_entities_original_ranges_and_owned_parts() -
             properties.get("lang"),
             Some(&AstGraphValue::String("json".into()))
         );
-        assert_eq!(serde_json::from_str::<Vec<String>>(&key)?.len(), 2);
+        let AstGraphValue::String(uid) = &properties["uid"] else {
+            panic!("UID string")
+        };
+        let AstGraphValue::String(data_key) = &properties["data_key"] else {
+            panic!("data_key string")
+        };
+        assert_eq!(
+            key.parse::<graphit_data::CodePrimaryKey>()?,
+            graphit_data::CodePrimaryKey::derive(uid.parse()?, data_key)?
+        );
     }
     Ok(())
 }

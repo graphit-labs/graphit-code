@@ -2,14 +2,14 @@
   "project": "graphit-code",
   "task": "tsk-0fee",
   "session": "ses-c98a",
-  "status": "EXPECTED_ONLY_NO_RUST_RUNTIME",
-  "method": "original manual anchors/components + Pythonstandardjson independentformatcrosscheck, not production extraction",
+  "status": "INDEPENDENT_COMPACT_RECIPE_VECTOR",
+  "method": "Original manual Source anchors; independent Python hashlib SHA-256, length framing with struct.pack(<Q) and URL-safe base64 without padding. Anchors bind observations and prior_subjects only, never hash inputs.",
   "rows": [
     {
       "id": "F01-a",
       "original_fixture": "go.txt",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "a.go"
         ],
@@ -22,16 +22,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"a.go\"],\"go\",\"tree-sitter-go\",\"Function\",[18,21],[]]",
-      "expected_uid_utf8_bytes": 74,
+      "expected_uid": "u1:_3mWJqQkuwthu0xqBKy10cxS3B2O7P5gydQ2WiFyeHXx_H_0wUxmAtSfrbapjl7K",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F01-b",
       "original_fixture": "go.txt",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "b.go"
         ],
@@ -44,16 +45,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"b.go\"],\"go\",\"tree-sitter-go\",\"Function\",[18,21],[]]",
-      "expected_uid_utf8_bytes": 74,
+      "expected_uid": "u1:ObXpnjk6NNTlsScsGX8I08qbRJiMbrMuv1KCKk0tdLsMYY0VjcmeaKxnCbkI3TcL",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F01-repeat",
       "original_fixture": "go.txt",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "a.go"
         ],
@@ -66,16 +68,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"a.go\"],\"go\",\"tree-sitter-go\",\"Function\",[18,21],[]]",
-      "expected_uid_utf8_bytes": 74,
+      "expected_uid": "u1:_3mWJqQkuwthu0xqBKy10cxS3B2O7P5gydQ2WiFyeHXx_H_0wUxmAtSfrbapjl7K",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F02-first",
       "original_fixture": "same-line.js",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "same-line.js"
         ],
@@ -88,16 +91,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"same-line.js\"],\"javascript\",\"tree-sitter-javascript\",\"Function\",[9,12],[]]",
-      "expected_uid_utf8_bytes": 97,
+      "expected_uid": "u1:drEPoy1829HRFZrKrWW9Sj7wU_0w_j9q369xZ7uI3wfkbbQ57yeM1HjxPWgkF50l",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F02-second",
       "original_fixture": "same-line.js",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "same-line.js"
         ],
@@ -110,16 +114,23 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"same-line.js\"],\"javascript\",\"tree-sitter-javascript\",\"Function\",[27,30],[]]",
-      "expected_uid_utf8_bytes": 98,
+      "expected_uid": "u1:drEPoy1829HRFZrKrWW9SlSkRKzTsx0WQg9rObZ48bAAkRpHqVGoYs2dJObRZZvs",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": [
+        [
+          "Function",
+          9,
+          12
+        ]
+      ]
     },
     {
       "id": "F02-unicode",
       "original_fixture": "unicode-crlf.js",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "unicode-crlf.js"
         ],
@@ -132,16 +143,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"unicode-crlf.js\"],\"javascript\",\"tree-sitter-javascript\",\"Function\",[16,19],[]]",
-      "expected_uid_utf8_bytes": 101,
+      "expected_uid": "u1:dm5UrRbNwhWek8Ko_SSvWYH-8rAf-nJSwpS6f-m9BYo7zw-1lVs8iVOzE0qp9VJT",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F03-components-a",
       "original_fixture": "go.txt",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "a::b",
           "c.go"
@@ -155,16 +167,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"a::b\",\"c.go\"],\"go\",\"tree-sitter-go\",\"Function\",[18,21],[]]",
-      "expected_uid_utf8_bytes": 81,
+      "expected_uid": "u1:zA1Mxld7kZ1Vu1G1MyuFFGx1kMAaUo2xxGtWaw-JUFWiNRYosqdlFn7OmbXnA9B8",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F03-components-b",
       "original_fixture": "go.txt",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "a",
           "b::c.go"
@@ -178,16 +191,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"a\",\"b::c.go\"],\"go\",\"tree-sitter-go\",\"Function\",[18,21],[]]",
-      "expected_uid_utf8_bytes": 81,
+      "expected_uid": "u1:rLkYAZmle2fd1LaupJyer0by4qejg-9x7yOB3x4fUhOfQu7qpTLY9MnabV5O63Nk",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F03-label-case",
       "original_fixture": "go.txt",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "a.go"
         ],
@@ -200,16 +214,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"a.go\"],\"go\",\"tree-sitter-go\",\"function\",[18,21],[]]",
-      "expected_uid_utf8_bytes": 74,
+      "expected_uid": "u1:_3mWJqQkuwthu0xqBKy10cjMPBnVdJhq5TjiUbkXYQPeXwAKf2onvK6Lg3ewyPuV",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F03-quoted-unicode",
       "original_fixture": "go.txt",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "é\\literal.go"
         ],
@@ -222,16 +237,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"é\\\\literal.go\"],\"go\",\"tree-sitter-go\",\"Custom\\\"Λ\",[18,21],[]]",
-      "expected_uid_utf8_bytes": 86,
+      "expected_uid": "u1:xQkE6Xdx3e5QoF94KB9yLCWnNlc3SEFk1TMYXbD3zQydhdeUEPq5jL_nG08SnmbX",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F04-pair-a",
       "original_fixture": "values.json",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "values.json"
         ],
@@ -244,16 +260,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"values.json\"],\"json\",\"tree-sitter-json\",\"Pair\",[2,3],[]]",
-      "expected_uid_utf8_bytes": 79,
+      "expected_uid": "u1:gJygN2KrfHD3Hvxm-1R-0EtwdP6WiqJGIn_XZ_4MfDmH1UGGBG2AanoP4yKG8P8w",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F04-pair-b",
       "original_fixture": "values.json",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "values.json"
         ],
@@ -266,16 +283,17 @@
         ],
         []
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"values.json\"],\"json\",\"tree-sitter-json\",\"Pair\",[8,9],[]]",
-      "expected_uid_utf8_bytes": 79,
+      "expected_uid": "u1:gJygN2KrfHD3Hvxm-1R-0Ind5ZVt2IQo-VLEJVOAppL2OQh8KysKqUzO8kPoVelN",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F04-value-a",
       "original_fixture": "values.json",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "values.json"
         ],
@@ -294,16 +312,17 @@
           ]
         ]
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"values.json\"],\"json\",\"tree-sitter-json\",\"Value\",[5,6],[[\"Pair\",2,3]]]",
-      "expected_uid_utf8_bytes": 92,
+      "expected_uid": "u1:gJygN2KrfHD3Hvxm-1R-0A29pe2yTr4620cFSbgDhAAdVYZ1x7ja4e3KcxBi9vOy",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F04-value-b",
       "original_fixture": "values.json",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "values.json"
         ],
@@ -322,16 +341,17 @@
           ]
         ]
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"values.json\"],\"json\",\"tree-sitter-json\",\"Value\",[11,12],[[\"Pair\",8,9]]]",
-      "expected_uid_utf8_bytes": 94,
+      "expected_uid": "u1:gJygN2KrfHD3Hvxm-1R-0ITQss242ElRS06sGSFGsmPcl2JhIotZiXMy54HetgFg",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     },
     {
       "id": "F04-value-repeat",
       "original_fixture": "values.json",
       "typed_tuple": [
-        "ast-syntax-root-1",
+        "logical-observations-1",
         [
           "values.json"
         ],
@@ -350,10 +370,11 @@
           ]
         ]
       ],
-      "expected_uid": "[\"ast-syntax-root-1\",[\"values.json\"],\"json\",\"tree-sitter-json\",\"Value\",[5,6],[[\"Pair\",2,3]]]",
-      "expected_uid_utf8_bytes": 92,
+      "expected_uid": "u1:gJygN2KrfHD3Hvxm-1R-0A29pe2yTr4620cFSbgDhAAdVYZ1x7ja4e3KcxBi9vOy",
+      "expected_uid_utf8_bytes": 67,
       "runtime": "UNRUN",
-      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority"
+      "proof_scope": "purekey/originalbytebinding; notparsercapture/native/FSauthority",
+      "prior_subjects": []
     }
   ],
   "source_expectations": {
@@ -417,7 +438,5 @@
         12
       ]
     }
-  },
-  "limits_and_errors_runtime": "F05 exact/+1/zero/overflow/BWA/contexts/bindings and consumerF06 must stillbe fullyspecified/runtested; fixturecountNOTtestcount",
-  "remaining_merger_proof": "b0cb separateactualpropertyconflicts/extent/atomicolddraft/evidenceoccurrences required; keyequalitynotthatproof"
+  }
 }

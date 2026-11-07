@@ -353,6 +353,7 @@ pub(super) async fn execute<'a>(
                 registry,
                 id,
                 version,
+                imported.directory,
             )
             .map_err(|cause| io_failure(io::Error::other(cause)))?
             {
@@ -361,7 +362,8 @@ pub(super) async fn execute<'a>(
         }
     }
     if let Some(read) = &ast_read {
-        let registry = &ast_source.ok_or_else(denied)?.policy().registry;
+        let source = ast_source.ok_or_else(denied)?;
+        let registry = &source.policy().registry;
         for (index, selected) in ast_selections.iter().enumerate() {
             let Some((id, version)) = &selected.imported else {
                 continue;
@@ -371,6 +373,7 @@ pub(super) async fn execute<'a>(
                 registry,
                 id,
                 version,
+                source.policy().index,
             )
             .map_err(|cause| io_failure(io::Error::other(cause)))?
             {

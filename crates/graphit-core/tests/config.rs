@@ -856,11 +856,17 @@ fn physical_aliases_share_global_lock_while_project_document_remains_independent
     let first = global
         .writer(Duration::ZERO, &Cancellation::default())
         .unwrap();
+    let global_lock = fs::File::open(global.lock_path()).unwrap();
+    let global_lock_id = graphit_core::native_file_identity::handle_id(&global_lock).unwrap();
     drop(
         project_store
             .writer(Duration::ZERO, &Cancellation::default())
             .unwrap(),
     );
+    let lock_file = fs::File::open(project_store.lock_path()).unwrap();
+    graphit_fs::verify_private_file(&lock_file).unwrap();
+    assert_eq!(lock_file.metadata().unwrap().len(), 0);
+    let lock_id = graphit_core::native_file_identity::handle_id(&lock_file).unwrap();
     let private_installation = InstallationPaths::resolve(
         Brand::new("acme-code").unwrap(),
         fixture.root(),
@@ -896,7 +902,33 @@ fn physical_aliases_share_global_lock_while_project_document_remains_independent
     }
     drop(first);
     ensure_project_identity(&project);
+    let identity_store = graphit_core::project_identity::ProjectIdentityStore::at(&project);
+    let identity_writer = identity_store
+        .writer(Duration::ZERO, &Cancellation::default())
+        .unwrap();
+    assert_eq!(
+        project_store
+            .writer(Duration::from_millis(5), &Cancellation::default())
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::TimedOut
+    );
+    drop(identity_writer);
+    drop(
+        project_store
+            .writer(Duration::ZERO, &Cancellation::default())
+            .unwrap(),
+    );
     assert!(set(&project_store, "custom.shared", json!(true)).unwrap());
+    let reopened_lock = fs::File::open(project_store.lock_path()).unwrap();
+    graphit_fs::verify_private_file(&reopened_lock).unwrap();
+    assert_eq!(reopened_lock.metadata().unwrap().len(), 0);
+    assert!(graphit_core::native_file_identity::handle_id(&reopened_lock).unwrap() == lock_id);
+    let reopened_global_lock = fs::File::open(global.lock_path()).unwrap();
+    assert!(
+        graphit_core::native_file_identity::handle_id(&reopened_global_lock).unwrap()
+            == global_lock_id
+    );
     assert_eq!(
         global
             .load()

@@ -11,7 +11,7 @@ import { MarkdownContent } from './WikiMarkdown'
 export function NativeKnowledgeAsk({ selection, heads }: { selection: TaskContext; heads: NativeKnowledgeHead[] | null }) {
   const binding = nativeSelectionKey(selection)
   const [query, setQuery] = useState(''), [model, setModel] = useState('')
-  const [evidence, setEvidence] = useState('selected'), [slugs, setSlugs] = useState<string[]>([])
+  const [evidence, setEvidence] = useState('retrieval'), [slugs, setSlugs] = useState<string[]>([])
   const [mode, setMode] = useState<NativeKnowledgeSearchMode>('fts'), [metric, setMetric] = useState<NativeKnowledgeSearchMetric>('cosine')
   const [limit, setLimit] = useState('5')
   const [reply, setReply] = useState<{ binding: string; value: NativeKnowledgeAskResult } | null>(null)
@@ -59,13 +59,17 @@ export function NativeKnowledgeAsk({ selection, heads }: { selection: TaskContex
     <form className="knowledge-ask-form" onSubmit={event => { event.preventDefault(); submit() }}>
       <label className="work-field knowledge-ask-question">Question<textarea aria-label="Knowledge question" value={query} onChange={event => { clear(); setQuery(event.target.value) }} /></label>
       <label className="work-field">Requested model<input aria-label="Knowledge requested model" value={model} onChange={event => { clear(); setModel(event.target.value) }} /></label>
-      <label className="work-field">Evidence<StyledSelect aria-label="Knowledge question evidence" value={evidence} onChange={event => { clear(); setEvidence(event.target.value) }}><option value="selected">Selected pages</option><option value="retrieval">Retrieve pages</option></StyledSelect></label>
-      {evidence === 'selected' ? <fieldset className="knowledge-ask-evidence"><legend>Pages to provide</legend>
+      <label className="work-field">Question evidence<StyledSelect aria-label="Knowledge question evidence" value={evidence} onChange={event => { clear(); setEvidence(event.target.value) }}><option value="selected">Choose pages manually</option><option value="retrieval">Retrieve pages</option></StyledSelect></label>
+      <p className="work-help">These controls choose page evidence for this question. Search Knowledge has its own search controls.</p>
+      {evidence === 'selected' ? <fieldset className="knowledge-ask-evidence" aria-describedby="knowledge-ask-page-help"><legend>Choose pages for this question</legend>
+        <p className="work-help" id="knowledge-ask-page-help">Checked pages are provided as evidence to answer this question. This list is the published library, not ranked search results.</p>
+        <p className="work-help" role="status">{slugs.length === 0 ? 'No pages selected.' : `${slugs.length} ${slugs.length === 1 ? 'page' : 'pages'} selected.`}</p>
         <div className="knowledge-ask-pages">
           {heads === null ? <p>Load the published pages to select evidence.</p> : heads.length === 0 ? <p>No published pages to select.</p> : heads.map(head => <label className="knowledge-ask-page" key={head.slug}><input type="checkbox" checked={slugs.includes(head.slug)} onChange={event => { clear(); setSlugs(previous => event.target.checked ? [...previous, head.slug] : previous.filter(slug => slug !== head.slug)) }} /><span><span className="knowledge-ask-page-title">{head.title || head.slug}</span><small>{head.slug}</small></span></label>)}
         </div>
-        <p className="work-help">An empty selection provides no pages. Choose retrieval to search for evidence.</p>
+        <p className="work-help">With no pages selected, the model receives no page evidence. Choose “Retrieve pages” to search for evidence automatically.</p>
       </fieldset> : <>
+        <p className="work-help">Retrieve relevant published pages when you select “Ask question”. FTS uses the words in your question.</p>
         <label className="work-field">Retrieval mode<StyledSelect aria-label="Knowledge question retrieval mode" value={mode} onChange={event => { clear(); setMode(event.target.value as NativeKnowledgeSearchMode) }}><option value="fts">fts</option><option value="semantic">semantic</option><option value="hybrid">hybrid</option></StyledSelect></label>
         {mode !== 'fts' && <label className="work-field">Distance metric<StyledSelect aria-label="Knowledge question distance metric" value={metric} onChange={event => { clear(); setMetric(event.target.value as NativeKnowledgeSearchMetric) }}><option value="cosine">cosine</option><option value="l2">l2</option><option value="dot">dot</option></StyledSelect></label>}
         <label className="work-field">Maximum pages<input inputMode="numeric" aria-label="Knowledge question page limit" value={limit} onChange={event => { clear(); setLimit(event.target.value) }} /></label>

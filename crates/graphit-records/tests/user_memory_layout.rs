@@ -179,8 +179,8 @@ fn memory() -> Memory {
         tags: vec![" tag ".into(), " tag ".into()],
         references: vec![],
         reference_generation: 1,
-        created_by: "a".repeat(64),
-        updated_by: "a".repeat(64),
+        created_by: ulid::Ulid::from(10u128).to_string(),
+        updated_by: ulid::Ulid::from(10u128).to_string(),
         created_at: 11,
         updated_at: 11,
     }

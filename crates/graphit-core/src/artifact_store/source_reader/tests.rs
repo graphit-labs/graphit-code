@@ -984,12 +984,10 @@ fn native_read_fence_covers_range_stream_and_metadata_and_ends_on_return() {
                     .raw_os_error(),
                 Some(32)
             );
-            assert_eq!(
-                fs::rename(&active_staged, &active_path)
-                    .unwrap_err()
-                    .raw_os_error(),
-                Some(32)
-            );
+            let denied = fs::rename(&active_staged, &active_path).unwrap_err();
+            assert!(matches!(denied.raw_os_error(), Some(5 | 32)), "{denied:?}");
+            assert_eq!(fs::read(&active_path).unwrap(), b"native-data");
+            assert_eq!(fs::read(&active_staged).unwrap(), b"replacement");
         };
         let _metadata_guard = if operation == 2 {
             Some(metadata_hook(check))

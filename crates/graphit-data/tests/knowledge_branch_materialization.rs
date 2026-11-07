@@ -222,6 +222,7 @@ async fn mixed_full18_materializes_observed_pin_preserves_parent_then_public_upd
             authored: KnowledgeDocumentAuthoredUpdate::Preserve,
         }],
         limits(),
+        |_, old, new| Ok(old == new),
     )
     .await?;
     assert!(matches!(

@@ -4,7 +4,7 @@ use graphit_core::{
     file_lock::Cancellation,
 };
 use graphit_data::{
-    CapturedLocalGraph,
+    CapturedLocalGraph, GraphAnchorKey, ResolvedGraphNode,
     remote_graph::{RemoteGraphFile, RemoteIcebugGraph},
 };
 // Retain the SDK crate's standard native link metadata for this CXX consumer.
@@ -12,7 +12,7 @@ use lbug as _;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     io::{self, Read},
     path::Path,
     sync::Arc,
@@ -45,6 +45,7 @@ pub struct QueryResult {
     pub rows: Vec<Vec<Value>>,
 }
 
+#[derive(Clone)]
 enum QueryGraph {
     Local(Arc<CapturedLocalGraph>),
     Remote {
@@ -55,7 +56,7 @@ enum QueryGraph {
 }
 struct GraphIo {
     graph: QueryGraph,
-    files: BTreeMap<String, String>,
+    files: Arc<BTreeMap<String, String>>,
 }
 enum QueryFile {
     Local(CapturedSourceFile),
@@ -65,7 +66,55 @@ enum QueryFile {
         runtime: Handle,
     },
 }
+fn node_lookup(node: Option<ResolvedGraphNode<'_>>) -> ffi::NodeLookup {
+    match node {
+        Some(node) => ffi::NodeLookup {
+            found: true,
+            table: u64::from(node.id().table()),
+            row: node.id().row(),
+        },
+        None => ffi::NodeLookup {
+            found: false,
+            table: 0,
+            row: 0,
+        },
+    }
+}
+
 impl GraphIo {
+    fn lookup_string(&self, label: &str, key: &str, batch: usize) -> io::Result<ffi::NodeLookup> {
+        self.lookup(label, GraphAnchorKey::String(key), batch)
+    }
+    fn lookup_int64(&self, label: &str, key: i64, batch: usize) -> io::Result<ffi::NodeLookup> {
+        self.lookup(label, GraphAnchorKey::Int64(key), batch)
+    }
+    fn lookup(
+        &self,
+        label: &str,
+        key: GraphAnchorKey<'_>,
+        batch: usize,
+    ) -> io::Result<ffi::NodeLookup> {
+        match &self.graph {
+            QueryGraph::Local(graph) => Ok(node_lookup(
+                graph
+                    .resolve_query_node(label, key, batch)
+                    .map_err(io::Error::other)?,
+            )),
+            QueryGraph::Remote {
+                graph,
+                original,
+                runtime,
+            } => runtime.block_on(async {
+                original.check()?;
+                let node = graph
+                    .resolve_query_node(label, key, batch, Arc::clone(original))
+                    .await
+                    .map_err(io::Error::other)?;
+                original.check()?;
+                Ok(node_lookup(node))
+            }),
+        }
+    }
     fn open(&self, handle: &str) -> io::Result<Box<QueryFile>> {
         let relative = self.files.get(handle).ok_or_else(|| {
             io::Error::new(
@@ -99,6 +148,36 @@ impl GraphIo {
     }
 }
 impl QueryFile {
+    fn validate_binding(&self) -> io::Result<()> {
+        match self {
+            Self::Local(file) => {
+                drop(file.stream(0)?);
+                Ok(())
+            }
+            Self::Remote { original, .. } => original.check(),
+        }
+    }
+    fn revalidate(&self) -> io::Result<()> {
+        match self {
+            Self::Local(_) => self.validate_binding(),
+            Self::Remote {
+                file,
+                original,
+                runtime,
+            } => {
+                original.check()?;
+                // Cached metadata still observes the captured object's ETag/version.
+                // A nonempty conditional range uses the existing SDK read boundary.
+                let prefix = runtime
+                    .block_on(file.read_range(0, 1, original))
+                    .map_err(io::Error::other)?;
+                if prefix.len() != 1 {
+                    return Err(io::ErrorKind::UnexpectedEof.into());
+                }
+                original.check()
+            }
+        }
+    }
     fn len(&self) -> u64 {
         match self {
             Self::Local(file) => file.len(),
@@ -141,6 +220,8 @@ impl QueryFile {
 }
 
 struct QuerySignal {
+    #[cfg(feature = "test-support")]
+    observer: Option<Arc<QueryCatalogObserver>>,
     original: Arc<SnapshotContext>,
     complete: Cancellation,
     runtime: Handle,
@@ -297,19 +378,9 @@ impl ResultSink {
         self.charge(serde_json::to_vec(&value).map_err(io::Error::other)?.len())?;
         self.attach(field, value)
     }
-    fn identity(
-        &mut self,
-        field: &str,
-        generation: &[u8],
-        index: u64,
-        row: u64,
-        edge: bool,
-    ) -> io::Result<()> {
-        if generation.len() != 32 {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
+    fn identity(&mut self, field: &str, index: u64, row: u64, edge: bool) -> io::Result<()> {
         let key = if edge { "member" } else { "table" };
-        let value = json!({"type":"INTERNAL_ID","value":{"generation":generation,key:index,"row":row.to_string()}});
+        let value = json!({"type":"INTERNAL_ID","value":{key:index,"row":row.to_string()}});
         self.prefix(field)?;
         self.charge(serde_json::to_vec(&value).map_err(io::Error::other)?.len())?;
         self.attach(field, value)
@@ -323,6 +394,23 @@ impl ResultSink {
     }
 }
 impl QuerySignal {
+    #[cfg(feature = "test-support")]
+    fn on_database_created(&self) {
+        if let Some(observer) = &self.observer {
+            observer
+                .databases
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    #[cfg(feature = "test-support")]
+    fn on_ddl_executed(&self) {
+        if let Some(observer) = &self.observer {
+            observer
+                .ddl
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
     fn check(&self) -> io::Result<()> {
         self.original.check()
     }
@@ -373,6 +461,46 @@ mod ffi {
         max_bytes: usize,
         max_depth: usize,
     }
+    struct NodeLookup {
+        found: bool,
+        table: u64,
+        row: u64,
+    }
+    struct PropertyType {
+        name: String,
+        data_type: String,
+    }
+    struct ShardMount {
+        file: String,
+        row_base: u64,
+        row_offset: u64,
+        rows: u64,
+    }
+    struct NodeMount {
+        table: u64,
+        rows: u64,
+        shards: Vec<ShardMount>,
+    }
+    struct MemberMount {
+        member: u64,
+        kind: String,
+        from_label: String,
+        to_label: String,
+        rows: u64,
+        indices: String,
+        indptr: String,
+        indices_row_offset: u64,
+        indptr_row_offset: u64,
+        source_row_base: u64,
+        source_rows: u64,
+        target_row_base: u64,
+        target_rows: u64,
+        properties: Vec<PropertyType>,
+    }
+    struct GraphMount {
+        nodes: Vec<NodeMount>,
+        members: Vec<MemberMount>,
+    }
     enum AtomKind {
         Null,
         Boolean,
@@ -384,10 +512,23 @@ mod ffi {
         type QueryFile;
         type QuerySignal;
         type ResultSink;
+        fn lookup_string(
+            self: &GraphIo,
+            label: &str,
+            key: &str,
+            batch: usize,
+        ) -> Result<NodeLookup>;
+        fn lookup_int64(self: &GraphIo, label: &str, key: i64, batch: usize) -> Result<NodeLookup>;
         fn open(self: &GraphIo, handle: &str) -> Result<Box<QueryFile>>;
         fn contains(self: &GraphIo, handle: &str) -> bool;
         fn len(self: &QueryFile) -> u64;
         fn read_at(self: &QueryFile, offset: u64, bytes: &mut [u8]) -> Result<usize>;
+        fn validate_binding(self: &QueryFile) -> Result<()>;
+        fn revalidate(self: &QueryFile) -> Result<()>;
+        #[cfg(feature = "test-support")]
+        fn on_database_created(self: &QuerySignal);
+        #[cfg(feature = "test-support")]
+        fn on_ddl_executed(self: &QuerySignal);
         fn check(self: &QuerySignal) -> Result<()>;
         fn remaining_ms(self: &QuerySignal) -> Result<u64>;
         fn wait_interrupt(self: &QuerySignal) -> bool;
@@ -411,7 +552,6 @@ mod ffi {
         fn identity(
             self: &mut ResultSink,
             field: &str,
-            generation: &[u8],
             index: u64,
             row: u64,
             edge: bool,
@@ -420,10 +560,24 @@ mod ffi {
     }
     unsafe extern "C++" {
         include!("native/icebug_query.hpp");
-        fn run_query(
+        type NativeCatalog;
+        fn prepare_catalog(
             io: Box<GraphIo>,
             signal: Box<QuerySignal>,
             schema: &str,
+            mount: GraphMount,
+            options: &QueryOptions,
+        ) -> Result<UniquePtr<NativeCatalog>>;
+        fn rebind_catalog(
+            catalogue: Pin<&mut NativeCatalog>,
+            io: Box<GraphIo>,
+            signal: Box<QuerySignal>,
+            mount: GraphMount,
+        ) -> Result<()>;
+        fn run_query(
+            catalogue: &NativeCatalog,
+            io: Box<GraphIo>,
+            signal: Box<QuerySignal>,
             query: &str,
             parameters: &str,
             options: &QueryOptions,
@@ -432,10 +586,26 @@ mod ffi {
     }
 }
 
-fn mount_schema(
-    graph: QueryGraph,
-    generation: Option<[u8; 32]>,
-) -> io::Result<(Box<GraphIo>, String)> {
+#[derive(PartialEq, Eq, Serialize)]
+struct NodeLayout {
+    table: u64,
+    label: String,
+    primary_key: String,
+    columns: Vec<(String, String)>,
+}
+#[derive(PartialEq, Eq, Serialize)]
+struct MemberLayout {
+    kind: String,
+    from: String,
+    to: String,
+    properties: Vec<(String, String)>,
+}
+#[derive(PartialEq, Eq, Serialize)]
+struct GraphLayout {
+    nodes: Vec<NodeLayout>,
+    members: Vec<MemberLayout>,
+}
+fn capture_mount(graph: QueryGraph) -> io::Result<(Box<GraphIo>, GraphLayout, ffi::GraphMount)> {
     let metadata = match &graph {
         QueryGraph::Local(graph) => graph.schema().map_err(io::Error::other)?,
         QueryGraph::Remote {
@@ -446,39 +616,359 @@ fn mount_schema(
         }
     };
     let mut files = BTreeMap::new();
+    let mut handles = BTreeMap::<String, String>::new();
     let mut handle = |relative: &str| {
+        if let Some(handle) = handles.get(relative) {
+            return handle.clone();
+        }
         let opaque = format!("graphit-captured://{}.parquet", files.len());
         files.insert(opaque.clone(), relative.to_owned());
+        handles.insert(relative.to_owned(), opaque.clone());
         opaque
     };
-    let nodes = metadata
-        .node_tables()
-        .enumerate()
-        .map(|(table, node)| {
-            json!({"table":table,"label":node.label(),"primary_key":node.primary_key(),
-            "rows":node.row_extent(),"shards":node.shards().map(|shard| json!({
-                "file":handle(shard.storage_file()),"row_base":shard.row_base(),"rows":shard.rows()
-            })).collect::<Vec<_>>(),
-            "columns":node.columns().collect::<Vec<_>>()})
+    let mut layout = GraphLayout {
+        nodes: Vec::new(),
+        members: Vec::new(),
+    };
+    let mut mount = ffi::GraphMount {
+        nodes: Vec::new(),
+        members: Vec::new(),
+    };
+    for (table, node) in metadata.node_tables().enumerate() {
+        let table = u64::try_from(table).map_err(io::Error::other)?;
+        layout.nodes.push(NodeLayout {
+            table,
+            label: node.label().to_owned(),
+            primary_key: node.primary_key().to_owned(),
+            columns: node
+                .columns()
+                .map(|(name, kind)| (name.to_owned(), kind.to_owned()))
+                .collect(),
+        });
+        mount.nodes.push(ffi::NodeMount {
+            table,
+            rows: node.row_extent(),
+            shards: node
+                .shards()
+                .map(|shard| ffi::ShardMount {
+                    file: handle(shard.storage_file()),
+                    row_base: shard.row_base(),
+                    row_offset: shard.row_offset(),
+                    rows: shard.rows(),
+                })
+                .collect(),
+        });
+    }
+    let mut relationships = BTreeMap::<(String, String, String), BTreeSet<(String, String)>>::new();
+    for (member, edge) in metadata.relationships().enumerate() {
+        let kind = edge.kind().to_owned();
+        let from = edge.from_label().to_owned();
+        let to = edge.to_label().to_owned();
+        let properties = edge
+            .properties()
+            .map(|(name, kind)| (name.to_owned(), kind.to_owned()))
+            .collect::<Vec<_>>();
+        relationships
+            .entry((kind.clone(), from.clone(), to.clone()))
+            .or_default()
+            .extend(properties.iter().cloned());
+        mount.members.push(ffi::MemberMount {
+            member: u64::try_from(member).map_err(io::Error::other)?,
+            kind,
+            from_label: from,
+            to_label: to,
+            rows: edge.rows(),
+            indices: handle(edge.indices_file()),
+            indptr: handle(edge.indptr_file()),
+            indices_row_offset: edge.indices_row_offset(),
+            indptr_row_offset: edge.indptr_row_offset(),
+            source_row_base: edge.source_row_base(),
+            source_rows: edge.source_rows(),
+            target_row_base: edge.target_row_base(),
+            target_rows: edge.target_rows(),
+            properties: properties
+                .into_iter()
+                .map(|(name, data_type)| ffi::PropertyType { name, data_type })
+                .collect(),
+        });
+    }
+    layout.members = relationships
+        .into_iter()
+        .map(|((kind, from, to), properties)| MemberLayout {
+            kind,
+            from,
+            to,
+            properties: properties.into_iter().collect(),
         })
-        .collect::<Vec<_>>();
-    let members = metadata.relationships().enumerate().map(|(member, edge)| {
-        json!({"member":member,"kind":edge.kind(),"from":edge.from_label(),"to":edge.to_label(),
-            "rows":edge.rows(),"indices":handle(edge.indices_file()),"indptr":handle(edge.indptr_file()),
-            "source_row_base":edge.source_row_base(),"source_rows":edge.source_rows(),
-            "target_row_base":edge.target_row_base(),"target_rows":edge.target_rows(),
-            "properties":edge.properties().collect::<Vec<_>>()})
-    }).collect::<Vec<_>>();
-    let generation = generation.unwrap_or_else(|| metadata.generation().bytes());
-    let schema =
-        serde_json::to_string(&json!({"generation":generation,"nodes":nodes,"members":members}))
-            .map_err(io::Error::other)?;
-    Ok((Box::new(GraphIo { graph, files }), schema))
+        .collect();
+    Ok((
+        Box::new(GraphIo {
+            graph,
+            files: Arc::new(files),
+        }),
+        layout,
+        mount,
+    ))
 }
 
-/// Execute against genuine captured files on the caller's blocking job.
-/// Keep the same Original and live Tokio runtime through completion; PROJECT
-/// or installed-artifact authorization belongs to the composing consumer.
+// SAFETY: the official Database is not thread-affine. The slot moves it only
+// while its mutex grants exclusive ownership; every operation joins the native
+// observer and releases connection, readers and IO before the guard is dropped.
+#[allow(unsafe_code)]
+unsafe impl Send for ffi::NativeCatalog {}
+
+/// Test-only evidence from actual native constructions/DDL and the last call's
+/// weak reader/Original witnesses. It retains no request or reader owner.
+#[cfg(feature = "test-support")]
+#[derive(Default)]
+pub struct QueryCatalogObserver {
+    witness: std::sync::Mutex<Option<QueryCatalogWitness>>,
+    databases: std::sync::atomic::AtomicUsize,
+    ddl: std::sync::atomic::AtomicUsize,
+}
+#[cfg(feature = "test-support")]
+#[derive(Clone)]
+pub struct QueryCatalogWitness {
+    pub original: std::sync::Weak<SnapshotContext>,
+    pub local: Option<std::sync::Weak<CapturedLocalGraph>>,
+    pub remote: Option<std::sync::Weak<RemoteIcebugGraph>>,
+}
+#[cfg(feature = "test-support")]
+impl QueryCatalogObserver {
+    /// Last operation only; these weak references grant no authority and retain no reader.
+    pub fn last_witness(&self) -> Option<QueryCatalogWitness> {
+        self.witness
+            .lock()
+            .expect("query test observer poisoned")
+            .clone()
+    }
+    fn record(&self, graph: &QueryGraph, original: &Arc<SnapshotContext>) {
+        let (local, remote) = match graph {
+            QueryGraph::Local(graph) => (Some(Arc::downgrade(graph)), None),
+            QueryGraph::Remote { graph, .. } => (None, Some(Arc::downgrade(graph))),
+        };
+        *self.witness.lock().expect("query test observer poisoned") = Some(QueryCatalogWitness {
+            original: Arc::downgrade(original),
+            local,
+            remote,
+        });
+    }
+    /// Successful native Database constructions and completed CREATE DDL statements.
+    pub fn counts(&self) -> (usize, usize) {
+        (
+            self.databases.load(std::sync::atomic::Ordering::SeqCst),
+            self.ddl.load(std::sync::atomic::Ordering::SeqCst),
+        )
+    }
+}
+/// Internal lazy execution state for a service owner. The same native Database
+/// survives compatible calls; each call binds its own admitted capture and readers.
+pub struct QueryCatalog {
+    #[cfg(feature = "test-support")]
+    observer: Arc<QueryCatalogObserver>,
+    state: tokio::sync::Mutex<CatalogState>,
+}
+struct CatalogState {
+    native: cxx::UniquePtr<ffi::NativeCatalog>,
+    logical_schema: Option<GraphLayout>,
+    native_settings: Option<(u64, u64)>,
+}
+impl Default for CatalogState {
+    fn default() -> Self {
+        Self {
+            native: cxx::UniquePtr::null(),
+            logical_schema: None,
+            native_settings: None,
+        }
+    }
+}
+impl CatalogState {
+    fn clear(&mut self) {
+        self.native = cxx::UniquePtr::null();
+        self.logical_schema = None;
+        self.native_settings = None;
+    }
+}
+fn signal(original: &Arc<SnapshotContext>, runtime: &Handle) -> Box<QuerySignal> {
+    Box::new(QuerySignal {
+        #[cfg(feature = "test-support")]
+        observer: None,
+        original: Arc::clone(original),
+        complete: Cancellation::default(),
+        runtime: runtime.clone(),
+    })
+}
+impl QueryGraph {
+    fn revalidate(&self, original: &SnapshotContext) -> io::Result<()> {
+        original.check()?;
+        match self {
+            Self::Local(graph) => graph.revalidate(original).map_err(io::Error::other),
+            Self::Remote { .. } => Ok(()),
+        }
+    }
+}
+impl Default for QueryCatalog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+impl QueryCatalog {
+    /// Empty execution state. No IO, selection, request or credentials are captured.
+    pub fn new() -> Self {
+        Self {
+            #[cfg(feature = "test-support")]
+            observer: Arc::new(QueryCatalogObserver::default()),
+            state: tokio::sync::Mutex::new(CatalogState::default()),
+        }
+    }
+    #[cfg(feature = "test-support")]
+    pub fn test_observer(&self) -> Arc<QueryCatalogObserver> {
+        Arc::clone(&self.observer)
+    }
+    fn signal(&self, original: &Arc<SnapshotContext>, runtime: &Handle) -> Box<QuerySignal> {
+        let control = signal(original, runtime);
+        #[cfg(feature = "test-support")]
+        let control = {
+            let mut control = control;
+            control.observer = Some(Arc::clone(&self.observer));
+            control
+        };
+        control
+    }
+    /// Called on the consumer's blocking job while it retains admission and shards.
+    pub fn execute(
+        &self,
+        graph: &Arc<CapturedLocalGraph>,
+        original: &Arc<SnapshotContext>,
+        runtime: &Handle,
+        query: &str,
+        parameters: &BTreeMap<String, Value>,
+        options: QueryOptions,
+    ) -> io::Result<QueryResult> {
+        self.execute_graph(
+            QueryGraph::Local(Arc::clone(graph)),
+            original,
+            runtime,
+            query,
+            parameters,
+            options,
+        )
+    }
+    pub fn execute_remote(
+        &self,
+        graph: &Arc<RemoteIcebugGraph>,
+        original: &Arc<SnapshotContext>,
+        runtime: &Handle,
+        query: &str,
+        parameters: &BTreeMap<String, Value>,
+        options: QueryOptions,
+    ) -> io::Result<QueryResult> {
+        self.execute_graph(
+            QueryGraph::Remote {
+                graph: Arc::clone(graph),
+                original: Arc::clone(original),
+                runtime: runtime.clone(),
+            },
+            original,
+            runtime,
+            query,
+            parameters,
+            options,
+        )
+    }
+    fn execute_graph(
+        &self,
+        graph: QueryGraph,
+        original: &Arc<SnapshotContext>,
+        runtime: &Handle,
+        query: &str,
+        parameters: &BTreeMap<String, Value>,
+        options: QueryOptions,
+    ) -> io::Result<QueryResult> {
+        original.check()?;
+        options.check()?;
+        if query.len() > options.max_bytes {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        let parameters = serde_json::to_string(parameters).map_err(io::Error::other)?;
+        if parameters.len() > options.max_bytes {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+        // Keep the existing runtime and Original while waiting; never block a
+        // cancelled/expired request behind another operation's native query.
+        let mut state = runtime.block_on(async {
+            tokio::select! {
+                biased;
+                () = original.cancellation().cancelled() => Err(io::Error::from(io::ErrorKind::Interrupted)),
+                result = async {
+                    match original.deadline() {
+                        Some(deadline) => tokio::time::timeout_at(deadline.into(),self.state.lock())
+                            .await.map_err(|_| io::Error::from(io::ErrorKind::TimedOut)),
+                        None => Ok(self.state.lock().await),
+                    }
+                } => result,
+            }
+        })?;
+        graph.revalidate(original)?;
+        #[cfg(feature = "test-support")]
+        self.observer.record(&graph, original);
+        let current = graph.clone();
+        let (io, logical, mount) = capture_mount(graph)?;
+        let query_io = Box::new(GraphIo {
+            graph: current.clone(),
+            files: Arc::clone(&io.files),
+        });
+        if state.native.is_null()
+            || state.logical_schema.as_ref() != Some(&logical)
+            || state.native_settings != Some((options.buffer_pool_bytes, options.query_threads))
+        {
+            state.clear();
+            let schema = serde_json::to_string(&logical).map_err(io::Error::other)?;
+            let native =
+                ffi::prepare_catalog(io, self.signal(original, runtime), &schema, mount, &options);
+            original.check()?;
+            let native = native.map_err(io::Error::other)?;
+            if native.is_null() {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
+            state.native = native;
+            state.logical_schema = Some(logical);
+            state.native_settings = Some((options.buffer_pool_bytes, options.query_threads));
+        } else {
+            // Capture A's tables/readers leave before capture B is bound, even
+            // when their relative paths happen to be equal. No snapshot key is used.
+            let rebound = ffi::rebind_catalog(
+                state.native.pin_mut(),
+                io,
+                self.signal(original, runtime),
+                mount,
+            );
+            if let Err(error) = original
+                .check()
+                .and_then(|()| rebound.map_err(io::Error::other))
+            {
+                state.clear();
+                return Err(error);
+            }
+        }
+        let mut result = ResultSink::new(options)?;
+        let value = ffi::run_query(
+            &state.native,
+            query_io,
+            self.signal(original, runtime),
+            query,
+            &parameters,
+            &options,
+            &mut result,
+        );
+        current.revalidate(original)?;
+        value.map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
+        Ok(result.result)
+    }
+}
+
+/// Execute against captured files in the caller's blocking job. Callers with an
+/// existing snapshot owner retain QueryCatalog to amortize catalogue preparation.
 pub fn execute(
     graph: &Arc<CapturedLocalGraph>,
     original: &Arc<SnapshotContext>,
@@ -487,44 +977,11 @@ pub fn execute(
     parameters: &BTreeMap<String, Value>,
     options: QueryOptions,
 ) -> io::Result<QueryResult> {
-    execute_graph(
-        QueryGraph::Local(Arc::clone(graph)),
-        original,
-        runtime,
-        query,
-        parameters,
-        options,
-        None,
-    )
-}
-
-/// Execute on a captured producer-owned graph. The caller retains the graph's
-/// shard lifetime for this operation; unrelated derived corpora are independent.
-pub fn execute_owned(
-    graph: &Arc<CapturedLocalGraph>,
-    original: &Arc<SnapshotContext>,
-    namespace: [u8; 32],
-    query: &str,
-    parameters: &BTreeMap<String, Value>,
-    options: QueryOptions,
-) -> io::Result<QueryResult> {
-    let generation = graph
-        .owned_generation(namespace)
-        .map_err(io::Error::other)?;
-    execute_graph(
-        QueryGraph::Local(Arc::clone(graph)),
-        original,
-        &Handle::try_current().map_err(io::Error::other)?,
-        query,
-        parameters,
-        options,
-        Some(generation),
-    )
+    QueryCatalog::new().execute(graph, original, runtime, query, parameters, options)
 }
 
 /// Execute the same official engine directly over captured remote range handles.
-/// The consumer must retain its current admission/lease and own this blocking job
-/// through completion. No graph download or ambient storage credentials are used.
+/// The consumer retains its current admission/lease through the blocking job.
 pub fn execute_remote(
     graph: &Arc<RemoteIcebugGraph>,
     original: &Arc<SnapshotContext>,
@@ -533,58 +990,7 @@ pub fn execute_remote(
     parameters: &BTreeMap<String, Value>,
     options: QueryOptions,
 ) -> io::Result<QueryResult> {
-    execute_graph(
-        QueryGraph::Remote {
-            graph: Arc::clone(graph),
-            original: Arc::clone(original),
-            runtime: runtime.clone(),
-        },
-        original,
-        runtime,
-        query,
-        parameters,
-        options,
-        None,
-    )
-}
-
-fn execute_graph(
-    graph: QueryGraph,
-    original: &Arc<SnapshotContext>,
-    runtime: &Handle,
-    query: &str,
-    parameters: &BTreeMap<String, Value>,
-    options: QueryOptions,
-    generation: Option<[u8; 32]>,
-) -> io::Result<QueryResult> {
-    original.check()?;
-    options.check()?;
-    if query.len() > options.max_bytes {
-        return Err(io::ErrorKind::InvalidInput.into());
-    }
-    let parameters = serde_json::to_string(parameters).map_err(io::Error::other)?;
-    if parameters.len() > options.max_bytes {
-        return Err(io::ErrorKind::InvalidInput.into());
-    }
-    let (io, schema) = mount_schema(graph, generation)?;
-    let signal = Box::new(QuerySignal {
-        original: Arc::clone(original),
-        complete: Cancellation::default(),
-        runtime: runtime.clone(),
-    });
-    let mut result = ResultSink::new(options)?;
-    let value = ffi::run_query(
-        io,
-        signal,
-        &schema,
-        query,
-        &parameters,
-        &options,
-        &mut result,
-    );
-    original.check()?;
-    value.map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    Ok(result.result)
+    QueryCatalog::new().execute_remote(graph, original, runtime, query, parameters, options)
 }
 
 #[cfg(test)]

@@ -5,7 +5,9 @@ use crate::{
     imported_graph::EntitySourceError,
 };
 use graphit_core::file_io::SnapshotContext;
-use graphit_data::CapturedLocalGraph;
+use graphit_data::{
+    CapturedLocalGraph, GraphAnchorKey, GraphPropertyNode, GraphPropertyValueRef, GraphSchema,
+};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, io, sync::Arc};
@@ -38,15 +40,20 @@ fn binding(row: &[Value]) -> Result<ProjectEntitySource, EntitySourceError> {
     }
     let start = scalar(&row[0], "INT64")?
         .parse::<usize>()
-        .ok()
-        .filter(|n| *n > 0)
-        .ok_or(EntitySourceError::InvalidExtent)?;
+        .map_err(|_| EntitySourceError::InvalidExtent)?;
     let end = scalar(&row[1], "INT64")?
         .parse::<usize>()
-        .ok()
-        .filter(|n| *n >= start)
-        .ok_or(EntitySourceError::InvalidExtent)?;
-    let digest = scalar(&row[2], "STRING")?;
+        .map_err(|_| EntitySourceError::InvalidExtent)?;
+    binding_values(start, end, scalar(&row[2], "STRING")?)
+}
+fn binding_values(
+    start: usize,
+    end: usize,
+    digest: &str,
+) -> Result<ProjectEntitySource, EntitySourceError> {
+    if start == 0 || end < start {
+        return Err(EntitySourceError::InvalidExtent);
+    }
     if digest.len() != 64
         || !digest
             .bytes()
@@ -63,6 +70,140 @@ fn binding(row: &[Value]) -> Result<ProjectEntitySource, EntitySourceError> {
         .map_err(|_| EntitySourceError::InvalidExtent)?;
     }
     Ok(ProjectEntitySource { start, end, hash })
+}
+
+pub(crate) fn validate_key_request(
+    path: &str,
+    label: &str,
+    batch: usize,
+) -> Result<(), EntitySourceError> {
+    if path.is_empty()
+        || path.contains('\0')
+        || label.is_empty()
+        || label.contains('\0')
+        || batch == 0
+    {
+        return Err(EntitySourceError::InvalidRequest);
+    }
+    Ok(())
+}
+/// Project only the association fields declared by this captured schema.
+pub(crate) fn source_projection(
+    schema: GraphSchema<'_>,
+    label: &str,
+    hash: bool,
+) -> Result<Vec<&'static str>, EntitySourceError> {
+    let table = schema
+        .node_tables()
+        .find(|table| table.label() == label)
+        .ok_or(EntitySourceError::UnknownType)?;
+    let fields: BTreeMap<_, _> = table.columns().collect();
+    let mut columns = Vec::new();
+    for (name, kind) in [
+        ("path", "STRING"),
+        ("start_line", "INT64"),
+        ("end_line", "INT64"),
+        ("available", "BOOL"),
+        ("extent_status", "STRING"),
+    ] {
+        if fields.get(name) != Some(&kind) {
+            return Err(EntitySourceError::InvalidExtent);
+        }
+        columns.push(name);
+    }
+    if hash {
+        if fields.get("source_sha256") != Some(&"STRING") {
+            return Err(EntitySourceError::InvalidExtent);
+        }
+        columns.push("source_sha256");
+    }
+    Ok(columns)
+}
+fn property<'a>(
+    node: &'a GraphPropertyNode,
+    name: &str,
+) -> Result<GraphPropertyValueRef<'a>, EntitySourceError> {
+    node.properties()
+        .iter()
+        .find(|property| property.name() == name)
+        .map(|property| property.value())
+        .ok_or(EntitySourceError::InvalidExtent)
+}
+pub(crate) fn resolved_window(
+    node: &GraphPropertyNode,
+    path: &str,
+) -> Result<(usize, usize), EntitySourceError> {
+    match property(node, "path")? {
+        GraphPropertyValueRef::String(value) if value == path => (),
+        GraphPropertyValueRef::String(_) | GraphPropertyValueRef::Null => {
+            return Err(EntitySourceError::Unavailable);
+        }
+        _ => return Err(EntitySourceError::InvalidExtent),
+    }
+    match property(node, "available")? {
+        GraphPropertyValueRef::Bool(true) => (),
+        GraphPropertyValueRef::Bool(false) | GraphPropertyValueRef::Null => {
+            return Err(EntitySourceError::Unavailable);
+        }
+        _ => return Err(EntitySourceError::InvalidExtent),
+    }
+    match property(node, "extent_status")? {
+        GraphPropertyValueRef::String("Exact") => (),
+        GraphPropertyValueRef::String(_) | GraphPropertyValueRef::Null => {
+            return Err(EntitySourceError::Unavailable);
+        }
+        _ => return Err(EntitySourceError::InvalidExtent),
+    }
+    let line = |name| match property(node, name)? {
+        GraphPropertyValueRef::Int64(value) => usize::try_from(value)
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or(EntitySourceError::InvalidExtent),
+        _ => Err(EntitySourceError::InvalidExtent),
+    };
+    let (start, end) = (line("start_line")?, line("end_line")?);
+    if end < start {
+        return Err(EntitySourceError::InvalidExtent);
+    }
+    Ok((start, end))
+}
+/// Resolve one typed PK within the current capture; no name query or physical ID crosses calls.
+pub fn resolve_project_entity_source_by_key(
+    graph: &Arc<CapturedLocalGraph>,
+    original: &Arc<SnapshotContext>,
+    path: &str,
+    label: &str,
+    key: GraphAnchorKey<'_>,
+    row_batch_size: usize,
+) -> Result<ProjectEntitySource, EntitySourceError> {
+    validate_key_request(path, label, row_batch_size)?;
+    original.check()?;
+    graph.revalidate(original)?;
+    let columns = source_projection(graph.schema()?, label, true)?;
+    let resolved = graph
+        .resolve_query_node(label, key, row_batch_size)?
+        .ok_or(EntitySourceError::Unavailable)?;
+    let node = graph.read_query_node(&resolved, &columns, row_batch_size)?;
+    original.check()?;
+    graph.revalidate(original)?;
+    let (start, end) = resolved_window(&node, path)?;
+    let GraphPropertyValueRef::String(digest) = property(&node, "source_sha256")? else {
+        return Err(EntitySourceError::InvalidExtent);
+    };
+    binding_values(start, end, digest)
+}
+/// Keep the live operation's shard capture through typed lookup and association extraction.
+pub fn resolve_live_project_entity_source_by_key(
+    graph: &crate::live_graph::LiveGraph,
+    original: &Arc<SnapshotContext>,
+    path: &str,
+    label: &str,
+    key: GraphAnchorKey<'_>,
+    row_batch_size: usize,
+) -> Result<ProjectEntitySource, EntitySourceError> {
+    graph.with_graph(original, |reader| {
+        resolve_project_entity_source_by_key(reader, original, path, label, key, row_batch_size)
+    })?
 }
 
 /// Resolve a real exact entity extent using the supplied captured PROJECT graph.

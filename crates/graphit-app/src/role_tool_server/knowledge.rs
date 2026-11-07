@@ -34,6 +34,7 @@ pub(super) async fn execute<'a>(
         .admit_read(grant, original, ProjectReadModule::Knowledge)
         .map_err(|_| error("authentication_or_permission_denied"))?;
     let result = match operation {
+        Operation::KnowledgeId => crate::knowledge_id::calculate(input, state.task.content)?,
         #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
         Operation::KnowledgeLog => {
             let input: crate::knowledge_log::Input = parse(input)?;

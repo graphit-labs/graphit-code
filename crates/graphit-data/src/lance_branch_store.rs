@@ -227,6 +227,15 @@ impl LanceBranchStore {
             },
         })
     }
+    /// Select the Main observation just opened by this store, consuming its owner.
+    /// Unlike `capture_target`, this does not refresh an older retained head.
+    /// The Main and selected branch both retain the supplied schema checks.
+    pub async fn into_target(
+        self,
+        encoded_branch: Option<&str>,
+    ) -> Result<BranchSnapshot, BranchError> {
+        Self::select_target(self.initial, encoded_branch).await
+    }
     pub async fn capture_target(
         &self,
         encoded_branch: Option<&str>,
@@ -236,6 +245,12 @@ impl LanceBranchStore {
         checked_schema(&default, &self.initial.schema)?;
         let mut captured = self.initial.clone();
         captured.dataset = Arc::new(default);
+        Self::select_target(captured, encoded_branch).await
+    }
+    async fn select_target(
+        mut captured: BranchSnapshot,
+        encoded_branch: Option<&str>,
+    ) -> Result<BranchSnapshot, BranchError> {
         if let Some(branch) = encoded_branch {
             // Metadata, rather than a manifest alone, establishes a branch reference.
             match captured.dataset.branches().get(branch).await {
@@ -369,12 +384,14 @@ impl BranchSnapshot {
     pub(crate) fn dataset(&self) -> &Arc<Dataset> {
         &self.dataset
     }
-    /// Reopen the selected physical URI/version with a fresh SDK session.
+    /// Resolve the selected physical URI/version again using this owner's SDK
+    /// session. Immutable metadata/index caches stay scoped to the same owner;
+    /// the SDK still resolves the manifest location through the current store.
     pub(crate) async fn reopen(&self) -> Result<Self, BranchError> {
         let physical_uri = crate::lance_module_store::sdk_uri(self.dataset.uri())?;
         let mut builder = DatasetBuilder::from_uri(physical_uri.as_ref())
             .with_version(self.version())
-            .with_session(Arc::new(lance::session::Session::default()))
+            .with_session(self.dataset.session())
             .with_commit_handler(Arc::clone(&self.delegate));
         if let Some(params) = self.dataset.store_params() {
             builder = builder.with_store_params(params.clone());
@@ -562,8 +579,8 @@ impl BranchSnapshot {
     }
 
     /// Capture an exact version and the identity of its admitted named branch.
-    /// Named data is reopened with current transport parameters and a fresh SDK
-    /// session between two reference reads. A changed reference is a binding
+    /// Named data is reopened with this owner's current transport parameters and
+    /// SDK session between two reference reads. A changed reference is a binding
     /// conflict. Default and still-inherited receivers retain their physical
     /// pin and return no named provenance. Callers compare retained provenance
     /// before delivering a continuation; cursor fields do not choose a branch.
@@ -608,7 +625,7 @@ impl BranchSnapshot {
             let physical_uri = crate::lance_module_store::sdk_uri(&self.uri)?;
             let mut builder = DatasetBuilder::from_uri(physical_uri.as_ref())
                 .with_commit_handler(Arc::clone(&self.delegate))
-                .with_session(Arc::new(lance::session::Session::default()))
+                .with_session(self.dataset.session())
                 .with_branch(branch, None);
             if let Some(params) = self.dataset.store_params() {
                 builder = builder.with_store_params(params.clone());
@@ -1284,4 +1301,113 @@ fn missing_version(error: &lance::Error) -> bool {
 // checkout resolves/loads a manifest; unlike transaction recovery it does not read external transaction objects.
 fn missing_checkout_manifest(error: &lance::Error) -> bool {
     missing_version(error) || matches!(error, lance::Error::NotFound { .. })
+}
+
+#[cfg(test)]
+mod session_tests {
+    use super::*;
+    use arrow_schema::Field;
+    use futures::TryStreamExt;
+
+    #[tokio::test]
+    async fn snapshot_session_caches_follow_the_owner_and_release_with_its_pins()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let temp = tempfile::tempdir()?;
+        let uri = temp
+            .path()
+            .join("records.lance")
+            .to_string_lossy()
+            .into_owned();
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Utf8, false)]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(StringArray::from(vec!["a"]))],
+        )?;
+        crate::lance_module_store::LanceModuleStore::create(&uri, Arc::clone(&schema), vec![batch])
+            .await?;
+        let weak = {
+            let captured = LanceBranchStore::open(&uri, schema, None)
+                .await?
+                .into_target(Some("feature"))
+                .await?
+                .materialize()
+                .await?;
+            let session = captured.dataset.session();
+            let weak = Arc::downgrade(&session);
+            let batches: Vec<RecordBatch> = captured
+                .scan()
+                .try_into_stream()
+                .await?
+                .try_collect()
+                .await?;
+            assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
+            let before = session.metadata_cache_stats().await;
+            let (historical, provenance) = captured
+                .at_version_with_provenance(captured.version())
+                .await?;
+            assert!(provenance.is_some());
+            assert!(Arc::ptr_eq(&session, &historical.dataset.session()));
+            let reopened = historical.reopen().await?;
+            assert!(Arc::ptr_eq(&session, &reopened.dataset.session()));
+            let batches: Vec<RecordBatch> = reopened
+                .scan()
+                .try_into_stream()
+                .await?
+                .try_collect()
+                .await?;
+            assert_eq!(batches.iter().map(RecordBatch::num_rows).sum::<usize>(), 1);
+            let after = session.metadata_cache_stats().await;
+            assert!(
+                after.hits > before.hits,
+                "retained pins did not reuse native metadata"
+            );
+            eprintln!(
+                "snapshot_session size_bytes={} approx_items={} metadata_before={:?} metadata_after={:?}",
+                session.size_bytes(),
+                session.approx_num_items(),
+                before,
+                after
+            );
+            weak
+        };
+        assert!(
+            weak.upgrade().is_none(),
+            "SDK session outlived its actual owner and pins"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn reopen_detects_same_manifest_path_corruption_with_warm_metadata()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let temp = tempfile::tempdir()?;
+        let uri = temp
+            .path()
+            .join("records.lance")
+            .to_string_lossy()
+            .into_owned();
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Utf8, false)]));
+        let batch = RecordBatch::try_new(
+            Arc::clone(&schema),
+            vec![Arc::new(StringArray::from(vec!["a"]))],
+        )?;
+        crate::lance_module_store::LanceModuleStore::create(&uri, Arc::clone(&schema), vec![batch])
+            .await?;
+        let captured = LanceBranchStore::open(&uri, schema, None)
+            .await?
+            .into_target(None)
+            .await?;
+        captured.reopen().await?;
+        let path = lance_io::local::to_local_path(&captured.dataset.manifest_location().path);
+        // Preserve the container length: the pinned SDK can panic on a short
+        // corrupt footer before returning its error (upstream limitation).
+        let mut corrupted = std::fs::read(&path)?;
+        corrupted.fill(0);
+        std::fs::write(path, corrupted)?;
+        assert!(
+            captured.reopen().await.is_err(),
+            "warm SDK metadata concealed physical manifest corruption"
+        );
+        Ok(())
+    }
 }

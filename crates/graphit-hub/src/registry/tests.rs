@@ -1573,7 +1573,6 @@ fn remote_corpus(f: &Fixture, kind: ArtifactType, version: &str) -> InstalledArt
             path: "graph.icebug".into(),
             snapshot: NativeSnapshot::Icebug {
                 manifest_path: "icebug.json".into(),
-                generation: "actual-sdk-generation".into(),
                 manifest_sha256: [9; 32],
             },
         }

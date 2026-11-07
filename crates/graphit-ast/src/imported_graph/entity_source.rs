@@ -64,6 +64,28 @@ impl From<io::Error> for EntitySourceError {
     }
 }
 
+impl From<graphit_data::DataReadError> for EntitySourceError {
+    fn from(error: graphit_data::DataReadError) -> Self {
+        use graphit_data::DataReadError as E;
+        match error {
+            E::UnknownNodeLabel => Self::UnknownType,
+            E::InvalidAnchorKey | E::InvalidNeighborhoodRequest => Self::InvalidRequest,
+            E::Source(error) => Self::Operation(error),
+            error => ImportedGraphError::Graph(error).into(),
+        }
+    }
+}
+impl From<graphit_data::remote_graph::RemoteGraphError> for EntitySourceError {
+    fn from(error: graphit_data::remote_graph::RemoteGraphError) -> Self {
+        use graphit_data::remote_graph::RemoteGraphError as E;
+        match error {
+            E::Data(error) => error.into(),
+            E::Original(error) => Self::Operation(error),
+            error => Self::Operation(io::Error::other(error)),
+        }
+    }
+}
+
 fn line(cell: &Value) -> Result<usize, EntitySourceError> {
     let object = cell.as_object().ok_or(EntitySourceError::InvalidExtent)?;
     if object.len() != 2 || object.get("type").and_then(Value::as_str) != Some("INT64") {
@@ -174,6 +196,61 @@ fn validate_entity_request(
     Ok(())
 }
 
+/// Resolve one PK and read only its association columns from this same payload capture.
+pub fn resolve_imported_entity_window_by_key(
+    graph: &std::sync::Arc<graphit_data::CapturedLocalGraph>,
+    original: &std::sync::Arc<graphit_core::file_io::SnapshotContext>,
+    path: &str,
+    label: &str,
+    key: graphit_data::GraphAnchorKey<'_>,
+    row_batch_size: usize,
+) -> Result<(usize, usize), EntitySourceError> {
+    use crate::project_entity_source::{resolved_window, source_projection, validate_key_request};
+    validate_key_request(path, label, row_batch_size)?;
+    original.check()?;
+    graph.revalidate(original)?;
+    let columns = source_projection(graph.schema()?, label, false)?;
+    let resolved = graph
+        .resolve_query_node(label, key, row_batch_size)?
+        .ok_or(EntitySourceError::Unavailable)?;
+    let node = graph.read_query_node(&resolved, &columns, row_batch_size)?;
+    original.check()?;
+    graph.revalidate(original)?;
+    resolved_window(&node, path)
+}
+/// Resolve the typed PK over the current remote pin and operation's range readers.
+pub fn resolve_remote_entity_window_by_key(
+    graph: &std::sync::Arc<graphit_data::remote_graph::RemoteIcebugGraph>,
+    original: &std::sync::Arc<graphit_core::file_io::SnapshotContext>,
+    runtime: &Handle,
+    path: &str,
+    label: &str,
+    key: graphit_data::GraphAnchorKey<'_>,
+    row_batch_size: usize,
+) -> Result<(usize, usize), EntitySourceError> {
+    use crate::project_entity_source::{resolved_window, source_projection, validate_key_request};
+    validate_key_request(path, label, row_batch_size)?;
+    original.check()?;
+    let columns = source_projection(graph.schema(), label, false)?;
+    let node = runtime.block_on(async {
+        let resolved = graph
+            .resolve_query_node(label, key, row_batch_size, std::sync::Arc::clone(original))
+            .await?
+            .ok_or(EntitySourceError::Unavailable)?;
+        graph
+            .read_query_node(
+                &resolved,
+                &columns,
+                row_batch_size,
+                std::sync::Arc::clone(original),
+            )
+            .await
+            .map_err(EntitySourceError::from)
+    })?;
+    original.check()?;
+    resolved_window(&node, path)
+}
+
 fn resolve_window(
     schema: graphit_data::GraphSchema<'_>,
     original: &graphit_core::file_io::SnapshotContext,
@@ -275,17 +352,42 @@ impl ImportedGraph<'_, '_> {
         selection: &text_slice::Request,
         options: QueryOptions,
     ) -> Result<SourceInspection, EntitySourceError> {
+        validate_entity_request(path, entity, entity_type, options)?;
+        self.entity_source_with(path, selection, || {
+            self.entity_window(runtime, path, entity, entity_type, options)
+        })
+        .await
+    }
+    /// Select Source by a typed PK while retaining the same native payload/raw captures.
+    pub async fn entity_source_by_key(
+        &self,
+        path: &str,
+        label: &str,
+        key: graphit_data::GraphAnchorKey<'_>,
+        selection: &text_slice::Request,
+        row_batch_size: usize,
+    ) -> Result<SourceInspection, EntitySourceError> {
+        crate::project_entity_source::validate_key_request(path, label, row_batch_size)?;
+        self.entity_source_with(path, selection, || {
+            resolve_imported_entity_window_by_key(
+                &self.graph,
+                self.input.request.snapshot(),
+                path,
+                label,
+                key,
+                row_batch_size,
+            )
+        })
+        .await
+    }
+    async fn entity_source_with(
+        &self,
+        path: &str,
+        selection: &text_slice::Request,
+        window: impl FnOnce() -> Result<(usize, usize), EntitySourceError>,
+    ) -> Result<SourceInspection, EntitySourceError> {
         self.input.request.snapshot().check()?;
         self.revalidate()?;
-        if path.is_empty()
-            || path.contains('\0')
-            || entity.is_empty()
-            || entity.contains('\0')
-            || entity_type.is_some_and(|v| v.is_empty() || v.contains('\0'))
-            || options.max_rows < 2
-        {
-            return Err(EntitySourceError::InvalidRequest);
-        }
         let original = self.input.request.snapshot();
         let source_path = self.directory.canonical_path().join("source.lance");
         match std::fs::symlink_metadata(&source_path) {
@@ -314,7 +416,7 @@ impl ImportedGraph<'_, '_> {
         let snapshot = store
             .map_err(|e| EntitySourceError::Storage(Box::new(e)))?
             .snapshot();
-        let (start, end) = self.entity_window(runtime, path, entity, entity_type, options)?;
+        let (start, end) = tokio::task::block_in_place(window)?;
         let indexed = read_indexed_source(&snapshot, path, original).await;
         directory.revalidate(original)?;
         self.revalidate()?;

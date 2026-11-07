@@ -177,6 +177,7 @@ pub(super) async fn execute(
             &state.policy.registry,
             &id,
             &version,
+            state.policy.index,
         )
         .map_err(|error| code(error.code()))?
         {

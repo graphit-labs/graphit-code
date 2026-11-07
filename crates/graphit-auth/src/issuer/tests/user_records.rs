@@ -795,10 +795,8 @@ async fn native_admission_keeps_actual_subject_permissions_original_and_fence() 
                 Obligation::MemoryFenceRequired
             }
         );
-        let mut a = [0; 64];
-        let mut b = [0; 64];
-        write.actor().unwrap().write_identifier(&mut a);
-        caller.actor().unwrap().write_identifier(&mut b);
+        let a = actor_bytes(&write.actor().unwrap());
+        let b = actor_bytes(&caller.actor().unwrap());
         assert_eq!(a, b);
     }
     for _ in 0..3 {
@@ -1184,10 +1182,8 @@ async fn incoming_a_never_borrows_active_b_profile_or_foreign_namespace() {
             UserMemoryWriteOperation::Memory,
         )
         .unwrap();
-    let mut actor_a = [0; 64];
-    let mut actor_b = [0; 64];
-    write_a.actor().unwrap().write_identifier(&mut actor_a);
-    write_b.actor().unwrap().write_identifier(&mut actor_b);
+    let actor_a = actor_bytes(&write_a.actor().unwrap());
+    let actor_b = actor_bytes(&write_b.actor().unwrap());
     assert_ne!(actor_a, actor_b);
     assert_ne!(scope_a.runtime_root(), scope_b.runtime_root());
     assert_eq!(a.count("/userinfo") + b.count("/userinfo"), 0);

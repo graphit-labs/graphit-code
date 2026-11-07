@@ -167,6 +167,18 @@ Runtime has no artificial key TTL. Local requires current active Local provider
 and profile revisions and a nonempty MCP key, compared by constant-time SHA256.
 The stored anonymous flag never bypasses the key; a correct key remains valid
 with that flag, and stored username, organizations and teams never grant access.
+`Actor::identifier()` returns a standard `ulid::Ulid` from the first 16 bytes of
+the server-minted Actor digest. Its public and persisted form is canonical
+uppercase ULID text with 26 characters. This deliberately truncates to 128 bits;
+it is not a bijection of the full SHA-256 digest, and its timestamp-shaped bits
+have no creation-time meaning. No ID decoder constructs an authenticated Actor.
+Records ownership, idempotency and caller bindings use the public 128-bit
+identity, including Actor equality. Truncation happens once when the originating
+SHA-256 digest mints the Actor; no unused digest tail is retained in the Actor.
+The existing credential/proof/key/MAC, nonce, fence and token mechanisms retain
+their full values. There is no identity
+registry, duplicated profile or alternate hexadecimal reader.
+
 Actor attribution is minted from the issuer epoch, origin, generation and Local
 binding; callers cannot choose it.
 

@@ -431,3 +431,130 @@ async fn non_unicode_runtime_directory_is_rejected_before_connecting() {
     assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     assert!(error.to_string().contains("valid Unicode"));
 }
+
+#[tokio::test]
+async fn lifecycle_lock_keeps_original_cancellation_deadline_and_inode()
+-> Result<(), Box<dyn std::error::Error>> {
+    use graphit_app::{
+        daemon_launcher::{self, Inputs},
+        service_entry::{LoginAction, ServiceCommand},
+    };
+    use graphit_core::{
+        brand::Brand, file_lock::FileLock, native_document_file::NativeDocumentFileLimits,
+        project_paths::InstallationPaths,
+    };
+    use graphit_hub::policy::{HubResourcePolicy, RequestContext, ResourceSetting};
+    use graphit_process::{HostLimits, HostReadiness, HostShutdown, ProcessHost};
+    use std::{future::Future, os::unix::fs::MetadataExt, task::Poll};
+    let temp = tempfile::tempdir()?;
+    let installation = InstallationPaths::resolve(
+        Brand::default(),
+        temp.path(),
+        None,
+        Some(&temp.path().join("installation")),
+    )?;
+    std::fs::create_dir_all(installation.root())?;
+    let path = installation.root().join("daemon-start.lock");
+    let guard = FileLock::try_acquire(&path)?;
+    let identity = (
+        std::fs::metadata(&path)?.dev(),
+        std::fs::metadata(&path)?.ino(),
+    );
+    let config = graphit_core::config::ConfigSnapshot::new(installation.brand(), [])?;
+    let policy = HubResourcePolicy::resolve(&config)?;
+    let n = |setting| usize::try_from(policy.limit(setting).value);
+    let limits = NativeDocumentFileLimits::new(
+        n(ResourceSetting::ContentInputBytes)?,
+        graphit_core::native_path::MAX_PATH_BYTES,
+        n(ResourceSetting::SnapshotDepth)?,
+        n(ResourceSetting::ContentScalarBytes)?,
+    )?;
+    let service = Cancellation::default();
+    let host = ProcessHost::install(&service, HostLimits::new(1, 1)?)?;
+    assert!(matches!(
+        host.ready(Instant::now() + Duration::from_secs(5)).await,
+        HostReadiness::Ready
+    ));
+    let environment = vec![(
+        "XDG_RUNTIME_DIR".into(),
+        temp.path().join("absent-bus").into_os_string(),
+    )];
+    let executable = std::path::Path::new(env!("CARGO_BIN_EXE_graphit"));
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let inputs = || Inputs {
+        installation: &installation,
+        executable,
+        environment: &environment,
+        client: &client,
+        limits,
+        termination_grace: Duration::from_millis(20),
+        cleanup: Duration::from_secs(2),
+    };
+    for command in [
+        ServiceCommand::Start,
+        ServiceCommand::Stop,
+        ServiceCommand::Restart,
+        ServiceCommand::Install { login: false },
+        ServiceCommand::Login {
+            action: LoginAction::Enable,
+        },
+        ServiceCommand::Uninstall,
+    ] {
+        let cancellation = Cancellation::default();
+        let request = policy.request_context(Instant::now(), &cancellation)?;
+        let mut waiting = Box::pin(daemon_launcher::execute(
+            &host,
+            inputs(),
+            &request,
+            &command,
+        ));
+        std::future::poll_fn(|cx| match waiting.as_mut().poll(cx) {
+            Poll::Pending => Poll::Ready(()),
+            Poll::Ready(_) => panic!("mutation crossed the held lifecycle barrier"),
+        })
+        .await;
+        cancellation.cancel();
+        assert!(
+            matches!(waiting.await,Err(daemon_launcher::Failure::Io(error)) if error.kind()==io::ErrorKind::Interrupted)
+        );
+    }
+    let cancellation = Cancellation::default();
+    let request = RequestContext::new(
+        policy.content(),
+        &cancellation,
+        Instant::now() + Duration::from_millis(100),
+    )?;
+    let command = ServiceCommand::Restart;
+    let mut waiting = Box::pin(daemon_launcher::execute(
+        &host,
+        inputs(),
+        &request,
+        &command,
+    ));
+    std::future::poll_fn(|cx| match waiting.as_mut().poll(cx) {
+        Poll::Pending => Poll::Ready(()),
+        Poll::Ready(_) => panic!("restart crossed the held lifecycle barrier"),
+    })
+    .await;
+    assert!(
+        matches!(waiting.await,Err(daemon_launcher::Failure::Io(error)) if error.kind()==io::ErrorKind::TimedOut)
+    );
+    assert!(!installation.root().join("services").exists());
+    assert!(!installation.root().join("daemon.pid").exists());
+    drop(guard);
+    drop(FileLock::try_acquire(&path)?);
+    assert_eq!(
+        (
+            std::fs::metadata(&path)?.dev(),
+            std::fs::metadata(&path)?.ino()
+        ),
+        identity
+    );
+    assert!(
+        matches!(host.shutdown(Instant::now()+Duration::from_secs(3)).await,HostShutdown::Joined(report) if report.failure().is_none())
+    );
+    Ok(())
+}

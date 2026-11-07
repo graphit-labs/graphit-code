@@ -55,6 +55,7 @@ pub(super) async fn search_admitted(
         &state.policy.registry,
         id,
         version,
+        state.policy.index,
     )?
     else {
         return Ok(None);
@@ -165,6 +166,7 @@ pub(super) async fn inspect_with_auth(
         &state.policy.registry,
         id,
         version,
+        state.policy.index,
     )?
     else {
         return Ok(None);
@@ -199,13 +201,11 @@ pub(super) async fn inspect_with_auth(
     )
     .await?;
     let selectors = source.selection();
-    let result = if let Some(entity) = &source.entity {
+    let result = if source.has_entity() {
         opened
             .entity(
                 &lease,
-                &source.path,
-                entity,
-                source.entity_type.as_deref(),
+                source,
                 &selectors,
                 state.policy.native_install.graph,
                 state.policy.graph_query,
@@ -344,9 +344,7 @@ impl Opened<'_> {
     pub(crate) async fn entity(
         &self,
         lease: &ServiceCredentialLease<'_>,
-        path: &str,
-        entity: &str,
-        entity_type: Option<&str>,
+        source: &crate::ast_source::SourceParameters,
         selectors: &text_slice::Request,
         graph_policy: graphit_data::LocalGraphPolicy,
         options: graphit_ast::icebug_query::QueryOptions,
@@ -358,28 +356,18 @@ impl Opened<'_> {
             .await?;
         let original = Arc::clone(self.selection.request().snapshot());
         let runtime = tokio::runtime::Handle::current();
-        let path_owned = path.to_owned();
-        let entity_owned = entity.to_owned();
-        let kind = entity_type.map(str::to_owned);
+        let input = source.clone();
         let query_original = Arc::clone(&original);
         // Always join the owned query. Its native interrupt observes this Original;
         // dropping the consumer does not detach a blocking query onto remote storage.
         let window = tokio::task::spawn_blocking(move || {
-            graphit_ast::imported_graph::resolve_remote_entity_window(
-                &graph,
-                &query_original,
-                &runtime,
-                &path_owned,
-                &entity_owned,
-                kind.as_deref(),
-                options,
-            )
+            input.resolve_remote_window(&graph, &query_original, &runtime, options)
         })
         .await
         .map_err(|error| ErrorKind::Operation(std::io::Error::other(error)))?
         .map_err(ErrorKind::Entity)?;
         self.check(lease)?;
-        self.entity_at(lease, path, selectors, window).await
+        self.entity_at(lease, &source.path, selectors, window).await
     }
     /// Apply an extent resolved from this mount's exact graph on its owned query job.
     pub(crate) async fn entity_at(
@@ -451,6 +439,70 @@ impl Opened<'_> {
             focused_source,
         })
     }
+    pub(crate) async fn head_by_slug(
+        &self,
+        lease: &ServiceCredentialLease<'_>,
+        slug: &str,
+        limits: graphit_data::knowledge_index::KnowledgeHeadReadLimits,
+    ) -> Result<Option<graphit_data::knowledge_index::KnowledgeHead>, ErrorKind> {
+        self.check(lease)?;
+        let snapshot = self.mount.wiki(&self.selection, lease).await?;
+        let mut failure = None;
+        let result =
+            graphit_data::knowledge_snapshot::read_knowledge_head_by_slug_snapshot_guarded(
+                self.selection.request().snapshot(),
+                &snapshot,
+                slug,
+                limits,
+                || match self.check(lease) {
+                    Ok(()) => Ok(()),
+                    Err(error) => {
+                        failure = Some(error);
+                        Err(KnowledgeIndexError::InvalidField("external_guard"))
+                    }
+                },
+            )
+            .await;
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        let result = result.map_err(ErrorKind::Knowledge)?;
+        self.check(lease)?;
+        Ok(result)
+    }
+
+    pub(crate) async fn head_by_source_path(
+        &self,
+        lease: &ServiceCredentialLease<'_>,
+        source_path: &str,
+        limits: graphit_data::knowledge_index::KnowledgeHeadReadLimits,
+    ) -> Result<Option<graphit_data::knowledge_index::KnowledgeHead>, ErrorKind> {
+        self.check(lease)?;
+        let snapshot = self.mount.wiki(&self.selection, lease).await?;
+        let mut failure = None;
+        let result =
+            graphit_data::knowledge_snapshot::read_knowledge_head_by_source_path_snapshot_guarded(
+                self.selection.request().snapshot(),
+                &snapshot,
+                source_path,
+                limits,
+                || match self.check(lease) {
+                    Ok(()) => Ok(()),
+                    Err(error) => {
+                        failure = Some(error);
+                        Err(KnowledgeIndexError::InvalidField("external_guard"))
+                    }
+                },
+            )
+            .await;
+        if let Some(error) = failure {
+            return Err(error);
+        }
+        let result = result.map_err(ErrorKind::Knowledge)?;
+        self.check(lease)?;
+        Ok(result)
+    }
+
     pub(crate) async fn heads(
         &self,
         lease: &ServiceCredentialLease<'_>,

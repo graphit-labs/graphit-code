@@ -176,6 +176,7 @@ async fn update_alpha(server: &RoleToolServer, raw: &str) {
                 artifacts: server.0.task.write.artifacts,
             },
         },
+        |_, old, new| Ok(old == new),
     )
     .await
     .unwrap();

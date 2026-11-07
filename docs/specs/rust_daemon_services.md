@@ -64,6 +64,22 @@ Status retorna a observação nativa; um código de saída não é convertido si
 
 ### Entry tipado da aplicação
 
+A composição App em `daemon_launcher::execute` mantém o `daemon-start.lock`
+existente durante toda ação mutante, antes do fast path de Start e até terminar
+comando nativo, drain e readiness. Status autenticado saudável não espera esse
+lock. A aquisição respeita o Original finito e seu cancelamento; após a espera,
+as observações são refeitas. A ordem é `daemon-start.lock` externo e
+`service-install.lock` interno. O launcher detached privado pressupõe o mesmo
+guard, sem readquiri-lo. O inode é conservado; `daemon.pid` permanece somente o
+singleton de lifetime.
+
+O PID autenticado anterior ao stop do manager limita o drain por `expected_pid`:
+um sucessor redescoberto nunca recebe aquele Stop. Restart não aceita o PID
+anterior como sucesso. Falhas do manager preservam o Outcome causal e o stderr
+limitado/escapado no erro administrativo; observar outro Running não transforma
+uma rejeição em sucesso. Clientes externos ao protocolo de lock permanecem fora
+da serialização cooperativa.
+
 `crates/graphit-app/src/service_entry.rs` expõe `ServiceCommand` para o parser central Clap com `start`, `stop`, `restart`, `status`, `install --login`, `login enable`, `login disable` e `uninstall`. `install` sem `--login` deixa o início no login desligado. O entry recebe `UserService` já composto e o `Arc<SnapshotContext>` finito da operação; não cria outro ProcessHost nem retém o Original da primeira requisição.
 
 `graphit --global-dir <instalação> daemon install` publica novamente o documento

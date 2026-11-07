@@ -687,8 +687,8 @@ mod tests {
             tags: vec![],
             references: vec![],
             reference_generation: 1,
-            created_by: "1".repeat(64),
-            updated_by: "1".repeat(64),
+            created_by: ulid::Ulid::from(1u128).to_string(),
+            updated_by: ulid::Ulid::from(1u128).to_string(),
             created_at: 1,
             updated_at: 1,
         };
@@ -696,7 +696,7 @@ mod tests {
             creation: CreationMemory {
                 project_id: "01KSH1CRFFG8Z74B5ZS78WW808".parse().unwrap(),
                 operation_version: "main".into(),
-                actor: "1".repeat(64),
+                actor: ulid::Ulid::from(1u128).to_string(),
                 input: CreateMemory {
                     idempotency_key: "attempt".into(),
                     title: memory.title.clone(),

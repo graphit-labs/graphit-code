@@ -1049,7 +1049,7 @@ async fn confirmed_revision_then_revoke_requires_reissued_same_actor_authority()
 fn revision_patch_no_change_clock_and_overflow_are_explicit() {
     let cancel = Cancellation::default();
     let ctx = request(&cancel);
-    let actor = "a".repeat(64);
+    let actor = ulid::Ulid::from(10u128).to_string();
     let id = MemoryId::new(NonZeroU128::new(1).unwrap());
     let project = "01KSH1CRFFG8Z74B5ZS78WW808".parse().unwrap();
     let mut before = Memory {

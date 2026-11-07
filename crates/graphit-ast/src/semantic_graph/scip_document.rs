@@ -9,13 +9,36 @@ use ::scip::{
     symbol,
     types::{self, Document, Occurrence, SymbolInformation, occurrence, symbol_information::Kind},
 };
+use graphit_data::{CodeDeclaration, CodeFileId, CodePrimaryKey, CodeScope, CodeUid};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+
+/// The trusted producer identifies compiler observations versus our syntax projection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AstScipDocumentOrigin {
+    Compiler,
+    Syntax,
+}
 
 pub struct AstScipGraphDocument {
     pub parts: AstGraphParts,
     pub definitions: Vec<AstScipDocumentDefinition>,
     pub references: Vec<AstScipDocumentReference>,
+    pub identity_changes: Vec<AstGraphIdentityChange>,
+    pub origin: AstScipDocumentOrigin,
+}
+
+/// A projection rekey from the same captured Source, suitable for preserving its vector row.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AstGraphIdentityChange {
+    pub label: String,
+    pub data_key: String,
+    pub start_byte: u64,
+    pub end_byte: u64,
+    pub previous_uid: String,
+    pub uid: String,
+    pub previous_key: String,
+    pub key: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -40,6 +63,9 @@ pub struct AstScipDocumentReference {
     pub symbol_roles: i32,
     pub kind: Option<String>,
     pub source_key: Option<String>,
+    pub query_data_key: Option<String>,
+    pub reference_target: String,
+    pub occurrence_ordinal: Option<u64>,
     pub relation_index: Option<usize>,
     pub source_index: Option<usize>,
     pub capture_index: Option<usize>,
@@ -64,24 +90,28 @@ pub fn scip_edge_uid(
         .as_deref()
         .filter(|s| !s.is_empty())
         .ok_or_else(|| invalid("SCIP edge lacks source identity"))?;
-    let digest = Sha256::digest(serde_json::to_vec(&(
-        kind,
+    let file = logical_file(&reference.association)?;
+    let source = graphit_data::GraphAnchorKey::String(source);
+    let occurrence = graphit_data::CodeRelationOccurrence::derive(
+        file,
         source,
-        &target.entity_key,
-        &reference.path,
-        reference.start_byte,
-        reference.end_byte,
-        reference.relation_index,
-        reference.source_index,
-        reference.capture_index,
-    ))?);
-    Ok(format!(
-        "scip:{}",
-        digest
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
-    ))
+        kind,
+        reference.query_data_key.as_deref(),
+        &reference.reference_target,
+        reference
+            .occurrence_ordinal
+            .ok_or_else(|| invalid("SCIP reference lacks logical occurrence"))?,
+    )
+    .map_err(|_| invalid("invalid SCIP reference identity"))?;
+    graphit_data::CodeRelationUid::derive(
+        file,
+        source,
+        graphit_data::GraphAnchorKey::String(&target.entity_key),
+        kind,
+        occurrence,
+    )
+    .map(|uid| uid.to_string())
+    .map_err(|_| invalid("invalid SCIP relation identity"))
 }
 
 fn invalid(reason: &'static str) -> AstGraphError {
@@ -247,16 +277,66 @@ fn new_definition(
     original: &SnapshotContext,
 ) -> Result<AstGraphNode, AstGraphError> {
     original.check()?;
-    let uid = serde_json::to_string(&(
-        "scip",
-        parts.association.path(),
-        parts.association.raw_version(),
-        parts.association.source_sha256(),
-        &occurrence.symbol,
-        name.start(),
-        name.end(),
-    ))?;
-    let key = serde_json::to_string(&[uid.as_str(), "scip_definitions"])?;
+    let components: Vec<_> = parts
+        .association
+        .relative_components
+        .iter()
+        .map(String::as_str)
+        .collect();
+    let file = CodeFileId::from_components(&components)
+        .map_err(|_| invalid("invalid SCIP logical FILE"))?;
+    let global = !symbol::is_local_symbol(&occurrence.symbol);
+    let symbols = [occurrence.symbol.as_str()];
+    let mut scopes = Vec::new();
+    if let Some(enclosing) = info
+        .map(|info| info.enclosing_symbol.as_str())
+        .filter(|symbol| !symbol.is_empty())
+    {
+        symbol::parse_symbol(enclosing).map_err(|_| invalid("invalid SCIP enclosing symbol"))?;
+        if !symbol::is_local_symbol(enclosing) {
+            scopes.push(CodeScope::ScipSymbol(enclosing));
+        }
+    }
+    let language =
+        text(&parts.file_observation, "lang").ok_or_else(|| invalid("SCIP FILE lacks language"))?;
+    let mut ordinal = 0u64;
+    let code = loop {
+        original.check()?;
+        let declaration = if global {
+            CodeDeclaration::Scip {
+                symbols: &symbols,
+                kind: label(info),
+                ordinal,
+            }
+        } else {
+            CodeDeclaration::Fallback {
+                language,
+                kind: label(info),
+                owners: &scopes,
+                name: name.text(),
+                declared_type: None,
+                anonymous: false,
+                ordinal,
+            }
+        };
+        let code = CodeUid::derive(file, declaration)
+            .map_err(|_| invalid("invalid SCIP declaration identity"))?;
+        let uid = code.to_string();
+        if !parts
+            .nodes
+            .iter()
+            .any(|node| text(node, "uid") == Some(uid.as_str()))
+        {
+            break code;
+        }
+        ordinal = ordinal
+            .checked_add(1)
+            .ok_or(AstGraphError::Representation)?;
+    };
+    let uid = code.to_string();
+    let key = CodePrimaryKey::derive(code, "scip_definitions")
+        .map_err(|_| invalid("invalid SCIP projection key"))?
+        .to_string();
     let mut properties = BTreeMap::new();
     for (key, value) in [
         ("uid", uid.as_str()),
@@ -336,6 +416,7 @@ fn exact(value: &Value) -> Option<(usize, usize)> {
 struct RelationSource {
     kind: String,
     key: String,
+    query_data_key: Option<String>,
     relation_index: usize,
     source_index: Option<usize>,
     capture_index: Option<usize>,
@@ -349,6 +430,11 @@ impl RelationSource {
         Self {
             kind: kind.into(),
             key: key.into(),
+            query_data_key: observation
+                .get("data_key")
+                .or_else(|| observation.pointer("/occurrence/policy/data_key"))
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             relation_index: outcome.relation_index,
             source_index: outcome.source_index,
             capture_index: outcome.capture_index,
@@ -582,6 +668,7 @@ pub fn apply_scip_document(
     mut parts: AstGraphParts,
     document: &Document,
     source: &str,
+    origin: AstScipDocumentOrigin,
     original: &Arc<SnapshotContext>,
 ) -> Result<AstScipGraphDocument, AstGraphError> {
     original.check()?;
@@ -617,7 +704,6 @@ pub fn apply_scip_document(
             .iter()
             .map(|edge| (edge.uid.as_str(), edge))
             .collect();
-        let mut replaced_edges = BTreeSet::new();
         for occurrence in &document.occurrences {
             original.check()?;
             let range = span(
@@ -644,6 +730,9 @@ pub fn apply_scip_document(
                 let indices = if let Some(indices) = names.get(&(range.start(), range.end())) {
                     indices.clone()
                 } else {
+                    if origin == AstScipDocumentOrigin::Syntax {
+                        return Err(invalid("syntactic SCIP definition has no native entity"));
+                    }
                     let node = new_definition(
                         &parts,
                         occurrence,
@@ -683,6 +772,15 @@ pub fn apply_scip_document(
                         symbol_roles: occurrence.symbol_roles,
                         kind: None,
                         source_key: None,
+                        query_data_key: None,
+                        reference_target: if origin == AstScipDocumentOrigin::Syntax
+                            || symbol::is_local_symbol(&occurrence.symbol)
+                        {
+                            range.text().to_owned()
+                        } else {
+                            occurrence.symbol.clone()
+                        },
+                        occurrence_ordinal: None,
                         relation_index: None,
                         source_index: None,
                         capture_index: None,
@@ -703,7 +801,6 @@ pub fn apply_scip_document(
                             })
                             .cloned()
                             .collect();
-                        replaced_edges.extend(graph_edge_uids.iter().cloned());
                         references.push(AstScipDocumentReference {
                             association: parts.association.clone(),
                             path: document.relative_path.clone(),
@@ -713,6 +810,15 @@ pub fn apply_scip_document(
                             symbol_roles: occurrence.symbol_roles,
                             kind: Some(source.kind.clone()),
                             source_key: Some(source.key.clone()),
+                            query_data_key: source.query_data_key.clone(),
+                            reference_target: if origin == AstScipDocumentOrigin::Syntax
+                                || symbol::is_local_symbol(&occurrence.symbol)
+                            {
+                                range.text().to_owned()
+                            } else {
+                                occurrence.symbol.clone()
+                            },
+                            occurrence_ordinal: None,
                             relation_index: Some(source.relation_index),
                             source_index: source.source_index,
                             capture_index: source.capture_index,
@@ -726,9 +832,40 @@ pub fn apply_scip_document(
             }
         }
         drop(edge_index);
+        let identity_changes = match origin {
+            AstScipDocumentOrigin::Compiler => {
+                promote_scip_identities(&mut parts, &mut definitions, &mut references, original)?
+            }
+            AstScipDocumentOrigin::Syntax => Vec::new(),
+        };
+        // Promote the proven parser-edge provenance before removing replaced rows.
+        // Reference/outcome UIDs then describe the same final endpoints as the batch.
+        let replaced_edges = references
+            .iter()
+            .flat_map(|reference| reference.graph_edge_uids.iter().cloned())
+            .collect::<BTreeSet<_>>();
         parts
             .edges
             .retain(|edge| !replaced_edges.contains(&edge.uid));
+        let mut occurrences = LogicalRelationOccurrences::new(logical_file(&parts.association)?);
+        for reference in &mut references {
+            original.check()?;
+            if let (Some(source), Some(kind)) = (&reference.source_key, &reference.kind) {
+                let start = usize::try_from(reference.start_byte)
+                    .map_err(|_| AstGraphError::Representation)?;
+                let end = usize::try_from(reference.end_byte)
+                    .map_err(|_| AstGraphError::Representation)?;
+                reference.occurrence_ordinal = Some(occurrences.ordinal(
+                    source,
+                    kind,
+                    &ParserRelationOccurrence {
+                        query_data_key: reference.query_data_key.as_deref(),
+                        target: &reference.reference_target,
+                        anchor: (start, end),
+                    },
+                )?);
+            }
+        }
         parts
             .file_observation
             .properties
@@ -737,10 +874,280 @@ pub fn apply_scip_document(
             parts,
             definitions,
             references,
+            identity_changes,
+            origin,
         })
     })();
     original.check()?;
     result
+}
+
+fn promote_scip_identities(
+    parts: &mut AstGraphParts,
+    definitions: &mut [AstScipDocumentDefinition],
+    references: &mut [AstScipDocumentReference],
+    original: &SnapshotContext,
+) -> Result<Vec<AstGraphIdentityChange>, AstGraphError> {
+    let file = logical_file(&parts.association)?;
+    let mut symbols = BTreeMap::<String, BTreeSet<String>>::new();
+    for definition in definitions.iter() {
+        original.check()?;
+        if !symbol::is_local_symbol(&definition.symbol) {
+            symbols
+                .entry(definition.entity_key.clone())
+                .or_default()
+                .insert(definition.symbol.clone());
+        }
+    }
+    // Previous logical UID binds projections of the same declaration. Coordinates
+    // only order/bind current observations; neither is part of the global seed.
+    let mut groups = BTreeMap::<CodeUid, BTreeMap<(u64, u64, String), u64>>::new();
+    let mut seeds = Vec::new();
+    for (index, node) in parts.nodes.iter().enumerate() {
+        original.check()?;
+        let Some(symbols) = symbols.get(&node.key) else {
+            continue;
+        };
+        let symbols = symbols.iter().cloned().collect::<Vec<_>>();
+        let symbol_refs = symbols.iter().map(String::as_str).collect::<Vec<_>>();
+        let base = CodeUid::derive(
+            file,
+            CodeDeclaration::Scip {
+                symbols: &symbol_refs,
+                kind: &node.label,
+                ordinal: 0,
+            },
+        )
+        .map_err(|_| invalid("invalid SCIP declaration set"))?;
+        let start = byte(node, "name_start_byte")
+            .ok_or_else(|| invalid("SCIP declaration lacks name anchor"))?;
+        let end = byte(node, "name_end_byte")
+            .ok_or_else(|| invalid("SCIP declaration lacks name anchor"))?;
+        let previous_uid =
+            text(node, "uid").ok_or_else(|| invalid("SCIP declaration lacks logical UID"))?;
+        let observation = (
+            u64::try_from(start).map_err(|_| AstGraphError::Representation)?,
+            u64::try_from(end).map_err(|_| AstGraphError::Representation)?,
+            previous_uid.to_owned(),
+        );
+        groups
+            .entry(base)
+            .or_default()
+            .insert(observation.clone(), 0);
+        seeds.push((index, symbols, base, observation));
+    }
+    for observations in groups.values_mut() {
+        for (ordinal, value) in observations.values_mut().enumerate() {
+            original.check()?;
+            *value = u64::try_from(ordinal).map_err(|_| AstGraphError::Representation)?;
+        }
+    }
+    let mut changes = Vec::new();
+    let mut keys = BTreeMap::new();
+    for (index, symbols, group, observation) in seeds {
+        original.check()?;
+        let node = &mut parts.nodes[index];
+        let symbols = symbols.iter().map(String::as_str).collect::<Vec<_>>();
+        let ordinal = groups[&group][&observation];
+        let uid = CodeUid::derive(
+            file,
+            CodeDeclaration::Scip {
+                symbols: &symbols,
+                kind: &node.label,
+                ordinal,
+            },
+        )
+        .map_err(|_| invalid("invalid SCIP declaration identity"))?;
+        let data_key = text(node, "data_key")
+            .ok_or_else(|| invalid("SCIP declaration lacks data key"))?
+            .to_owned();
+        let key = CodePrimaryKey::derive(uid, &data_key)
+            .map_err(|_| invalid("invalid SCIP projection identity"))?
+            .to_string();
+        let previous_key = std::mem::replace(&mut node.key, key.clone());
+        let uid = uid.to_string();
+        node.properties
+            .insert("uid".into(), AstGraphValue::String(uid.clone()));
+        if previous_key != key {
+            keys.insert(previous_key.clone(), key.clone());
+            changes.push(AstGraphIdentityChange {
+                label: node.label.clone(),
+                data_key,
+                start_byte: observation.0,
+                end_byte: observation.1,
+                previous_uid: observation.2,
+                uid,
+                previous_key,
+                key,
+            });
+        }
+    }
+    if keys.is_empty() {
+        return Ok(changes);
+    }
+    let mut unique = BTreeSet::new();
+    for node in &parts.nodes {
+        original.check()?;
+        if !unique.insert((&node.label, &node.key)) {
+            return Err(invalid("SCIP promotion aliases distinct projections"));
+        }
+    }
+    let mut edge_uids = BTreeMap::<String, Vec<String>>::new();
+    for edge in &mut parts.edges {
+        original.check()?;
+        if !keys.contains_key(&edge.source_key) && !keys.contains_key(&edge.target_key) {
+            continue;
+        }
+        let old_uid = edge.uid.clone();
+        let old_target = edge.target_key.clone();
+        remap_key(&mut edge.source_key, &keys);
+        remap_key(&mut edge.target_key, &keys);
+        if edge.kind == "CONTAINS"
+            && edge.query_data_key.is_none()
+            && edge.reference_target == old_target
+        {
+            edge.reference_target.clone_from(&edge.target_key);
+        }
+        *edge = AstGraphEdge::logical(
+            file,
+            &edge.kind,
+            &edge.source_key,
+            &edge.target_key,
+            edge.query_data_key.as_deref(),
+            &edge.reference_target,
+            edge.occurrence_ordinal,
+        )?;
+        let mapped = edge_uids.entry(old_uid).or_default();
+        if !mapped.contains(&edge.uid) {
+            mapped.push(edge.uid.clone());
+        }
+    }
+    for outcome in &mut parts.outcomes {
+        original.check()?;
+        match &mut outcome.target {
+            AstGraphRelationTarget::Resolved { key } => remap_key(key, &keys),
+            AstGraphRelationTarget::Ambiguous { keys: targets } => {
+                for target in targets {
+                    remap_key(target, &keys);
+                }
+            }
+            _ => {}
+        }
+        let mut observation: Value = serde_json::from_str(&outcome.observation_json)?;
+        remap_observation(&mut observation, &keys, &edge_uids);
+        outcome.observation_json = serde_json::to_string(&observation)?;
+    }
+    for definition in definitions {
+        original.check()?;
+        remap_key(&mut definition.entity_key, &keys);
+    }
+    for reference in references {
+        original.check()?;
+        if let Some(key) = &mut reference.source_key {
+            remap_key(key, &keys);
+        }
+        if let Some(key) = &mut reference.parser_target {
+            remap_key(key, &keys);
+        }
+        remap_edge_uids(&mut reference.graph_edge_uids, &edge_uids);
+        if let Some(encoded) = &mut reference.observation_json {
+            let mut observation: Value = serde_json::from_str(encoded)?;
+            remap_observation(&mut observation, &keys, &edge_uids);
+            *encoded = serde_json::to_string(&observation)?;
+        }
+    }
+    let language =
+        text(&parts.file_observation, "lang").ok_or_else(|| invalid("SCIP FILE lacks language"))?;
+    let grammar = text(&parts.file_observation, "grammar")
+        .ok_or_else(|| invalid("SCIP FILE lacks grammar"))?;
+    let mut observation = file_observation_node(
+        &parts.association,
+        language,
+        grammar,
+        &parts.outcomes,
+        &parts.diagnostics_json,
+        &parts.capabilities_json,
+        original,
+    )?;
+    let outcomes = observation
+        .properties
+        .remove("resolution_outcomes_json")
+        .ok_or_else(|| invalid("SCIP FILE lacks resolution outcomes"))?;
+    parts
+        .file_observation
+        .properties
+        .insert("resolution_outcomes_json".into(), outcomes);
+    Ok(changes)
+}
+
+fn remap_key(key: &mut String, keys: &BTreeMap<String, String>) {
+    if let Some(replacement) = keys.get(key) {
+        key.clone_from(replacement);
+    }
+}
+fn remap_edge_uids(uids: &mut Vec<String>, mappings: &BTreeMap<String, Vec<String>>) {
+    let previous = std::mem::take(uids);
+    for uid in previous {
+        if let Some(replacements) = mappings.get(&uid) {
+            uids.extend(replacements.iter().cloned());
+        } else {
+            uids.push(uid);
+        }
+    }
+}
+fn remap_observation(
+    observation: &mut Value,
+    keys: &BTreeMap<String, String>,
+    edges: &BTreeMap<String, Vec<String>>,
+) {
+    if let Some(sources) = observation.get_mut("sources").and_then(Value::as_array_mut) {
+        for source in sources {
+            if let Some(source_keys) = source.get_mut("entity_keys").and_then(Value::as_array_mut) {
+                for key in source_keys {
+                    if let Some(replacement) = key.as_str().and_then(|key| keys.get(key)) {
+                        *key = replacement.clone().into();
+                    }
+                }
+            }
+        }
+    }
+    if let Some(uids) = observation
+        .get_mut("graph_edge_uids")
+        .and_then(Value::as_array_mut)
+    {
+        let previous = std::mem::take(uids);
+        for uid in previous {
+            if let Some(replacements) = uid.as_str().and_then(|uid| edges.get(uid)) {
+                uids.extend(replacements.iter().cloned().map(Value::String));
+            } else {
+                uids.push(uid);
+            }
+        }
+    }
+    if let Some(key) = observation.get_mut("embedded_host_key")
+        && let Some(replacement) = key.as_str().and_then(|key| keys.get(key))
+    {
+        *key = replacement.clone().into();
+    }
+    if let Some(target) = observation.get_mut("oracle_target") {
+        if let Some(key) = target.get_mut("source_key")
+            && let Some(replacement) = key.as_str().and_then(|key| keys.get(key))
+        {
+            *key = replacement.clone().into();
+        }
+        if let Some(candidates) = target.get_mut("candidates").and_then(Value::as_array_mut) {
+            for candidate in candidates {
+                if let Some(key) = candidate.get_mut("key")
+                    && let Some(replacement) = key.as_str().and_then(|key| keys.get(key))
+                {
+                    *key = replacement.clone().into();
+                }
+            }
+        }
+    }
+    if let Some(native) = observation.get_mut("native") {
+        remap_observation(native, keys, edges);
+    }
 }
 
 /// Keep deferred FILE observations causal with the canonical symbol join. All changes stay local
@@ -929,6 +1336,8 @@ mod tests {
         let source = SourceText::new(SOURCE.as_bytes(), SOURCE.len()).unwrap();
         let mut properties = BTreeMap::new();
         properties.insert("name".into(), AstGraphValue::String("foo".into()));
+        properties.insert("uid".into(), AstGraphValue::String("syntax-foo".into()));
+        properties.insert("data_key".into(), AstGraphValue::String("functions".into()));
         properties.insert(
             "metadata_json".into(),
             AstGraphValue::String("{\"complexity\":2}".into()),
@@ -946,7 +1355,13 @@ mod tests {
             file_observation: AstGraphNode {
                 label: "File".into(),
                 key: "file".into(),
-                properties: BTreeMap::new(),
+                properties: BTreeMap::from([
+                    ("lang".into(), AstGraphValue::String("rust".into())),
+                    (
+                        "grammar".into(),
+                        AstGraphValue::String("tree-sitter-rust".into()),
+                    ),
+                ]),
             },
             association,
             nodes: vec![node],
@@ -999,12 +1414,31 @@ mod tests {
         }
     }
     #[test]
-    fn consumes_symbols_and_references_without_replacing_parser_entities() {
+    fn promotes_parser_identity_and_preserves_its_entities_metadata_and_bindings() {
         let before = parts();
         let metadata = before.nodes[0].properties["metadata_json"].clone();
-        let result = apply_scip_document(before, &document(), SOURCE, &original()).unwrap();
+        let result = apply_scip_document(
+            before,
+            &document(),
+            SOURCE,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original(),
+        )
+        .unwrap();
         assert_eq!(result.parts.nodes.len(), 1);
-        assert_eq!(result.parts.nodes[0].key, "stable-nn-key");
+        assert_ne!(result.parts.nodes[0].key, "stable-nn-key");
+        assert_eq!(result.identity_changes.len(), 1);
+        let change = &result.identity_changes[0];
+        assert_eq!(change.previous_key, "stable-nn-key");
+        assert_eq!(change.previous_uid, "syntax-foo");
+        assert_eq!(change.data_key, "functions");
+        assert_eq!((change.start_byte, change.end_byte), (8, 11));
+        assert_eq!(change.key, result.parts.nodes[0].key);
+        assert_eq!(
+            Some(change.uid.as_str()),
+            text(&result.parts.nodes[0], "uid")
+        );
+        assert_eq!(result.definitions[0].entity_key, change.key);
         assert_eq!(result.parts.nodes[0].properties["metadata_json"], metadata);
         let AstGraphValue::String(value) = &result.parts.nodes[0].properties["scip_symbols_json"]
         else {
@@ -1033,7 +1467,7 @@ mod tests {
         assert_eq!(result.references[0].kind.as_deref(), Some("CALLS"));
         assert_eq!(
             result.references[0].source_key.as_deref(),
-            Some("stable-nn-key")
+            Some(change.key.as_str())
         );
         assert_eq!(result.parts.outcomes.len(), 1);
         assert!(
@@ -1042,12 +1476,159 @@ mod tests {
         );
     }
     #[test]
+    fn global_symbol_sets_promote_both_views_and_preserve_parallel_edge_rows() {
+        let input = || {
+            let mut input = parts();
+            let mut view = input.nodes[0].clone();
+            view.key = "second-view".into();
+            view.properties
+                .insert("data_key".into(), AstGraphValue::String("alternate".into()));
+            input.nodes.push(view);
+            let edge = AstGraphEdge::logical(
+                logical_file(&input.association).unwrap(),
+                "CONTAINS",
+                "stable-nn-key",
+                "second-view",
+                None,
+                "second-view",
+                0,
+            )
+            .unwrap();
+            input.edges = vec![edge.clone(), edge];
+            input
+        };
+        let mut doc = document();
+        let mut alias = doc.occurrences[0].clone();
+        alias.symbol = "scip-rust cargo demo 1.0.0 foo_alias().".into();
+        doc.occurrences.push(alias);
+        let result = apply_scip_document(
+            input(),
+            &doc,
+            SOURCE,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original(),
+        )
+        .unwrap();
+        assert_eq!(result.parts.nodes.len(), 2);
+        assert_eq!(result.identity_changes.len(), 2);
+        assert_eq!(
+            text(&result.parts.nodes[0], "uid"),
+            text(&result.parts.nodes[1], "uid")
+        );
+        assert_ne!(result.parts.nodes[0].key, result.parts.nodes[1].key);
+        assert_eq!(result.parts.edges.len(), 2);
+        assert_eq!(result.parts.edges[0], result.parts.edges[1]);
+        assert_eq!(result.parts.edges[0].source_key, result.parts.nodes[0].key);
+        assert_eq!(result.parts.edges[0].target_key, result.parts.nodes[1].key);
+        assert_eq!(result.definitions.len(), 4);
+        let facts: Value =
+            serde_json::from_str(text(&result.parts.nodes[0], "scip_symbols_json").unwrap())
+                .unwrap();
+        assert_eq!(facts.as_array().unwrap().len(), 2);
+        doc.occurrences.reverse();
+        let reordered = apply_scip_document(
+            input(),
+            &doc,
+            SOURCE,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original(),
+        )
+        .unwrap();
+        assert_eq!(result.parts.nodes[0].key, reordered.parts.nodes[0].key);
+        assert_eq!(result.parts.nodes[1].key, reordered.parts.nodes[1].key);
+        let single = apply_scip_document(
+            input(),
+            &document(),
+            SOURCE,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original(),
+        )
+        .unwrap();
+        assert_ne!(result.parts.nodes[0].key, single.parts.nodes[0].key);
+        let encoded = serde_json::to_vec(&result.parts.edges).unwrap();
+        let restored: Vec<AstGraphEdge> = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(restored, result.parts.edges);
+    }
+
+    #[test]
+    fn promoted_scip_uid_survives_unrelated_prefix_and_raw_version_change() {
+        let before = apply_scip_document(
+            parts(),
+            &document(),
+            SOURCE,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original(),
+        )
+        .unwrap();
+        let source = format!("\n{SOURCE}");
+        let text_source = SourceText::new(source.as_bytes(), source.len()).unwrap();
+        let mut input = parts();
+        input.association.raw_version += 1;
+        input.association.source_sha256 = Sha256::digest(source.as_bytes()).into();
+        add_range(
+            &mut input.nodes[0].properties,
+            "name_",
+            text_source.range(9, 12).unwrap(),
+        )
+        .unwrap();
+        add_range(
+            &mut input.nodes[0].properties,
+            "",
+            text_source.range(6, 25).unwrap(),
+        )
+        .unwrap();
+        let mut observation: Value =
+            serde_json::from_str(&input.outcomes[0].observation_json).unwrap();
+        observation["original"]["range"] = json!({"start_byte":17,"end_byte":20});
+        input.outcomes[0].observation_json = observation.to_string();
+        let mut doc = document();
+        for occurrence in &mut doc.occurrences {
+            occurrence.range[0] += 1;
+            if !occurrence.enclosing_range.is_empty() {
+                occurrence.enclosing_range[0] += 1;
+            }
+        }
+        let after = apply_scip_document(
+            input,
+            &doc,
+            &source,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original(),
+        )
+        .unwrap();
+        assert_eq!(before.parts.nodes[0].key, after.parts.nodes[0].key);
+        assert_eq!(
+            before.references[0].source_key,
+            after.references[0].source_key
+        );
+        assert_eq!(
+            before.references[0].occurrence_ordinal,
+            after.references[0].occurrence_ordinal
+        );
+        assert_eq!(
+            scip_edge_uid(&before.references[0], &before.definitions[0]).unwrap(),
+            scip_edge_uid(&after.references[0], &after.definitions[0]).unwrap()
+        );
+        assert_ne!(
+            before.parts.association.source_sha256(),
+            after.parts.association.source_sha256()
+        );
+    }
+
+    #[test]
     fn compiler_only_definition_is_source_bound_and_queryable() {
         let mut before = parts();
         before.nodes.clear();
         before.outcomes.clear();
         let original = original();
-        let result = apply_scip_document(before, &document(), SOURCE, &original).unwrap();
+        let result = apply_scip_document(
+            before,
+            &document(),
+            SOURCE,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original,
+        )
+        .unwrap();
         assert_eq!(result.parts.nodes.len(), 1);
         let node = &result.parts.nodes[0];
         assert_eq!(node.label, "Function");
@@ -1087,17 +1668,53 @@ mod tests {
     fn rejects_foreign_path_text_and_source_hash() {
         let mut doc = document();
         doc.relative_path = "other.rs".into();
-        assert!(apply_scip_document(parts(), &doc, SOURCE, &original()).is_err());
+        assert!(
+            apply_scip_document(
+                parts(),
+                &doc,
+                SOURCE,
+                crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+                &original()
+            )
+            .is_err()
+        );
         doc = document();
         doc.text = "wrong text".into();
-        assert!(apply_scip_document(parts(), &doc, SOURCE, &original()).is_err());
-        assert!(apply_scip_document(parts(), &document(), "other source", &original()).is_err());
+        assert!(
+            apply_scip_document(
+                parts(),
+                &doc,
+                SOURCE,
+                crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+                &original()
+            )
+            .is_err()
+        );
+        assert!(
+            apply_scip_document(
+                parts(),
+                &document(),
+                "other source",
+                crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+                &original()
+            )
+            .is_err()
+        );
     }
     #[test]
     fn rejects_split_surrogate_and_disagreeing_or_uncontained_ranges() {
         let mut doc = document();
         doc.occurrences[0].range = vec![0, 1, 2];
-        assert!(apply_scip_document(parts(), &doc, SOURCE, &original()).is_err());
+        assert!(
+            apply_scip_document(
+                parts(),
+                &doc,
+                SOURCE,
+                crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+                &original()
+            )
+            .is_err()
+        );
         doc = document();
         doc.occurrences[0].typed_range = Some(occurrence::Typed_range::SingleLineRange(
             types::SingleLineRange {
@@ -1107,16 +1724,41 @@ mod tests {
                 ..Default::default()
             },
         ));
-        assert!(apply_scip_document(parts(), &doc, SOURCE, &original()).is_err());
+        assert!(
+            apply_scip_document(
+                parts(),
+                &doc,
+                SOURCE,
+                crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+                &original()
+            )
+            .is_err()
+        );
         doc = document();
         doc.occurrences[0].enclosing_range = vec![0, 3, 5];
-        assert!(apply_scip_document(parts(), &doc, SOURCE, &original()).is_err());
+        assert!(
+            apply_scip_document(
+                parts(),
+                &doc,
+                SOURCE,
+                crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+                &original()
+            )
+            .is_err()
+        );
     }
     #[test]
     fn reference_does_not_become_a_call_from_text_or_container_alone() {
         let mut before = parts();
         before.outcomes[0].observation_json=json!({"kind":"CALLS","original":{"status":"Exact","range":{"start_byte":17,"end_byte":19}}}).to_string();
-        let result = apply_scip_document(before, &document(), SOURCE, &original()).unwrap();
+        let result = apply_scip_document(
+            before,
+            &document(),
+            SOURCE,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original(),
+        )
+        .unwrap();
         assert_eq!(result.references[0].kind, None);
         assert_eq!(result.references[0].source_key, None);
     }
@@ -1126,13 +1768,21 @@ mod tests {
         before.outcomes[0].observation_json=json!({"relation_type":"READS_FIELD",
             "captures":[{"capture_index":0,"original":{"status":"Exact","range":{"start_byte":16,"end_byte":19}}}],
             "sources":[{"state":"Bound","entity_keys":["stable-nn-key","foreign-key"]}]}).to_string();
-        let result = apply_scip_document(before, &document(), SOURCE, &original()).unwrap();
+        let result = apply_scip_document(
+            before,
+            &document(),
+            SOURCE,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original(),
+        )
+        .unwrap();
         assert_eq!(result.references.len(), 1);
         assert_eq!(result.references[0].kind.as_deref(), Some("READS_FIELD"));
         assert_eq!(
             result.references[0].source_key.as_deref(),
-            Some("stable-nn-key")
+            Some(result.parts.nodes[0].key.as_str())
         );
+        assert_eq!(result.identity_changes[0].previous_key, "stable-nn-key");
     }
     fn resolution_fixture() -> (
         AstGraphNode,
@@ -1151,7 +1801,14 @@ mod tests {
             &original,
         )
         .unwrap();
-        let result = apply_scip_document(input, &document(), SOURCE, &original).unwrap();
+        let result = apply_scip_document(
+            input,
+            &document(),
+            SOURCE,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original,
+        )
+        .unwrap();
         let mut target = result.definitions[0].clone();
         target.path = "src/target.rs".into();
         target.association.path = target.path.clone();
@@ -1284,18 +1941,27 @@ mod tests {
                 source_key: "stable-nn-key".into(),
                 target_key: "old-parser-target".into(),
                 uid: "first-call-uid".into(),
+                query_data_key: Some("calls".into()),
+                reference_target: "old".into(),
+                occurrence_ordinal: 0,
             },
             AstGraphEdge {
                 kind: "CALLS".into(),
                 source_key: "stable-nn-key".into(),
                 target_key: "old-parser-target".into(),
                 uid: "second-call-uid".into(),
+                query_data_key: Some("calls".into()),
+                reference_target: "old".into(),
+                occurrence_ordinal: 1,
             },
             AstGraphEdge {
                 kind: "CONTAINS".into(),
                 source_key: "container".into(),
                 target_key: "stable-nn-key".into(),
                 uid: "containment-uid".into(),
+                query_data_key: None,
+                reference_target: "stable-nn-key".into(),
+                occurrence_ordinal: 0,
             },
         ];
         input.outcomes[0].target = AstGraphRelationTarget::Resolved {
@@ -1331,7 +1997,14 @@ mod tests {
             }],
             ..Default::default()
         };
-        let result = apply_scip_document(input, &doc, &body, &original).unwrap();
+        let result = apply_scip_document(
+            input,
+            &doc,
+            &body,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original,
+        )
+        .unwrap();
         assert_eq!(
             result
                 .parts
@@ -1545,7 +2218,13 @@ mod tests {
             occurrences,
             ..Default::default()
         };
-        let result = apply_scip_document(parts, &compiler, text, &original)?;
+        let result = apply_scip_document(
+            parts,
+            &compiler,
+            text,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original,
+        )?;
         assert_eq!(result.references.len(), 2);
         assert_eq!(result.definitions.len(), 1);
         let caller = result
@@ -1649,7 +2328,13 @@ mod tests {
             assembled.file_observation.properties.get("model_available"),
             Some(&AstGraphValue::Bool(true))
         );
-        let applied = apply_scip_document(assembled.into_parts(), &document, body, &original)?;
+        let applied = apply_scip_document(
+            assembled.into_parts(),
+            &document,
+            body,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original,
+        )?;
         assert_eq!(applied.definitions.len(), 1);
         assert_eq!(text(&applied.parts.nodes[0], "name"), Some("Example"));
         document.relative_path = "elsewhere.vb".into();
@@ -1764,7 +2449,14 @@ mod tests {
             doc.occurrences[0].range = definition.to_vec();
             doc.occurrences[0].enclosing_range = enclosure.to_vec();
             doc.occurrences[1].range = reference.to_vec();
-            let result = apply_scip_document(parts(), &doc, SOURCE, &original()).unwrap();
+            let result = apply_scip_document(
+                parts(),
+                &doc,
+                SOURCE,
+                crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+                &original(),
+            )
+            .unwrap();
             assert_eq!(
                 (
                     result.definitions[0].start_byte,
@@ -1790,7 +2482,14 @@ mod tests {
                 ..Default::default()
             },
         ));
-        let result = apply_scip_document(parts(), &doc, SOURCE, &original()).unwrap();
+        let result = apply_scip_document(
+            parts(),
+            &doc,
+            SOURCE,
+            crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+            &original(),
+        )
+        .unwrap();
         assert_eq!(
             (
                 result.definitions[0].start_byte,
@@ -1826,7 +2525,13 @@ mod tests {
         cancellation.cancel();
         let original = Arc::new(SnapshotContext::service(cancellation));
         assert!(matches!(
-            apply_scip_document(parts(), &document(), SOURCE, &original),
+            apply_scip_document(
+                parts(),
+                &document(),
+                SOURCE,
+                crate::semantic_graph::scip_document::AstScipDocumentOrigin::Compiler,
+                &original
+            ),
             Err(AstGraphError::Operation(_))
         ));
     }

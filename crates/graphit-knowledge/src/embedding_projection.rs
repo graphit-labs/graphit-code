@@ -24,6 +24,7 @@ pub const KNOWLEDGE_DOCUMENT_EMBEDDING_RECIPE: &str = "knowledge-document-json-v
 pub enum KnowledgeEmbeddingProjectionError {
     Request(io::Error),
     Serialization(serde_json::Error),
+    Document(crate::document::DocumentParseError),
     InvalidDimensions,
     InvalidRecipe,
     ConstructionOverflow,
@@ -44,6 +45,7 @@ impl Error for KnowledgeEmbeddingProjectionError {
         match self {
             Self::Request(error) => Some(error),
             Self::Serialization(error) => Some(error),
+            Self::Document(error) => Some(error),
             Self::Allocation(error) => Some(error),
             _ => None,
         }
@@ -147,8 +149,11 @@ struct DocumentText<'a> {
 }
 /// Build the maintained document recipe from one borrowed SDK document.
 pub fn document_text(
+    original: &SnapshotContext,
     document: &KnowledgeDocument,
 ) -> Result<String, KnowledgeEmbeddingProjectionError> {
+    let body = crate::document::without_document_navigation(original, &document.body)
+        .map_err(KnowledgeEmbeddingProjectionError::Document)?;
     let mut text = serde_json::to_string(&DocumentText {
         recipe: KNOWLEDGE_DOCUMENT_EMBEDDING_RECIPE,
         title: &document.title,
@@ -156,15 +161,33 @@ pub fn document_text(
         description: document.description.as_deref(),
         summary: &document.summary,
     })?;
-    let additional = document
-        .body
+    let additional = body
         .len()
         .checked_add(1)
         .ok_or(KnowledgeEmbeddingProjectionError::ConstructionOverflow)?;
     text.try_reserve_exact(additional)?;
     text.push('\n');
-    text.push_str(&document.body);
+    text.push_str(&body);
     Ok(text)
+}
+
+/// The Data replacement passes its actual observed old/new bodies under CAS.
+/// Only navigation entries are excluded; this never calls Models or a service.
+pub fn equivalent_body(
+    original: &SnapshotContext,
+    old: &str,
+    new: &str,
+) -> Result<bool, graphit_data::knowledge_index::KnowledgeIndexError> {
+    original.check()?;
+    if old == new {
+        return Ok(true);
+    }
+    let old = crate::document::without_document_navigation(original, old)
+        .map_err(graphit_data::knowledge_index::KnowledgeIndexError::from)?;
+    let new = crate::document::without_document_navigation(original, new)
+        .map_err(graphit_data::knowledge_index::KnowledgeIndexError::from)?;
+    original.check()?;
+    Ok(old == new)
 }
 
 #[derive(Serialize)]
@@ -259,7 +282,7 @@ pub fn prepare_knowledge_embedding_document<'a>(
     if identity.projection_recipe() != KNOWLEDGE_DOCUMENT_EMBEDDING_RECIPE {
         return Err(KnowledgeEmbeddingProjectionError::InvalidRecipe);
     }
-    let text = document_text(document)?;
+    let text = document_text(original, document)?;
     let input_fingerprint = fingerprint(&text, identity)?;
     let pending = !capture.stored_inputs().any(|(stored, stored_identity)| {
         stored.slug == document.slug

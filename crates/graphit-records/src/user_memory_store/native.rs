@@ -354,7 +354,5 @@ pub(super) fn generation(pin: &BranchSnapshot, owner: &UserMemoryOwner) -> UserM
     }
 }
 pub(super) fn actor(admission: &UserWriteAdmission<'_>) -> Result<String, MemoryStoreError> {
-    let mut bytes = [0; 64];
-    admission.actor()?.write_identifier(&mut bytes);
-    String::from_utf8(bytes.to_vec()).map_err(|_| MemoryStoreError::Invalid("USER actor encoding"))
+    Ok(admission.actor()?.identifier().to_string())
 }

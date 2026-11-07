@@ -19,7 +19,8 @@ impl LiveGraph {
         else {
             return Ok(None);
         };
-        let facts = portable::read_facts(&self.directory, &record.facts, original)?;
+        let facts =
+            portable::read_facts(&self.directory, &record.facts, record.facts_row, original)?;
         Ok(Some((
             record.observation.clone(),
             facts

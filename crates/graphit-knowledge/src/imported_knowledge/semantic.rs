@@ -176,7 +176,9 @@ impl<'r, 'a> CapturedImportedKnowledgeSemantic<'r, 'a> {
         let mut inputs = Vec::with_capacity(documents.len());
         for document in documents {
             self.recheck().map_err(E::Reader)?;
-            let text = projection::document_text(&document).map_err(E::Projection)?;
+            let text =
+                projection::document_text(self.reader.admission.request().snapshot(), &document)
+                    .map_err(E::Projection)?;
             let input_fingerprint =
                 projection::fingerprint(&text, identity).map_err(E::Projection)?;
             inputs.push(ImportedKnowledgeEmbeddingInput {

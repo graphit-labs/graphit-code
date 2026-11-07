@@ -19,7 +19,7 @@ pub(super) async fn publish_entity_payload(
         &graph.join("Function.parquet"),
         "message graph { required int64 id; required binary name (UTF8); required binary path (UTF8); required int64 line_number; optional int64 start_line; required int64 end_line; required boolean available; required binary extent_status (UTF8); }",
         &[
-            Values::Ints(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]),
+            Values::Ints(&[9007199254740993, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]),
             Values::Strings(&[
                 "hello",
                 "dup",
@@ -58,9 +58,9 @@ pub(super) async fn publish_entity_payload(
     );
     parquet(
         &graph.join("Method.parquet"),
-        "message graph { required int64 id; required binary name (UTF8); required binary path (UTF8); required int64 line_number; required int64 start_line; required int64 end_line; required boolean available; required binary extent_status (UTF8); }",
+        "message graph { required binary id (UTF8); required binary name (UTF8); required binary path (UTF8); required int64 line_number; required int64 start_line; required int64 end_line; required boolean available; required binary extent_status (UTF8); }",
         &[
-            Values::Ints(&[1]),
+            Values::Strings(&["001"]),
             Values::Strings(&["hello"]),
             Values::Strings(&["main.rs"]),
             Values::Ints(&[2]),
@@ -96,9 +96,11 @@ pub(super) async fn publish_entity_payload(
     manifest["node_tables"][1]["shards"][0]["rows"] = json!(14);
     manifest["relationships"][0]["members"][0]["target_rows"] = json!(14);
     manifest["node_tables"][1]["columns"] = columns.clone();
+    let mut method_columns = columns.clone();
+    method_columns[0]["type"] = json!("STRING");
     manifest["node_tables"].as_array_mut().unwrap().push(json!({
         "label":"Method", "shards":[{"file":"Method.parquet","row_base":0,"rows":1}], "rows":1,
-        "primary_key":"id", "columns":columns, "lang_counts":[]
+        "primary_key":"id", "columns":method_columns, "lang_counts":[]
     }));
     manifest["node_tables"].as_array_mut().unwrap().push(json!({
         "label":"Broken", "shards":[{"file":"Broken.parquet","row_base":0,"rows":1}], "rows":1,
@@ -168,6 +170,106 @@ fn text(result: rmcp::model::CallToolResult) -> String {
         .iter()
         .map(|c| c.as_text().unwrap().text.as_str())
         .collect()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn native_entity_source_primary_keys_preserve_types_extents_and_raw_binding() {
+    let (f, graph) = fixture(true);
+    let raw = "// header\npub fn hello() {\n    work();\n}\n// upper\n// tail\n";
+    publish_entity_payload(&f, &graph, "entity-pk", Some(raw)).await;
+    publish_entity_payload(&f, &graph, "entity-pk-null", None).await;
+    let (address, served) = source_socket(&f).await;
+    let client = source_client();
+    let cancellation = Cancellation::default();
+    let original = RequestContext::new(
+        content(),
+        &cancellation,
+        Instant::now() + Duration::from_secs(120),
+    )
+    .unwrap();
+    for (kind, value, label) in [
+        ("int64", "9007199254740993", "Function"),
+        ("int64", "2", "Function"),
+        ("int64", "3", "Function"),
+        ("string", "001", "Method"),
+    ] {
+        let args: SourceArguments = serde_json::from_value(json!({
+            "context":"actual-graph@entity-pk", "path":"main.rs",
+            "entity_type":label,"entity_key":{"type":kind,"value":value}
+        }))
+        .unwrap();
+        let result = call_source_result(
+            &f.paths,
+            address,
+            &client,
+            &args,
+            graph.0.policy.index,
+            &original,
+        )
+        .await
+        .unwrap();
+        assert_eq!(text(result), "pub fn hello() {\n    work();\n}");
+    }
+    for (version, path, kind, value, label) in [
+        (
+            "entity-pk",
+            "main.rs",
+            "string",
+            "9007199254740993",
+            "Function",
+        ),
+        ("entity-pk", "main.rs", "int64", "1", "Method"),
+        ("entity-pk", "main.rs", "int64", "99", "Function"),
+        ("entity-pk", "main.c", "int64", "2", "Function"),
+        ("entity-pk", "main.rs", "int64", "2", "AbsentType"),
+        ("entity-pk", "main.rs", "int64", "1", "Broken"),
+        ("entity-pk", "main.rs", "int64", "7", "Function"),
+        ("entity-pk", "main.rs", "int64", "10", "Function"),
+        ("entity-pk", "main.rs", "int64", "13", "Function"),
+        ("entity-pk", "main.rs", "int64", "14", "Function"),
+        ("entity-pk-null", "main.rs", "int64", "2", "Function"),
+    ] {
+        let args: SourceArguments = serde_json::from_value(json!({
+            "context":format!("actual-graph@{version}"), "path":path,
+            "entity_type":label,"entity_key":{"type":kind,"value":value}
+        }))
+        .unwrap();
+        let result = call_source_result(
+            &f.paths,
+            address,
+            &client,
+            &args,
+            graph.0.policy.index,
+            &original,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            result.is_error,
+            Some(true),
+            "{label}/{kind}/{value}: {result:?}"
+        );
+    }
+    let mut ambiguous = arguments("entity-pk");
+    ambiguous.source.entity = Some("dup".into());
+    assert_eq!(
+        call_source_result(
+            &f.paths,
+            address,
+            &client,
+            &ambiguous,
+            graph.0.policy.index,
+            &original
+        )
+        .await
+        .unwrap()
+        .is_error,
+        Some(true),
+        "equal extents must not erase name ambiguity"
+    );
+    f.server.shutdown().await.unwrap();
+    served.await.unwrap().unwrap();
+    graph.shutdown().await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -530,6 +632,50 @@ async fn project_entity_source_mcp_and_cli_consume_live_graph_and_bound_raw() {
     .await
     .unwrap();
     assert_eq!(text(result), "fn hello() {\n  work();\n}");
+    for key in ["hello", "duplicate-a", "duplicate-b"] {
+        let keyed: SourceArguments = serde_json::from_value(json!({
+            "path":"main.rs","entity_type":"Function",
+            "entity_key":{"type":"string","value":key}
+        }))
+        .unwrap();
+        assert_eq!(
+            text(
+                call_source_result(
+                    &f.paths,
+                    address,
+                    &client,
+                    &keyed,
+                    graph.0.policy.index,
+                    &original
+                )
+                .await
+                .unwrap()
+            ),
+            "fn hello() {\n  work();\n}"
+        );
+    }
+    for key in ["absent", "invalid", "nonexact", "sha-mismatch"] {
+        let keyed: SourceArguments = serde_json::from_value(json!({
+            "path":"main.rs","entity_type":"Function",
+            "entity_key":{"type":"string","value":key}
+        }))
+        .unwrap();
+        assert_eq!(
+            call_source_result(
+                &f.paths,
+                address,
+                &client,
+                &keyed,
+                graph.0.policy.index,
+                &original
+            )
+            .await
+            .unwrap()
+            .is_error,
+            Some(true),
+            "{key}"
+        );
+    }
     args.source.start_line = Some(2);
     args.source.end_line = Some(2);
     args.source.line_numbers = true;

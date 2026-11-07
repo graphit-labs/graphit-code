@@ -140,7 +140,7 @@ pub(crate) fn potential_catalog() -> Vec<Tool> {
     let mut tools = catalog();
     let context = context_schema();
     let source = json!({"context":context,"path":{"type":"string"},
-        "entity":{"type":"string"},"entity_type":{"type":"string"},
+        "entity":{"type":"string"},"entity_type":{"type":"string"},"entity_key":crate::graph_server::GraphKey::schema(),
         "head":{"type":"integer"},"tail":{"type":"integer"},
         "start_line":{"type":"integer"},"end_line":{"type":"integer"},
         "pattern":{"type":"string"},"regex":{"type":"boolean","default":false},

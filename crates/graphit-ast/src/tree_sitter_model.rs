@@ -8,7 +8,8 @@ use crate::{
     profiles::{ExportStrategy, QueryKind},
     semantic_fields::{ContributionConflict, ContributionConflictField, ExtentObservation},
     symbols::{
-        IdentityDocument, IdentityDocumentInput, IdentityError, IdentityLimits, SyntaxIdentity,
+        IdentityDocument, IdentityDocumentInput, IdentityError, IdentityLimits, LogicalDeclaration,
+        SyntaxIdentity,
     },
     tree_sitter_context::{
         ContextError, ContextName, ContextRecovery, ContextualTreeSitterDocument,
@@ -1371,6 +1372,7 @@ impl<'profile: 'o, 'o, 'v, 'request> ParsedTreeSitterDocument<'profile, 'o, 'v, 
             } else {
                 Vec::new()
             };
+            assembly.finalize_identities()?;
             Ok(TreeSitterSemanticDocument {
                 parsed: self,
                 entities: assembly.entities,
@@ -1411,6 +1413,83 @@ struct EntitySeed<'doc, 'o, 'request> {
     excluded_context_indices: Vec<usize>,
 }
 impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'request> {
+    fn finalize_identities(&mut self) -> Result<(), TreeSitterModelError> {
+        // Keep native conflict/merge semantics independent of the identity seed.
+        // Data-key views of the same declaration share one type consensus.
+        let mut types = std::collections::BTreeMap::<String, Option<&'o str>>::new();
+        for entity in &self.entities {
+            self.parsed.original.check()?;
+            let conflict = entity.model_conflicts.iter().any(|conflict| {
+                matches!(
+                    conflict.field,
+                    TsModelConflictField::DeclaredType | TsModelConflictField::Callable
+                )
+            });
+            let mut observations =
+                entity
+                    .contributions
+                    .iter()
+                    .map(|contribution| match &contribution.callable {
+                        TsCallable::Function(details) => {
+                            details.signature.raw.map(|raw| raw.text())
+                        }
+                        TsCallable::NotApplicable => match &contribution.declared_type {
+                            TsDeclaredType::Present(syntax) => Some(syntax.raw.text()),
+                            TsDeclaredType::Native(syntax) => syntax.raw.map(|raw| raw.text()),
+                            _ => None,
+                        },
+                    });
+            let candidate = observations.next().flatten().filter(|candidate| {
+                !conflict && observations.all(|observation| observation == Some(*candidate))
+            });
+            let observed = types
+                .entry(entity.identity.uid().as_str().to_owned())
+                .or_insert(candidate);
+            if *observed != candidate {
+                *observed = None;
+            }
+        }
+        let document = &self.parsed.identity;
+        for entity in &mut self.entities {
+            self.parsed.original.check()?;
+            let declared_type = types.get(entity.identity.uid().as_str()).copied().flatten();
+            let mut previous = Vec::new();
+            let mut owners = Vec::new();
+            for namespace in entity.namespaces() {
+                let old = document.symbol(
+                    &namespace.label,
+                    namespace.anchor,
+                    &previous.iter().collect::<Vec<_>>(),
+                    LogicalDeclaration::named(&namespace.name),
+                )?;
+                let owner_type = types.get(old.uid().as_str()).copied().flatten();
+                let owner = document.symbol(
+                    &namespace.label,
+                    namespace.anchor,
+                    &owners.iter().collect::<Vec<_>>(),
+                    LogicalDeclaration {
+                        name: &namespace.name,
+                        declared_type: owner_type,
+                        anonymous: false,
+                    },
+                )?;
+                previous.push(old);
+                owners.push(owner);
+            }
+            entity.identity = document.symbol(
+                entity.identity.label(),
+                entity.name_raw,
+                &owners.iter().collect::<Vec<_>>(),
+                LogicalDeclaration {
+                    name: &entity.name,
+                    declared_type,
+                    anonymous: false,
+                },
+            )?;
+        }
+        Ok(())
+    }
+
     fn issue(
         &mut self,
         target: Target<'doc>,
@@ -1767,11 +1846,12 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
                 }
             }
             let references: Vec<_> = symbols.iter().collect();
-            symbols.push(
-                self.parsed
-                    .identity
-                    .symbol(&context.label, *anchor, &references)?,
-            );
+            symbols.push(self.parsed.identity.symbol(
+                &context.label,
+                *anchor,
+                &references,
+                LogicalDeclaration::named(&owner_name),
+            )?);
             namespaces.push(TsNamespace {
                 node_index: owner.node_index,
                 context_index: Some(context_index),
@@ -1785,10 +1865,12 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
             outer_owner = Some(owner.node_index);
         }
         let references: Vec<_> = symbols.iter().collect();
-        let identity = self
-            .parsed
-            .identity
-            .symbol(target.label, raw, &references)?;
+        let identity = self.parsed.identity.symbol(
+            target.label,
+            raw,
+            &references,
+            LogicalDeclaration::named(&name),
+        )?;
         Ok(Some(EntitySeed {
             identity,
             name,
@@ -2926,6 +3008,7 @@ impl<'doc, 'profile: 'o, 'o, 'v, 'request> Assembly<'doc, 'profile, 'o, 'v, 'req
             } else {
                 ExtentObservation::Missing
             };
+
             let declared_type = self.declared_type(target, declaration)?;
             let callable = self.callable(target, declaration)?;
             let declared_value = if self.is_python()? {

@@ -22,10 +22,12 @@ use std::{
 };
 
 mod delta;
+mod ranges;
 pub use delta::{
     FileNodeShard, visit_fact_rows, visit_node_shard, write_csr_shard, write_empty_node_shard,
     write_fact_rows, write_file_nodes,
 };
+pub use ranges::{concat_parquet_rows, parquet_rows};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -376,7 +378,7 @@ impl IcebugWriter {
         }
         std::fs::write(output.join("schema.cypher"), schema)?;
         self.original.check()?;
-        let manifest = json!({"manifest_version":3,"format":"icebug-canonical","storage":"direct-parquet","finished":true,"add_reverse_edges":false,"schema_file":"schema.cypher","node_tables":node_tables,"relationships":relationships.into_iter().map(|(kind,members)|json!({"type":kind,"members":members})).collect::<Vec<_>>(),"relation_uids":true,"generation":ulid::Ulid::generate().to_string(),"n_edges":n_edges,"repaired_strings":0,"invariants":{"indptr_row_groups":1,"self_loops":"forward-once"}});
+        let manifest = json!({"manifest_version":3,"format":"icebug-canonical","storage":"direct-parquet","finished":true,"add_reverse_edges":false,"schema_file":"schema.cypher","node_tables":node_tables,"relationships":relationships.into_iter().map(|(kind,members)|json!({"type":kind,"members":members})).collect::<Vec<_>>(),"relation_uids":true,"n_edges":n_edges,"repaired_strings":0,"invariants":{"indptr_row_groups":1,"self_loops":"forward-once"}});
         serde_json::to_writer(File::create(output.join("icebug.json"))?, &manifest)?;
         self.original.check()?;
         Ok(IcebugOutput {

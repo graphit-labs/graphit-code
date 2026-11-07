@@ -9,6 +9,7 @@ use graphit_auth::{
 };
 use graphit_core::{
     artifact_store::StoreOwner,
+    native_document_file::CapturedDocumentDirectory,
     project_identity::{ProjectId, ProjectIdentityStore},
 };
 use graphit_hub::{
@@ -154,8 +155,10 @@ pub(super) async fn read<'a>(
             .publication_slot(),
         Scope::GlobalInstallation => graphit_core::artifact_store::PublicationSlot::Scope,
     };
-    let registry = registry(state, selected, query.scope)?;
-    let document = registry.load().map_err(io_failure)?;
+    let (registry, parent) = registry(state, selected, query.scope, original)?;
+    let document = registry
+        .load_captured(&parent, original.snapshot())
+        .map_err(io_failure)?;
     let mut entries = Vec::new();
     let mut origins = BTreeMap::new();
     let mut matched = 0usize;
@@ -206,6 +209,7 @@ pub(super) async fn read<'a>(
         before()?;
         authorize_origin(state, grant, origin, producers).await?;
     }
+    parent.revalidate(original.snapshot()).map_err(io_failure)?;
     before()?;
     if show && entries.is_empty() {
         return Ok(json!({"scope":query.scope.as_str(),"kind":"artifact_not_installed"}));
@@ -289,7 +293,7 @@ async fn authorize_origin<'a>(
     }
     lease.check().map_err(service_failure)
 }
-fn io_failure(cause: io::Error) -> Value {
+pub(super) fn io_failure(cause: io::Error) -> Value {
     match cause.kind() {
         io::ErrorKind::PermissionDenied => error("authentication_or_permission_denied"),
         io::ErrorKind::Interrupted | io::ErrorKind::TimedOut => {
@@ -312,32 +316,55 @@ fn service_failure(cause: ServiceUseError) -> Value {
     }
 }
 
-fn registry(state: &State, selected: &SelectedProject, scope: Scope) -> Result<HubRegistry, Value> {
-    let policy = &state.policy.source.native_install.hub;
-    match scope {
-        Scope::Project => {
-            let identity = ProjectIdentityStore::at(&selected.0)
-                .load()
-                .map_err(io_failure)?
-                .ok_or_else(|| error("project_identity_missing"))?;
-            if identity.id() != selected.1 {
-                return Err(error("project_identity_changed"));
-            }
-            HubRegistry::project(&selected.0, &identity, policy.hub()).map_err(io_failure)
-        }
-        Scope::GlobalInstallation => {
-            let live = state.auth.installation().live;
-            let StoreOwner::Installation { installation_id } = live.owner() else {
-                return Err(error("authentication_or_permission_denied"));
-            };
-            let registry = &state.policy.source.registry;
-            if live.owner_root() != state.policy.source.installation.root()
-                || registry.path().parent() != Some(live.owner_root())
-                || !matches!(registry.scope(),HubScope::Global{installation_id:id} if id==installation_id.as_str())
-            {
-                return Err(error("authentication_or_permission_denied"));
-            }
-            Ok(registry.clone())
-        }
+fn registry(
+    state: &State,
+    selected: &SelectedProject,
+    scope: Scope,
+    original: &RequestContext<'_>,
+) -> Result<(HubRegistry, CapturedDocumentDirectory), Value> {
+    if matches!(scope, Scope::GlobalInstallation) {
+        return captured_global_registry(state, original);
     }
+    original.check().map_err(io_failure)?;
+    let policy = &state.policy.source.native_install.hub;
+    let identity = ProjectIdentityStore::at(&selected.0)
+        .load()
+        .map_err(io_failure)?
+        .ok_or_else(|| error("project_identity_missing"))?;
+    if identity.id() != selected.1 {
+        return Err(error("project_identity_changed"));
+    }
+    let registry =
+        HubRegistry::project(&selected.0, &identity, policy.hub()).map_err(io_failure)?;
+    let path = registry.path();
+    let root = path
+        .parent()
+        .ok_or_else(|| error("authentication_or_permission_denied"))?;
+    let parent =
+        CapturedDocumentDirectory::capture(root, state.policy.source.index, original.snapshot())
+            .map_err(io_failure)?;
+    Ok((registry, parent))
+}
+pub(super) fn captured_global_registry(
+    state: &State,
+    original: &RequestContext<'_>,
+) -> Result<(HubRegistry, CapturedDocumentDirectory), Value> {
+    original.check().map_err(io_failure)?;
+    let live = state.auth.installation().live;
+    let StoreOwner::Installation { installation_id } = live.owner() else {
+        return Err(error("authentication_or_permission_denied"));
+    };
+    let registry = &state.policy.source.registry;
+    if live.owner_root() != state.policy.source.installation.root()
+        || !matches!(registry.scope(), HubScope::Global { installation_id: id } if id == installation_id.as_str())
+    {
+        return Err(error("authentication_or_permission_denied"));
+    }
+    let parent = CapturedDocumentDirectory::capture(
+        live.owner_root(),
+        state.policy.source.index,
+        original.snapshot(),
+    )
+    .map_err(io_failure)?;
+    Ok((registry.clone(), parent))
 }

@@ -32,6 +32,7 @@ pub(super) enum Operation {
     KnowledgeList,
     KnowledgeSource,
     KnowledgeSchema,
+    KnowledgeId,
     KnowledgeSearch,
     KnowledgeLog,
     Source,
@@ -87,6 +88,7 @@ impl Operation {
             Self::KnowledgeList
                 | Self::KnowledgeSource
                 | Self::KnowledgeSchema
+                | Self::KnowledgeId
                 | Self::KnowledgeSearch
                 | Self::KnowledgeLog
         )
@@ -287,6 +289,11 @@ const OPERATIONS: &[(&str, Operation, &str)] = &[
         "Read one native Knowledge page after EOF validation.",
     ),
     (
+        "knowledge_id",
+        Operation::KnowledgeId,
+        crate::knowledge_id::DESCRIPTION,
+    ),
+    (
         "knowledge_schema",
         Operation::KnowledgeSchema,
         "Read the producer physical Knowledge schema under its actual admission.",
@@ -476,6 +483,7 @@ pub(super) fn tools(brand: &Brand) -> Vec<Tool> {
             Operation::KnowledgeSource => {
                 object(json!({"slug":text(),"selectors":selector()}), &["slug"])
             }
+            Operation::KnowledgeId => crate::knowledge_id::schema(),
             Operation::KnowledgeList | Operation::KnowledgeSchema => object(json!({}), &[]),
             Operation::KnowledgeLog => object(
                 json!({"limit":{"type":"integer","minimum":1},"cursor":text()}),
@@ -526,13 +534,18 @@ pub(super) fn tools(brand: &Brand) -> Vec<Tool> {
             json!({"selection":crate::task_server::catalog::selection(),"input":input}),
             &["input"],
         );
-        tools.push(Tool::new(
+        let tool = Tool::new(
             brand
                 .mcp_tool_name(&suffix.split('_').collect::<Vec<_>>())
                 .expect("closed tool name"),
             *description,
             schema.as_object().expect("object").clone(),
-        ));
+        );
+        tools.push(if *operation == Operation::KnowledgeId {
+            tool.with_annotations(rmcp::model::ToolAnnotations::new().read_only(true))
+        } else {
+            tool
+        });
     }
     tools
 }

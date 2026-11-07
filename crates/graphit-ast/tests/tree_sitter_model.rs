@@ -200,12 +200,12 @@ fn stock_native_struct_field_raw_names_types_extents_and_uid() -> TestResult {
         let structure = entities.iter().find(|e| e.name() == "S").unwrap();
         assert_eq!(
             structure.identity().uid().as_str(),
-            "[\"ast-syntax-root-1\",[\"src\",\"model.rs\"],\"rust\",\"tree-sitter-rust\",\"Struct\",[11,12],[]]"
+            "u1:SZKU7SJXtgOQB21eyNquSfTycLXg28GGYi2ui2AJmRDE9O1Mh8lOHbfHrD9SwLIT"
         );
         let field = entities.iter().find(|e| e.name() == "a").unwrap();
         assert_eq!(
             field.identity().uid().as_str(),
-            "[\"ast-syntax-root-1\",[\"src\",\"model.rs\"],\"rust\",\"tree-sitter-rust\",\"Field\",[19,20],[[\"Struct\",11,12]]]"
+            "u1:SZKU7SJXtgOQB21eyNquSRJnjtMo0U9E1pCWtAz_wRmBKnsOSQvm90_7lWMZ2iBW"
         );
         Ok(())
     })
@@ -1139,7 +1139,7 @@ fn native_functions_signatures_methods_stock_owners_and_defaultness() -> TestRes
         assert_eq!(free.name_raw().text(), "r#type");
         assert_eq!(
             free.identity().uid().as_str(),
-            r#"["ast-syntax-root-1",["src","model.rs"],"rust","tree-sitter-rust","Function",[7,13],[]]"#
+            "u1:SZKU7SJXtgOQB21eyNquSWtfX9j9ZJS66Lgghd4ZkFd1EOLnAn7z9_LIwMiUuASY"
         );
         assert!(matches!(
             free.declared_type(),
@@ -1741,5 +1741,42 @@ fn explicit_context_metadata_is_not_silently_ignored_by_specialized_model() -> T
             },
         )?;
     }
+    Ok(())
+}
+
+#[test]
+fn native_rust_uid_and_primary_scope_survive_unrelated_prefix_edits() -> TestResult {
+    type IdentitySnapshot = Vec<(String, String, String, String)>;
+    fn snapshot(source: &str) -> Result<IdentitySnapshot, Box<dyn Error>> {
+        let mut rows = Vec::new();
+        inspect(source, &stock(), |model| {
+            assert!(model.diagnostics()?.is_empty());
+            for entity in model.entities()? {
+                rows.push((
+                    entity.identity().label().to_owned(),
+                    entity.name().to_owned(),
+                    entity.data_key().to_owned(),
+                    entity.identity().uid().as_str().to_owned(),
+                ));
+            }
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+    let source = "mod left { struct Same { a:u8 } impl Same { fn same(&self, value:u8)->u8 { value } } } mod right { struct Same { a:u8 } }";
+    let before = snapshot(source)?;
+    let after = snapshot(&format!("// unrelated observation\n\n{source}"))?;
+    assert!(!before.is_empty());
+    assert_eq!(before, after);
+    let namesakes = before
+        .iter()
+        .filter(|(_, name, _, _)| name == "Same")
+        .collect::<Vec<_>>();
+    assert!(namesakes.len() >= 2);
+    let distinct = namesakes
+        .iter()
+        .map(|row| &row.3)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(distinct.len(), namesakes.len());
     Ok(())
 }
