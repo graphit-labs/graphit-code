@@ -12,7 +12,7 @@ auth-test-support = []
 async-cancel = ["dep:tokio"]
 
 [dependencies]
-tokio = { version = "=1.53.2", default-features = false, features = ["sync"], optional = true }
+tokio = { version = "~1.53.2", default-features = false, features = ["sync"], optional = true }
 graphit-fs = { path = "../graphit-fs" }
 tracing.workspace = true
 anstyle.workspace = true

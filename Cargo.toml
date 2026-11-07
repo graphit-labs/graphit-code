@@ -48,7 +48,7 @@ sha2 = "0.11"
 tempfile = { version = "=3.27.0", default-features = false }
 ulid = "=3.0.0"
 process-wrap = { version = "=10.0.1", default-features = false, features = ["process-session", "tokio1", "process-group", "job-object", "kill-on-drop"] }
-tokio = { version = "=1.53.2", features = ["process", "io-util", "rt", "rt-multi-thread", "time", "macros", "sync"] }
+tokio = { version = "~1.53.2", features = ["process", "io-util", "rt", "rt-multi-thread", "time", "macros", "sync"] }
 tokio-util = { version = "=0.7.19", features = ["rt"] }
 
 # Joint Broker tests use the current workspace's shared libraries.
