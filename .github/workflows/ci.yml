@@ -102,7 +102,7 @@ jobs:
           echo "TMPDIR=$(cd "$RUNNER_TEMP" && pwd -P)" >> "$GITHUB_ENV"
       - name: Install pinned Rust toolchain
         run: rustup show active-toolchain
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install current Git on Linux (native hooks/reftable required)
@@ -497,7 +497,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Check affected shell scripts and package contracts
