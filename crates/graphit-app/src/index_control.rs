@@ -172,7 +172,7 @@ impl IndexControl {
         self.changed.notify_waiters();
         ticket
     }
-    #[cfg(test)]
+    #[cfg(all(test, target_os = "linux"))]
     pub fn end_batch(&self, key: &SupervisionKey, ticket: u64) {
         if let Ok(mut data) = self.state.lock() {
             let value = data.observations.entry(key.clone()).or_default();
