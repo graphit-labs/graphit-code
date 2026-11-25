@@ -110,7 +110,7 @@ jobs:
         run: |
           npm --prefix ui ci
           node scripts/build-rust-ui.mjs
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Identify Windows native ABI
@@ -497,7 +497,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Check affected shell scripts and package contracts
