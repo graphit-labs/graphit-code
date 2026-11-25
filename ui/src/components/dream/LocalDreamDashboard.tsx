@@ -37,7 +37,7 @@ export function LocalDreamDashboard() {
       if (!controller.signal.aborted) setResult({ scope, error: error instanceof Error ? error.message : 'Unable to read Dream status.' })
     }
   }, [scope, selection])
-  useEffect(() => { void refresh(); return () => request.current?.abort() }, [refresh])
+  useEffect(() => { let active = true; queueMicrotask(() => { if (active) void refresh() }); return () => { active = false; request.current?.abort() } }, [refresh])
   usePageRefresh(refresh)
   const current = result?.scope === scope ? result : null
   const status = current && 'status' in current ? current.status : null

@@ -40,7 +40,7 @@ function ResourceBrowser({ project, onPublish, publishingDisabled, onInstall, in
       if (!controller.signal.aborted) setLoading(false)
     }
   }, [query])
-  useEffect(() => { void refresh(); return () => request.current?.abort() }, [refresh])
+  useEffect(() => { let active = true; queueMicrotask(() => { if (active) void refresh() }); return () => { active = false; request.current?.abort() } }, [refresh])
   usePageRefresh(refresh)
   function load(next: AuthoredQuery) {
     request.current?.abort(); setSelected(null); setPage(null); setError(null); setLoading(true); setQuery(next)
@@ -85,7 +85,7 @@ function ResourceReview({ selection, onClose, onPublish, publishingDisabled, onI
       if (!controller.signal.aborted) setLoading(false)
     }
   }, [selection, query])
-  useEffect(() => { void refresh(); return () => review.current?.abort() }, [refresh])
+  useEffect(() => { let active = true; queueMicrotask(() => { if (active) void refresh() }); return () => { active = false; review.current?.abort() } }, [refresh])
   usePageRefresh(refresh)
   function load(next: number) {
     review.current?.abort(); read.current?.abort(); setContent(null); setContentError(null); setReading(false); setPage(null); setError(null); setLoading(true); setQuery({ offset: next })

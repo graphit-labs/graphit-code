@@ -672,6 +672,7 @@ mod tests {
         server.shutdown().await.unwrap();
         serving.await.unwrap().unwrap();
     }
+    #[cfg(target_os = "linux")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn knowledge_catalogue_lint_uses_actual_eof_generation_and_reports_locations() {
         let (_temp, server, raw) = super::super::tests::fixture_with_root_names(
@@ -795,6 +796,7 @@ mod tests {
         );
         server.shutdown().await.unwrap();
     }
+    #[cfg(target_os = "linux")]
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn index_requests_use_actual_supervisor_and_native_publication_without_claiming_early_completion()
      {

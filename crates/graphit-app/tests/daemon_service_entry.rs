@@ -772,7 +772,7 @@ async fn compiled_status_reports_authenticated_foreground_without_registered_uni
     assert!(native.lines().any(|line| line == "ActiveState=inactive"));
     assert!(native.lines().any(|line| line == "MainPID=0"));
 
-    let output = command().args(["daemon", "status"]).output()?;
+    let output = command().args(["daemon", "status", "--json"]).output()?;
     assert!(
         output.status.success(),
         "compiled status failed: {}",
@@ -848,7 +848,7 @@ async fn waiting_on_lifecycle_inode(child: &mut Child, lock: &std::path::Path) -
 
 async fn captured_control_status(control: &PrivateControl) -> io::Result<std::process::Output> {
     let mut command = control.command();
-    command.args(["daemon", "status"]);
+    command.args(["daemon", "status", "--json"]);
     let host = crate::finite_cli::host(1).await?;
     let result = crate::finite_cli::capture(&host, crate::finite_cli::request(&command)?).await;
     crate::finite_cli::joined(host).await?;
@@ -868,7 +868,7 @@ async fn competing_cli_lifecycle(
         Ok(PrivateDaemon {
             child: control
                 .command()
-                .args(["daemon", action])
+                .args(["daemon", action, "--json"])
                 .stdout(fs::File::create(
                     root.join(format!("contended-{action}.out")),
                 )?)
@@ -1115,7 +1115,10 @@ async fn compiled_direct_control_journey(
         assert!(!fs::read_to_string(&registration)?.contains("RefuseManualStart"));
     }
     let run = |action: &str| -> Result<serde_json::Value, Box<dyn std::error::Error>> {
-        let output = control.command().args(["daemon", action]).output()?;
+        let output = control
+            .command()
+            .args(["daemon", action, "--json"])
+            .output()?;
         if !output.status.success() {
             return Err(io::Error::other(format!(
                 "daemon {action}: status={} stdout={} stderr={}",
@@ -1207,7 +1210,7 @@ async fn compiled_direct_control_journey(
         );
         let restarted = control
             .command_using(&replacement)
-            .args(["daemon", "restart"])
+            .args(["daemon", "restart", "--json"])
             .output()?;
         assert!(
             restarted.status.success(),
@@ -1305,7 +1308,10 @@ async fn compiled_direct_control_journey(
         assert!(!registration.exists());
         control.registered = false;
     } else {
-        let absent = control.command().args(["daemon", "status"]).output()?;
+        let absent = control
+            .command()
+            .args(["daemon", "status", "--json"])
+            .output()?;
         assert!(!absent.status.success());
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&absent.stdout)?["state"],

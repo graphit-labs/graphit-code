@@ -847,12 +847,8 @@ async fn record_references_import_http_same_realm_registered_source_complete_pag
     assert_eq!(document["slug"], "Imported page");
     assert_eq!(document["title"], "Imported title");
     assert_eq!(document["body"], "# Complete native body é\n");
-    for field in [
-        "source_path",
-        "compilation_digest",
-        "physical_digest",
-        "recipe_parameters",
-    ] {
+    assert_eq!(document["source_path"], "docs/records.md");
+    for field in ["compilation_digest", "physical_digest", "recipe_parameters"] {
         assert!(document.get(field).is_none(), "unexpected {field}");
     }
     let absent = post(

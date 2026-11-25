@@ -454,7 +454,7 @@ fn defer_windows(package: &Package) -> io::Result<PathBuf> {
         .collect::<io::Result<Vec<_>>>()?;
     let mut plan = tempfile::Builder::new()
         .prefix("graphit-uninstall-")
-        .make_in(&std::env::temp_dir(), graphit_fs::create_private_file)?;
+        .make_in(std::env::temp_dir(), graphit_fs::create_private_file)?;
     serde_json::to_writer(
         &mut plan,
         &json!({

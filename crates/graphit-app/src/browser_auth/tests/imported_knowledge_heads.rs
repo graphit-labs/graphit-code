@@ -61,24 +61,14 @@ async fn imported_knowledge_heads_read_exact_source_without_project_model_or_use
     assert_eq!(response["source"], source);
     assert_eq!(response.as_object().unwrap().len(), 2);
     assert_eq!(response["native"]["state"], "published");
-    assert_eq!(
-        response["native"]["generation"]["version"],
-        published.default.version
-    );
-    assert_eq!(
-        response["native"]["generation"]["physical_branch"],
-        Value::Null
-    );
-    assert_eq!(
-        response["native"]["generation"]["inherited_target"],
-        Value::Null
-    );
+    // Heads are page identities from the exact publication; generation internals stay private.
+    assert_eq!(response["native"].as_object().unwrap().len(), 2);
     assert_eq!(
         response["native"]["heads"],
         json!([
-            {"slug":"a-first","title":" Título literal é ","updated_at":null},
-            {"slug":"m-middle","title":"Middle","updated_at":"1000000123"},
-            {"slug":"z-last","title":"","updated_at":"-1000000007"}
+            {"slug":"a-first","title":" Título literal é ","updated_at":null,"source_path":"docs/records.md"},
+            {"slug":"m-middle","title":"Middle","updated_at":"1000000123","source_path":"docs/records.md"},
+            {"slug":"z-last","title":"","updated_at":"-1000000007","source_path":"docs/records.md"}
         ])
     );
     assert_eq!(

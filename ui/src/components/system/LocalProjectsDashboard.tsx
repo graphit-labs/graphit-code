@@ -61,7 +61,7 @@ export function LocalProjectsDashboard() {
       if (!controller.signal.aborted) setLoading(false)
     }
   }, [])
-  useEffect(() => { void refresh(); return () => request.current?.abort() }, [refresh])
+  useEffect(() => { let active = true; queueMicrotask(() => { if (active) void refresh() }); return () => { active = false; request.current?.abort() } }, [refresh])
   usePageRefresh(refresh)
   const active = projects?.find(project => project.project_id === selection?.project_id)
   const selected = projects?.find(project => project.project_id === inspected) ?? active

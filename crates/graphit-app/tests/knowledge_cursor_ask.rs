@@ -1093,10 +1093,7 @@ fn compiled_global_stdio_knowledge_lexical_search_uses_real_source_without_model
         assert_eq!(payload["source"], json!({"kind":"project_knowledge"}));
         assert_eq!(payload["native"]["state"], "hits");
         assert_eq!(payload["native"]["total"], 1);
-        assert_eq!(
-            payload["native"]["hits"][0]["focused_source"]["slug"],
-            "Paris"
-        );
+        assert_eq!(payload["native"]["hits"][0]["slug"], "Paris");
         assert_eq!(payload["native"]["hits"][0]["preview"]["text"], "literal");
         assert!(payload["native"]["hits"][0].get("document").is_none());
         client.cancel().await.unwrap();

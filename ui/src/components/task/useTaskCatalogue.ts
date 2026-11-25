@@ -37,7 +37,7 @@ export function useTaskCatalogue(query: string, status: TaskStatus | 'all', flag
     throw cause
    }
   } finally { if (!controller.signal.aborted) setBusyKey(null) }
- }, [ready, selection, key, filter, searching, trimmedQuery, searchMode, status, flagged, blocked])
+ }, [ready, selection, key, filter, searching, trimmedQuery, searchMode, status, flagged, blocked, setState])
  useEffect(() => {
   more.current?.abort()
   const timer = window.setTimeout(() => {

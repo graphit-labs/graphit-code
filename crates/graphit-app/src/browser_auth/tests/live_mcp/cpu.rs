@@ -4,7 +4,7 @@ use super::*;
 #[tokio::test]
 async fn live_mcp_cpu_search_preserves_project_and_imported_semantic_generations() {
     let (issuer, issuer_service) = Fixture::start_issuer().await;
-    let (_storage, foreground, tasks, sources, raw, pair) = Box::pin(
+    let (_storage, foreground, tasks, sources, raw, _pair) = Box::pin(
         crate::foreground_source::foreground_memory_jobs_tests::live_imported_knowledge_cpu_search_fixture(&issuer.origin),
     ).await;
     crate::task_server::tests::browser_provider(&tasks, &raw, &issuer.origin, true);
@@ -217,23 +217,22 @@ async fn live_mcp_cpu_search_preserves_project_and_imported_semantic_generations
                 let native = &response["native"];
                 assert_eq!(native["state"], "hits");
                 assert_eq!(native["hits"].as_array().unwrap().len(), 1);
-                assert!(native["semantic_generation"]["version"].as_u64().is_some());
                 let hit = &native["hits"][0];
-                assert!(
-                    hit["semantic_distance"]
-                        .as_f64()
-                        .is_some_and(f64::is_finite)
-                );
-                if mode == "hybrid" {
-                    assert!(hit["rrf_score"].as_f64().is_some_and(f64::is_finite));
-                } else {
-                    assert!(hit.get("rrf_score").is_none());
+                // Hits are compact page identities; ranking internals stay private.
+                assert!(hit["slug"].is_string());
+                assert!(hit["title"].is_string());
+                assert!(hit["preview"]["text"].is_string());
+                for internal in [
+                    "semantic_distance",
+                    "rrf_score",
+                    "lexical_score",
+                    "rerank_score",
+                ] {
+                    assert!(hit.get(internal).is_none(), "{internal}");
                 }
                 if imported {
                     assert_eq!(response["source"], serde_json::to_value(&source).unwrap());
                     assert_eq!(native["total"], 2);
-                    assert_eq!(native["generation"]["version"], pair);
-                    assert_eq!(native["semantic_generation"]["version"], pair);
                     assert!(response.get("selection").is_none_or(Value::is_null));
                 } else {
                     assert_eq!(
@@ -245,10 +244,9 @@ async fn live_mcp_cpu_search_preserves_project_and_imported_semantic_generations
                         session.project.project_version
                     );
                 }
-                let current = (
-                    native["generation"].clone(),
-                    native["semantic_generation"].clone(),
-                );
+                // Both modes page the same publication of the selected corpus.
+                let current = native["next_cursor"]["publication"].clone();
+                assert!(current.is_array());
                 if let Some(expected) = &generations {
                     assert_eq!(&current, expected);
                 } else {

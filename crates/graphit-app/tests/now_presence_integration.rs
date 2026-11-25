@@ -97,6 +97,8 @@ impl Installation {
             None,
             Some(&temporary.path().join("installation")),
         )?;
+        // The daemon admits only a private installation root.
+        drop(graphit_fs::create_private_directory(paths.root())?);
         let root = temporary.path().join("project");
         fs::create_dir(&root)?;
         // The stdio proxy maintains the actual checkout before selecting a

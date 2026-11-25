@@ -93,7 +93,12 @@ async fn default_and_project_configuration_do_not_enable_user_browser_reads() {
             .send()
             .await
             .unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        // The local UI boundary refuses a POST without its request marker before any reader.
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            response.json::<serde_json::Value>().await.unwrap()["error"]["code"],
+            "local_origin_required"
+        );
         assert!(!fixture.paths.root().join("users").exists());
         cancellation.cancel();
         running.await.unwrap().unwrap();

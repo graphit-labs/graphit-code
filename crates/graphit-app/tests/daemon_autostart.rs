@@ -193,7 +193,7 @@ async fn ordinary_source_starts_maintains_reuses_and_stops_private_daemon() -> R
         b"alpha"
     );
     let first: serde_json::Value =
-        serde_json::from_slice(&fixture.success(&["daemon", "status"]).await?)?;
+        serde_json::from_slice(&fixture.success(&["daemon", "status", "--json"]).await?)?;
     assert_eq!(first["state"], "running");
     let pid = first["pid"]
         .as_u64()
@@ -235,13 +235,13 @@ async fn ordinary_source_starts_maintains_reuses_and_stops_private_daemon() -> R
         b"gamma"
     );
     let second: serde_json::Value =
-        serde_json::from_slice(&fixture.success(&["daemon", "status"]).await?)?;
+        serde_json::from_slice(&fixture.success(&["daemon", "status", "--json"]).await?)?;
     assert_eq!(
         second["pid"], pid,
         "ordinary CLI must reuse its live daemon"
     );
     let stopped: serde_json::Value =
-        serde_json::from_slice(&fixture.success(&["daemon", "stop"]).await?)?;
+        serde_json::from_slice(&fixture.success(&["daemon", "stop", "--json"]).await?)?;
     assert_eq!(stopped["state"], "stopped");
     assert!(!fixture.paths.root().join("daemon/mcp.json").exists());
     assert!(!fixture.paths.root().join("daemon/mcp.key").exists());

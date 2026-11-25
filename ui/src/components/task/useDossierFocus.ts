@@ -8,7 +8,7 @@ export function useDossierFocus(ready: boolean) {
   useLayoutEffect(() => {
     if (!ready || !dossier.current || handled.current === key) return
     const heading = dossier.current.querySelector<HTMLElement>('.dossier-header h2')
-    const section = hash && Array.from(dossier.current.querySelectorAll<HTMLElement>('[id]')).find(element => '#' + element.id === hash)
+    const section = hash ? Array.from(dossier.current.querySelectorAll<HTMLElement>('[id]')).find(element => '#' + element.id === hash) : undefined
     const target = (section && section.querySelector<HTMLElement>('h2')) || heading
     if (!target) return
     handled.current = key
