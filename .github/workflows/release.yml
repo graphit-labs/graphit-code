@@ -136,7 +136,7 @@ jobs:
       - name: Restore Windows native binary packages
         if: runner.os == 'Windows'
         id: vcpkg-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
           key: code-release-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.windows-abi.outputs.digest }}-${{ hashFiles('graphit-code/.github/workflows/release.yml') }}
@@ -152,13 +152,13 @@ jobs:
           "PKG_CONFIG=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/tools/pkgconf/pkgconf.exe" >> $env:GITHUB_ENV
       - name: Save Windows native binary packages before qualification
         if: runner.os == 'Windows' && steps.vcpkg-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
       - name: Restore locked Cargo sources
         id: cargo-sources
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cargo/registry
@@ -169,7 +169,7 @@ jobs:
         run: cargo fetch --locked
       - name: Save locked Cargo sources before compilation
         if: steps.cargo-sources.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             ~/.cargo/registry
@@ -231,13 +231,13 @@ jobs:
               print(f"digest={digest}", file=output)
       - name: Restore native engine preparation
         id: native-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: graphit-code/target/native/ladybug
           key: code-release-native-v1-${{ matrix.platform }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('graphit-code/Cargo.lock', 'graphit-code/Cargo.toml', 'graphit-code/crates/graphit-ast/Cargo.toml', 'graphit-code/xtask/Cargo.toml', 'graphit-code/xtask/src/ladybug.rs', 'graphit-code/rust-toolchain.toml', 'graphit-code/.cargo/config.toml') }}
       - name: Restore compiled Release artifacts
         id: rust-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             graphit-code/target/debug/.fingerprint
@@ -281,7 +281,7 @@ jobs:
         run: cargo xtask native --offline
       - name: Save completed native engine before Rust compilation
         if: steps.native-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: graphit-code/target/native/ladybug
           key: ${{ steps.native-cache.outputs.cache-primary-key }}
@@ -306,7 +306,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Windows Release build failed' }
       - name: Save compiled Release artifacts before qualification
         if: steps.rust-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             graphit-code/target/debug/.fingerprint
