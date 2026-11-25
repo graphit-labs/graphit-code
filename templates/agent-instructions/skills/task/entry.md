@@ -1,67 +1,68 @@
 # {{ brand_display }} Task
 
-This reference describes coordinator-owned workflows. For delegated roles, apply the current protocol:
-{% include "protocol.md" %}
+Task is the durable record of a demand: what was asked (the Session), how it will be delivered (Tasks with typed checks), what happened (progress, checkpoints, comments and check evidence) and which commit delivered it. It exists so that any agent can resume after interruption, compaction or handoff from the records alone, so write every description and checkpoint for a reader who never saw this conversation.
 
-Task preserves the demand, plan, native records, checks and work history. Use the authenticated MCP catalogue; never edit its tables or substitute another server or a CLI to bypass a missing operation. Under this protocol, the coordinator owns Task claims; delegated roles receive IDs and return anchored findings or decided drafts.
+Roles: the coordinator owns Task claims, acceptance, checkpoints and lifecycle. A delegated role reads the session and Task IDs it was given, reports anchored findings, and returns a draft for any write that needs a claim; it never creates, claims, revises, completes, cancels or releases coordination state. Use the authenticated MCP catalogue; never edit Task tables or substitute another server or a CLI for a missing operation.
 
 {% include "shared/persistence-boundary.md" %}
 
-## Use the current wire contract
+## Workflow
 
-Read the selected tool's advertised input schema before calling it. A name on another server does not establish this server's API. Native Task calls use an optional `selection` and, when the operation needs it, an `input` object. Domain fields belong inside those objects. The optional strict boolean `ai_optimized` belongs at the argument root: omitted/`true` returns TOON text, without duplicate JSON `structuredContent`; `false` returns JSON for machine consumers. It never belongs inside `input`. There is no caller-selected `agent_id`.
+1. Recover: find the session for this demand and read its latest checkpoint and linked Tasks. Read [references/session.md](references/session.md) before starting, resuming or handing off coordination.
+2. Decide: continue the same evolving demand in its session, revise it when scope changed, and create a new session only for a different demand. The host chat ID is not a Task Session ID.
+3. Specify: investigate through AST, Knowledge, Memory and Task, then save the plan as dependency-ordered Tasks with acceptance and test checks. Read [references/planning.md](references/planning.md) for a multi-outcome plan, [references/worked-feature.md](references/worked-feature.md) for one filled feature and [references/worked-system.md](references/worked-system.md) for several deliveries.
+4. Execute: claim a ready leaf, implement, record check evidence and progress. Read [references/execution.md](references/execution.md) before a leaf, review or handoff.
+5. Checkpoint: at each meaningful outcome, checkpoint the Session with evidence, decisions and the exact next step.
+6. Close: complete Tasks whose checks passed, associate the delivered commit, and complete the Session once every linked Task is terminal; cancel explicitly when the demand is withdrawn.
 
-Selection DATA identifies an already retained PROJECT/version; it grants no access. Prefer captured `selection.project_id` and `selection.project_version`. A directory selector is `selection.project_dir`, encoded by Core as one Unicode path string. Echo the captured path exactly; non-Unicode native paths fail explicitly. Do not reconstruct authority from a path or URI. Persist logical project identity and repository-relative locators, not a host's checkout path.
+Claim nothing merely to read or wait, and reuse context you already recovered.
 
-Creation uses `input.checks`, an array of `{kind:"acceptance"|"test",text}`, with at least one of each. `task_type` and `priority` are explicit fields. Claims use `input.id` and positive integer `input.lease_ms`, with a caller-requested lease accepted by the real policy. The authenticated caller determines the actor. Owner mutations require the target’s authenticated owner and current private token/fence, lease and revision; never manufacture an actor or use another target’s token.
+## Tool map
 
-Read replies use `operation/result`; writes use `kind/result`. Session creation returns `result.id`; Task creation returns `result.specification.id`. A participant claim returns `result.record` and the private `result.token`. Keep that token only in live private state. Task revisions come from `record.specification.revision`; Session revisions from `record.revision`.
+Use only operations advertised by the current server, and read a tool's input schema before its first use; a name on another server does not establish this server's API.
 
-Many owner mutations take `input.target={id,claim:{token,expected_revision}}`; heartbeat/progress/revise/check operations also require `lease_ms`. Completion instead takes `input={id,claim}`. Read each operation's schema rather than applying one mutation envelope to everything. Read the returned record after each mutation and use its current revision. Tokens are absent from normal records, heads and history; they are not Auth grants.
+| Need | Tool |
+| --- | --- |
+| Find or read a session | `{{ mcp_tool_task_session_list }}`, `{{ mcp_tool_task_session_get }}` |
+| Open and coordinate a session | `{{ mcp_tool_task_session_create }}`, `{{ mcp_tool_task_session_claim }}`, `{{ mcp_tool_task_session_heartbeat }}`, `{{ mcp_tool_task_session_checkpoint }}`, `{{ mcp_tool_task_session_revise }}` |
+| Finish or hand off a session | `{{ mcp_tool_task_session_complete }}`, `{{ mcp_tool_task_session_cancel }}`, `{{ mcp_tool_task_session_release }}` |
+| Read Tasks | `{{ mcp_tool_task_get }}` (one record), `{{ mcp_tool_task_list }}` (catalogue filtered by status, session_id, flagged, blocked), `{{ mcp_tool_task_query }}` with `{{ mcp_tool_task_schema }}` (projected columns), `{{ mcp_tool_task_search }}` (text) |
+| Create and own a Task | `{{ mcp_tool_task_create }}`, `{{ mcp_tool_task_claim }}`, `{{ mcp_tool_task_heartbeat }}`, `{{ mcp_tool_task_release }}` |
+| Record work | `{{ mcp_tool_task_progress }}`, `{{ mcp_tool_task_comment_add }}` (kind `note`, `decision`, `problem`, `lesson` or `knowledge`), `{{ mcp_tool_task_check }}` |
+| Change the plan | `{{ mcp_tool_task_revise }}`, `{{ mcp_tool_task_update_links }}`, `{{ mcp_tool_task_check_supersede }}`, `{{ mcp_tool_task_flag }}` |
+| Finish a Task | `{{ mcp_tool_task_complete }}`, `{{ mcp_tool_task_cancel }}`, `{{ mcp_tool_task_commit_set }}` |
+| Follow relations | `{{ mcp_tool_task_references }}` |
 
-## Session and retrieval
+There is no batch create, session search, generic export or force takeover. If a needed operation or reference-query capability is absent, record the exact requirement and producer gap in the current work record and coordinate its resolution before dependent work; never claim an unavailable mutation happened.
 
-Read [references/session.md](references/session.md) before starting/resuming coordination or handing it off. Continue the same evolving demand across turns and compaction. Create a new session only for a different demand. The host chat ID is not a Task Session ID. Every agent-created Task carries the returned `session_id`.
+## Wire contract
 
-Known IDs use `{{ mcp_tool_task_get }}` or `{{ mcp_tool_task_session_get }}`. Native `{{ mcp_tool_task_list }}` uses its advertised catalogue filter/page/cursor; `{{ mcp_tool_task_session_list }}` reads Session heads. Recover current state first; request relevant Task history/comment pages when prior evidence or decisions are needed. Reuse sufficient context; do not create a Task merely to read or wait.
+Native Task calls use an optional `selection` and, when the operation needs it, an `input` object; domain fields belong inside them. The optional strict boolean `ai_optimized` belongs at the argument root: omitted/`true` returns TOON text, without duplicate JSON `structuredContent`; `false` returns JSON for machine consumers. There is no caller-selected `agent_id`; the authenticated caller is the actor.
 
-`{{ mcp_tool_task_get }}` with only `input.id` returns current `task`, `creation`, `last_event`, `generation`, `history_start_cursor` and `comments_start_cursor`; `history` and `comments` are null (unloaded). `{{ mcp_tool_task_session_get }}` with only `input.id` returns current `session`, `creation`, `last_event`, `generation` and `history_start_cursor`; `history` is null (unloaded). Neither selected current read returns the complete lifecycle event list. `last_event` is null at revision one.
+Selection DATA identifies an already retained PROJECT/version; it grants no access. Prefer captured `selection.project_id` and `selection.project_version`. A directory selector is `selection.project_dir`, one Unicode path string; echo the captured path exactly. Persist logical project identity and repository-relative locators, not a host's checkout path.
 
-Request needed Task or Session history with `input.history={page_size,cursor}`; Task also supports `input.comments={page_size,cursor}`. `page_size` must be positive and `cursor` is optional. Use the captured `history_start_cursor` or Task `comments_start_cursor` for the first explicit page at that generation, then the section's `next_cursor`. A loaded empty `history.events=[]` or Task `comments.comments=[]` differs from a null, unloaded section.
+- Create: `input.checks` is an array of `{kind:"acceptance"|"test",text}` with at least one of each; `task_type` and `priority` are explicit; `session_id`, `title`, `description` and `idempotency_key` are required; `parent_id`, `depends_on` and `schedule` are optional.
+- Claim: `input.id` and a positive integer `input.lease_ms` accepted by the real policy. A claim returns `result.record` and the private `result.token`; keep the token only in live private state, never in descriptions, links, artifacts or handoffs.
+- Owned mutations take `input.target={id,claim:{token,expected_revision}}`; heartbeat, progress, check, comment, revise, flag and link operations also require `lease_ms`. Completion takes `input={id,claim}`. Read each operation's schema rather than applying one envelope to everything.
+- Replies: reads use `operation/result`, writes `kind/result`. Session creation returns `result.id`; Task creation returns `result.specification.id`. Task revisions come from `record.specification.revision`, Session revisions from `record.revision`. Read the returned record after each mutation and use its current revision; never guess an increment.
 
-For historical recall, request only relevant pages. `history.before` is the validated predecessor Task or Session for the page's first diff, so a page can replace an earlier one without retaining all prior events. Task and Session cursors are distinct and stay bound to the captured record/publication, including authorized inherited-version and branch-provenance checks. An explicitly required complete audit/export must traverse history through EOF at that same pin, plus comments for Task; current state or a single page does not prove completeness.
+## Retrieval
 
-Cursors are DATA, never authority. Current Auth, PROJECT/version and corpus identities are rechecked; the SDK snapshot binding supplies no client-selected URI or branch authority.
+Known IDs: `{{ mcp_tool_task_get }}` or `{{ mcp_tool_task_session_get }}` with only `input.id` return the current record, `creation`, `last_event`, `generation` and start cursors; `history` and `comments` stay null (unloaded). Request history with `input.history={page_size,cursor}` (Task also `input.comments`), starting from the returned start cursor and continuing with `next_cursor`. A loaded empty list differs from an unloaded null section. Request only the pages that answer the question; a complete audit traverses through EOF at the same pin.
 
-Before querying record properties, use `{{ mcp_tool_task_schema }}` to read the current tables and permitted column types. `{{ mcp_tool_task_query }}` requires `input.selection` with `table` (`tasks` or `sessions`) and optional typed `ids` or `status`; Tasks also permit `session_id`. Supply explicit `input.columns` and positive `input.page_size` and `input.top_k`. The outer `selection` retains PROJECT/version selectors. Query returns `operation/result`: `result.columns` gives the order of values in each `result.rows` entry. Continue with the opaque `result.next_cursor` as `input.cursor` and the same project, version, filters, columns and limits. A `no_corpus` state differs from a `published` result with empty rows; neither proves continuity with another store. Query is a typed native read, not arbitrary SQL or caller-supplied authority.
+Discovery: `{{ mcp_tool_task_search }}` searches current Task specifications, retained check evidence and comments with `input.text`, `input.filter`, positive `input.page_size` and `input.top_k`; optional `input.mode` is `fts` (model-free default), `semantic` or `hybrid` when the schema offers it. Semantic modes need a configured embedding service and fail explicitly rather than falling back. Session descriptions, strategies and checkpoints are outside this corpus: find sessions through `{{ mcp_tool_task_session_list }}`. Follow search hits with exact reads.
 
-When advertised, `{{ mcp_tool_task_search }}` discovers current Task specifications, retained check evidence and comments. Send `input.text`, `input.filter`, positive `input.page_size` and `input.top_k`. Optional `input.mode` selects `fts` (the model-free default), `semantic` or `hybrid`; use only modes present in the current tool schema. Semantic modes query compatible vectors already published while background incremental embedding continues; unchanged compatible public content reuses its vector. Hybrid also retains lexical candidates without vectors. A configured embedding service is required for semantic modes; service failures are explicit, not silent FTS fallback. Continue with the returned `input.cursor` and the same selection, mode and query. Session descriptions, strategies, checkpoints and old specification snapshots are outside this corpus. Use exact Task reads after discovery; search results do not grant access or replace authoritative history.
+Catalogue: `{{ mcp_tool_task_list }}` with `input.filter` (`status`, `session_id`, `flagged`, `blocked`, `query`) and `page_size` shows, for example, open unblocked work in a session. For column projections read `{{ mcp_tool_task_schema }}` first, then `{{ mcp_tool_task_query }}` with `input.selection` (`table` `tasks` or `sessions`, `status` or null, optional typed `ids`, and for Tasks `session_id`), explicit `input.columns`, positive `input.page_size` and `input.top_k`; `result.columns` orders each `result.rows` entry. Continue any cursor with unchanged selection and parameters. A `no_corpus` state differs from a published empty result. Cursors are DATA, never authority.
 
-Only use operations advertised by the current server. A native batch, session revision, search, removal or takeover operation must not be assumed from another API. If a necessary operation or reference-query capability is absent, preserve the exact requirement and producer gap in the current work record and coordinate its resolution before dependent work. Do not claim an unavailable mutation happened.
+Recall prior investigations, decisions and evidence whenever a new doubt arises during the work, not only at the start; stop once the gap is closed.
 
-## Define work before implementation
-
-Read [references/planning.md](references/planning.md) for a material multi-outcome plan, [references/worked-feature.md](references/worked-feature.md) for one filled feature, and [references/worked-system.md](references/worked-system.md) for several deliveries. These are authoring models, not extra wire fields.
-
-Investigate through current AST, Knowledge, Memory and Task evidence. Save outcome, journeys, singular requirements, data/error/authority contracts, decisions, unresolved questions and execution boundaries before coding. Each independently owned leaf needs prerequisites, compatible file ownership, a complete description, typed acceptance/test checks and a concrete verification/documentation plan. A small fix can use one packet.
-
-Create parents and prerequisites first; use their returned IDs in subsequent native calls. Without an advertised batch, submit ordered calls and inspect each result. Planning can finish while implementation stays open. Read back the graph and requirement → producer → check → integration/documentation map; repair gaps, stale contracts, overlaps and dependency cycles before affected implementation.
-
-## Execute and close
-
-Read [references/execution.md](references/execution.md) before a leaf, review or handoff. Claim only ready work, keep one active Task per executing agent as an operational workflow, and consume real prerequisite results. This is not a per-user or per-actor quota: distinct targets can have independent claims for the same authenticated actor. On changed scope reconcile specifications/checks before incompatible edits. An unavailable producer is a concrete prerequisite, not permission for a mock grant or invented API.
-
-The coordinator owns acceptance, evidence, checkpoints and lifecycle. Report real commands, observations, failures and unrun cases. A fixture or serialization test proves only its boundary; it does not prove an installed host or model received context. Every code unit checks maintained docs; every docs unit checks implementation. Use proportionate fast/long regression checks and verify required failure gates without running a push.
-
-Progress preserves result/evidence, decisions, limitations and exact next action. Renew actual leases where needed; a read or a hook does not establish ownership. Supersede an obsolete check with reason and an appropriate replacement; never pass it as a workaround. Complete a Task only after its active checks and actual gates pass. Explicitly complete the Session only after all requested delivery/integration outcomes are reconciled. When stopping unfinished work, checkpoint and release the coordinator's own claims.
-
-## References
+## References and commits
 
 {% include "shared/references/agent-contract.md" %}
 {% include "shared/references/agent-example.md" %}
 {% include "shared/references/query-contract.md" %}
 
-Those shared relation rules describe required persisted relationships. Creation, comments and supported owner mutations expose `input.references`: omitted preserves authored relations, `[]` clears them, and a complete array replaces them. Each entry requires `target:{type,id}` and `relation`; optional `field`, `target.scope`, `target.scope_id` and `target.context` are strings when supplied. Null, nonsequence and unknown or malformed entry fields are rejected. Claims and heartbeats have no reference patch. Submit only non-sensitive confirmed project relations; a typed target is DATA, not access or a grant. If a necessary reference-query capability is absent, preserve that producer gap and pending readback; prose alone creates no relation.
+Creation, comments and supported owner mutations expose `input.references`: omitted preserves authored relations, `[]` clears them, and a complete array replaces them. Each entry requires `target:{type,id}` and `relation`; optional `field`, `target.scope`, `target.scope_id` and `target.context` are strings. Claims and heartbeats have no reference patch.
 
 After an authorized Git commit or amend succeeds, resolve the full commit ID (`git rev-parse HEAD`) and update `Task.commit` on the Tasks whose changes are actually included using `{{ mcp_tool_task_commit_set }}`. This also applies to completed Tasks; preserve their status and check evidence. Never infer a commit from a planned command or treat this instruction as authorization to commit or push.
 

@@ -1,7 +1,6 @@
 # Durable demand, coordination and recovery
 
-This reference describes coordinator-owned workflows. For delegated roles, apply the current protocol:
-{% include "protocol.md" %}
+This reference describes coordinator-owned workflows. A delegated role reads the IDs it was given, reports anchored findings and returns a draft for any write that needs a claim.
 
 The coordinator owns acceptance, checkpoints and lifecycle. Read the matching Session, its current progress/history and selected Tasks before deciding what to do. Continue one evolving demand across interruptions, changed scope, turns and compaction. A different demand gets a new Session; a closed record is historical evidence, not something to reopen by inventing an operation.
 
@@ -32,7 +31,7 @@ Creation returns a Session record under `kind:"session",result`. Claim its retur
 
 Recover the initial request plus latest current Session checkpoint and linked Task evidence. Preserve current authorization before work; planning permission does not imply implementation or publishing permission. If scope changes, state the new requirements, retired obligations and rationale, source evidence and affected Task/check IDs before dependent work.
 
-Use the Session checkpoint's actual schema: `input.target` carries the ID and private claim fence; `lease_ms`, `summary` and `next_step` are required. Summary can contain current intent/strategy, result/evidence, problems, decisions/rationale and ordering. Do not send separate `problems`, `decisions` or `strategy` fields that the checkpoint schema does not advertise. Read back the resulting Session revision/progress. A checkpoint does not revise Task specifications.
+Checkpoint with `{{ mcp_tool_task_session_checkpoint }}`, using its actual schema: `input.target` carries the ID and private claim fence; `lease_ms`, `summary` and `next_step` are required. Summary can contain current intent/strategy, result/evidence, problems, decisions/rationale and ordering. Do not send separate `problems`, `decisions` or `strategy` fields that the checkpoint schema does not advertise. Read back the resulting Session revision/progress. A checkpoint does not revise Task specifications. A good checkpoint lets a fresh agent continue without this conversation: what is done and verified (with evidence), what is in progress, decisions and why, open problems, and one concrete next step. At the same moment run the Memory sweep: anything this unit taught that the next session would otherwise rediscover (a decision, correction, discovery, business rule, project preference or working procedure) goes to Memory through the Scribe role. Renew a long coordination lease with `{{ mcp_tool_task_session_heartbeat }}`.
 
 Before executing changed scope, use `{{ mcp_tool_task_session_revise }}` with the current Session target/fence, positive `lease_ms`, canonical `reason` and only the replacement `title`, `description` or `strategy`. Omission preserves each field; null and empty or padded text are invalid. The actual coordinator needs CoordinateTask admission and a live claim. A change must affect specification or authored references; a no-op is rejected without renewal. Revision preserves Creation, checkpoints and linked Tasks, and records immutable before/after snapshots. Re-read after intervening mutations or stale revision; reconcile affected Task specifications before dependent work.
 
@@ -59,7 +58,7 @@ The coordinator follows its assigned Session coordination and one active Task pe
 
 ## Handoff and finish
 
-At meaningful outcomes checkpoint the Session with the work-unit evidence and exact continuation. Tokens never belong in descriptions, links, artifacts or a handoff. If stopping, release the coordinator's Task and Session separately using their current private fences and describe delivered, remaining, blocked and unrun work.
+At meaningful outcomes checkpoint the Session with the work-unit evidence and exact continuation. Tokens never belong in descriptions, links, artifacts or a handoff. If stopping, release the coordinator's Task and Session separately (`{{ mcp_tool_task_release }}`, `{{ mcp_tool_task_session_release }}`) using their current private fences and describe delivered, remaining, blocked and unrun work.
 
 A hypothetical archive handoff states: R1/R2 API behavior is implemented and verified against the fixture; the UI retry guide and combined journey remain pending; the exact UI leaf/check IDs and source sections are named. It does not say the Session is done because the API leaf completed.
 

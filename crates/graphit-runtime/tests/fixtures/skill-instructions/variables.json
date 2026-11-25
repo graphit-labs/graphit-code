@@ -102,7 +102,20 @@
     "mcp_tool_index_run": "catalog_s_g__index_run",
     "mcp_tool_ast_imports": "catalog_s_g__ast_imports",
     "mcp_tool_projects_labels_set": "catalog_s_g__projects_labels_set",
-    "mcp_tool_projects_labels_unset": "catalog_s_g__projects_labels_unset"
+    "mcp_tool_projects_labels_unset": "catalog_s_g__projects_labels_unset",
+    "mcp_tool_ast_export": "catalog_s_g__ast_export",
+    "mcp_tool_ast_neighborhood": "catalog_s_g__ast_neighborhood",
+    "mcp_tool_ast_sample": "catalog_s_g__ast_sample",
+    "mcp_tool_hub_authored_content": "catalog_s_g__hub_authored_content",
+    "mcp_tool_hub_authored_list": "catalog_s_g__hub_authored_list",
+    "mcp_tool_hub_authored_review": "catalog_s_g__hub_authored_review",
+    "mcp_tool_hub_publish_file": "catalog_s_g__hub_publish_file",
+    "mcp_tool_hub_publish_native": "catalog_s_g__hub_publish_native",
+    "mcp_tool_knowledge_ask": "catalog_s_g__knowledge_ask",
+    "mcp_tool_memory_get": "catalog_s_g__memory_get",
+    "mcp_tool_memory_history": "catalog_s_g__memory_history",
+    "mcp_tool_projects_get": "catalog_s_g__projects_get",
+    "mcp_tool_task_update_links": "catalog_s_g__task_update_links"
   },
   "orbit": {
     "brand": "orbit",
@@ -207,6 +220,19 @@
     "mcp_tool_index_run": "catalog_s_o__index_run",
     "mcp_tool_ast_imports": "catalog_s_o__ast_imports",
     "mcp_tool_projects_labels_set": "catalog_s_o__projects_labels_set",
-    "mcp_tool_projects_labels_unset": "catalog_s_o__projects_labels_unset"
+    "mcp_tool_projects_labels_unset": "catalog_s_o__projects_labels_unset",
+    "mcp_tool_ast_export": "catalog_s_o__ast_export",
+    "mcp_tool_ast_neighborhood": "catalog_s_o__ast_neighborhood",
+    "mcp_tool_ast_sample": "catalog_s_o__ast_sample",
+    "mcp_tool_hub_authored_content": "catalog_s_o__hub_authored_content",
+    "mcp_tool_hub_authored_list": "catalog_s_o__hub_authored_list",
+    "mcp_tool_hub_authored_review": "catalog_s_o__hub_authored_review",
+    "mcp_tool_hub_publish_file": "catalog_s_o__hub_publish_file",
+    "mcp_tool_hub_publish_native": "catalog_s_o__hub_publish_native",
+    "mcp_tool_knowledge_ask": "catalog_s_o__knowledge_ask",
+    "mcp_tool_memory_get": "catalog_s_o__memory_get",
+    "mcp_tool_memory_history": "catalog_s_o__memory_history",
+    "mcp_tool_projects_get": "catalog_s_o__projects_get",
+    "mcp_tool_task_update_links": "catalog_s_o__task_update_links"
   }
 }

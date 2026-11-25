@@ -1,1 +1,1 @@
-AST: replace local code search, file reads and symbol navigation with graph/source queries; inspect callers, metrics and change impact, including installed contexts.
+AST: code graph and source reads that replace grep, glob, file reads and symbol navigation. Use to locate or read code, find definitions, callers, callees, implementations and candidate tests, read complexity metrics, assess the impact of a change, or explore a neighboring project or an installed code context.

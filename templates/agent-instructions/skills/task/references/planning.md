@@ -1,7 +1,6 @@
 # Specify executable work before implementation
 
-This reference describes coordinator-owned workflows. For delegated roles, apply the current protocol:
-{% include "protocol.md" %}
+This reference describes coordinator-owned workflows. A delegated role reads the IDs it was given, reports anchored findings and returns a draft for any write that needs a claim.
 
 The coordinator owns acceptance, checks, checkpoints and lifecycle. Read [session.md](session.md) for the evolving demand. This is an authoring model for descriptions and native typed checks, not extra MCP fields. Use the user's language and existing project terminology; omit irrelevant sections rather than writing placeholder boilerplate.
 
@@ -11,13 +10,13 @@ Capture purpose, actors/consumers, journeys, supplied examples, boundaries, cons
 
 Separate verified facts (source/version/observation), supported assumptions (basis, effect if false and validation) and open decisions (exact question, affected requirement, resolver and blocked action). Read current implementation through AST, maintained contracts through Knowledge, durable decisions through Memory/Task, and ecosystem identity through the supported Hub route.
 
-Resolve material authority, data retention, provider, destructive-effect and compatibility decisions before dependent work. Do not invent them to make a packet ready. Preserve accepted answers and reconcile contradictions with rationale.
+Resolve material authority, data retention, provider, destructive-effect and compatibility decisions before dependent work. Do not invent them to make a packet ready: write the open question explicitly in the description (for example prefixed `NEEDS CLARIFICATION:`) and keep the affected leaf unclaimed until it is answered. Preserve accepted answers and reconcile contradictions with rationale.
 
 ## Specify contracts and proof
 
 Give journeys/requirements stable prose labels. State starting condition, action, result and priority rationale. Cover alternate/empty/error/denied/recovery states when applicable. Describe real data types, identities/ownership, required/optional values, omitted/null/empty distinctions, lifetimes, state transitions, effects, idempotency, concurrency and errors. Selectors/metadata are never grants.
 
-Use observable obligations, not 'fast/secure/works'. Include performance, accessibility, availability, resource or other constraints only when requested or verified; do not invent targets, quotas or capacity campaigns. Distinguish release proof from outcomes requiring later production observation.
+Use observable obligations, not 'fast/secure/works'. A useful acceptance check reads as a testable condition, for example "when the include flag is false, the list returns only active rows and the same total as today". Include performance, accessibility, availability, resource or other constraints only when requested or verified; do not invent targets, quotas or capacity campaigns. Distinguish release proof from outcomes requiring later production observation.
 
 The technical plan names current components, public APIs and boundaries, exact file/interface ownership, settled choices and alternatives where material, prerequisites and useful slices. Missing contracts are refinement prerequisites, not mocks, Boolean authority callbacks or untested assumptions.
 

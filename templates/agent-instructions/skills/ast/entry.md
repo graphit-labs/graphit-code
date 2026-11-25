@@ -1,7 +1,7 @@
 {% if tool_transport | default("root") == "role" -%}
 # {{ brand_display }} AST for an authenticated Role
 
-Structured MCP results default to TOON text without duplicate JSON `structuredContent`. Use top-level strict boolean `ai_optimized: false` for JSON machine consumers, outside the domain `input`. Role Source keeps its metadata envelope and original source string; Root AST Source has a separate raw-text contract.
+AST answers where code lives, what it does and what depends on it, from the indexed graph and source of this run's PROJECT. Structured MCP results default to TOON text without duplicate JSON `structuredContent`. Use top-level strict boolean `ai_optimized: false` for JSON machine consumers, outside the domain `input`. Role Source keeps its metadata envelope and original source string; Root AST Source has a separate raw-text contract.
 
 Use only tools announced to this run. Read(Ast) does not grant another PROJECT, imported context, maintenance operation or Runtime identity. Tool arguments use the closed `{selection?, input, ai_optimized?}` envelope. Omit selection for the run's PROJECT/version; explicit selectors still require its grant. A directory selector uses the advertised Unicode path string returned by the current PROJECT context; it grants no access.
 
@@ -25,7 +25,7 @@ The sample name is illustrative; replace it with an observed symbol. Results are
 
 ## Find an entity
 
-`{{ mcp_tool_ast_search }}` uses `k`, not a corpus page size. FTS needs no embedding resources:
+`{{ mcp_tool_ast_search }}` uses `k`, not a corpus page size. FTS needs no embedding resources and suits identifiers and literal clues:
 
 ```json
 {"input":{"query":"parser","mode":"fts","k":5}}
@@ -51,11 +51,24 @@ Report missing graph/index/model or unavailable relationships with their actual 
 {%- else -%}
 # {{ brand_display }} AST
 
+AST is the indexed graph and source of a project: files, entities (functions, methods, types), their relationships (calls, references, implementations where indexed) and stored metrics. Use it first for code discovery, reading and structural analysis, because one graph query replaces many speculative file reads and gives anchors another agent can reuse. AST does not edit files, run builds or tests, or perform Git operations: use your native tools for those.
+
 `project_dir` is a runtime MCP argument, not persisted project identity. In docs, Task, Memory and handoffs save project identity plus repository-relative paths; never copy a machine-specific checkout root. Resolve the local root again on each host. Stores follow the checked-out project version (Git branch; `main` without Git); optional `project_version` reaches another.
 
 {% include "shared/persistence-boundary.md" %}
 
-Use AST first for supported code discovery, reading and structural analysis. Map your agent's local capability to the operation below; host tool names are examples, not dependencies. Keep source evidence and impact findings for an executable Task plan.
+## Tools
+
+| Need | Tool |
+| --- | --- |
+| Read a known file, a slice or one entity | `{{ mcp_tool_ast_source }}` |
+| Find code by name or concept | `{{ mcp_tool_ast_search }}` |
+| Learn the graph's labels, properties and edges | `{{ mcp_tool_ast_schema }}`, then `{{ mcp_tool_ast_sample }}` for example nodes and edges |
+| Definitions, callers, metrics, impact | `{{ mcp_tool_ast_query }}` (readonly Cypher) |
+| Page the neighbors of one exact node | `{{ mcp_tool_ast_neighborhood }}` |
+| Installed code contexts (`id@version`) | `{{ mcp_tool_ast_imports }}` |
+| Index health or an explicit rescan | `{{ mcp_tool_index_status }}`, `{{ mcp_tool_index_run }}` |
+| Export a graph package (only when requested) | `{{ mcp_tool_ast_export }}` |
 
 ## Translate the local operation
 
@@ -70,19 +83,19 @@ Use AST first for supported code discovery, reading and structural analysis. Map
 | Complexity / impact analysis | Query cyclomatic_complexity; traverse callers at bounded depth; inspect affected source and tests before editing. |
 | Go to implementation / type hierarchy | Inspect the schema for supported relationships first. If absent, inspect candidate types/method signatures and report the evidence limit; do not invent an edge. |
 
-Choose the row for the question, not every row. AST does not edit files, execute tests/builds or perform Git operations: use the agent's appropriate native tools for those. After AST has located current-project code, focused local reads for patching are appropriate; do not repeat broad native discovery already answered by AST.
+Choose the row for the question, not every row. After AST has located current-project code, focused local reads for patching are appropriate; do not repeat broad native discovery already answered by AST.
 
 ## Target and cheapest useful read
 
-Cluster neighbors are {{ brand_display }}-managed: use the returned `checkouts[].dir` as `project_dir` on AST search/source/schema/query, with paths relative to that target. Never switch to native grep/Glob/walks because it is outside cwd. Read the target AST skill/overrides; cache schema/evidence per target. Resolve unknown projects through Hub's cluster-first route. Only an installed artifact without checkout uses `context: id@version` without `project_dir`; never replace a known local path. `{{ mcp_tool_ast_imports }}` resolves installed contexts. Read other-project/imported source through AST.
+Cluster neighbors are {{ brand_display }}-managed: use the returned `checkouts[].dir` as `project_dir` on AST search/source/schema/query, with paths relative to that target. Never switch to native grep/Glob/walks because it is outside cwd. Read the target AST skill/overrides; cache schema/evidence per target. Resolve unknown projects through Hub's cluster-first route. Only an installed artifact without checkout uses `context: id@version` without `project_dir`; never replace a known local path. `{{ mcp_tool_ast_imports }}` lists installed contexts. Read other-project/imported source through AST.
 
 Known file → source directly. Unknown location → search with a focused query and `k: 5`: `fts` for identifier/text clues, `hybrid` for concepts. FTS is ranked indexed retrieval, not exact identifier equality or exhaustive repository regex. Verify hits in source; use a node query for exact names. Do not automatically pair search and query when one answers.
 
-Before the first query for a target, call `{{ mcp_tool_ast_schema }}` and reuse it. Labels, properties and edge directions come from that schema. Return only needed columns; use observed paths/UIDs, not guessed absolute-path matches. Structured tools, including schema, accept top-level strict boolean `ai_optimized`: omitted/`true` returns TOON text without duplicate JSON `structuredContent`; `false` selects JSON for machine consumers. Root AST Source retains its original text. Use a small `LIMIT` for investigation. For inventory, check the active schema for pagination and broaden the query as needed. A capped result never proves absence.
+Before the first query for a target, call `{{ mcp_tool_ast_schema }}` and reuse it; `{{ mcp_tool_ast_sample }}` shows real example nodes and edges when property values are unclear. Labels, properties and edge directions come from that schema. Return only needed columns; use observed paths/UIDs, not guessed absolute-path matches. Structured tools, including schema, accept top-level strict boolean `ai_optimized`: omitted/`true` returns TOON text without duplicate JSON `structuredContent`; `false` selects JSON for machine consumers. Root AST Source retains its original text. Use a small `LIMIT` for investigation. A capped result never proves absence.
 
 ## Source recipes: search, head/tail, slices and entities
 
-Examples are illustrative, not language, framework, layout or test-runner requirements. Adapt Go/TypeScript paths, symbols and test conventions to the project's languages and schema. For language-specific semantics, inspect its toolchain and authoritative public docs; Hub is not a prerequisite for public technology. Replace sample identities with observed ones; MCP fields and required arguments stay unchanged. These are MCP payloads, not shell commands; keep target fields consistent.
+Examples are illustrative, not language, framework, layout or test-runner requirements. Adapt paths, symbols and test conventions to the project's languages and schema. For language-specific semantics, inspect its toolchain and authoritative public docs; Hub is not a prerequisite for public technology. These are MCP payloads, not shell commands; keep target fields consistent.
 
 Unknown location — `{{ mcp_tool_ast_search }}`:
 ```json
@@ -105,7 +118,7 @@ For the same source call, replace the pattern/context fields with ONE of these s
 | One function and its branches | `"entity":"ParseOrder","entity_type":"Function","line_numbers":true` |
 | Regex alternatives with context | `"pattern":"TODO|FIXME","regex":true,"before":2,"after":2` |
 
-Selectors compose in this order: entity → range → head → tail → pattern. With `entity`, line ranges are relative to the entity, starting at 1; without it, they are file-relative. Use combinations only deliberately (head plus tail selects the tail of that head slice). For homonymous methods in one file, `entity_type` does not distinguish receivers: query their identities/line ranges, select the right definition, then use a file range without entity. Missing source may mean `ast.index_source` is disabled, not that the file is empty.
+Selectors compose in this order: entity → range → head → tail → pattern. With `entity`, line ranges are relative to the entity, starting at 1; without it, they are file-relative. Use combinations only deliberately (head plus tail selects the tail of that head slice). For homonymous methods in one file, `entity_type` does not distinguish receivers: query their identities/line ranges and select the right one with `entity_key` (`{type:"string"|"int64",value}`) or a file range. Missing source may mean `ast.index_source` is disabled, not that the file is empty.
 
 ## Query recipes: definitions, callers, metrics and impact
 
@@ -123,7 +136,7 @@ MATCH (f:Function) WHERE f.name = 'ParseOrder' AND f.path = 'src/orders.go'
 RETURN f.uid, f.name, f.path, f.line_number, f.end_line, f.cyclomatic_complexity LIMIT 5
 ```
 
-Inspect the definition and branches to interpret the metric. Missing, zero or unsupported metrics are not proof of trivial code; do not invent a complexity value. A score helps choose review/test focus, not a blanket rewrite threshold.
+Missing, zero or unsupported metrics are not proof of trivial code; do not invent a complexity value. A score helps choose review/test focus, not a blanket rewrite threshold.
 
 Direct callers (incoming call hierarchy) — complete MCP payload:
 ```json
@@ -144,34 +157,34 @@ WHERE f.name = 'ParseOrder' AND f.path = 'src/orders.go'
 RETURN DISTINCT dependent.name, dependent.path LIMIT 20
 ```
 
-Read returned dependents and relevant tests, then decide which contracts/checks could change. A reachability result is potential impact, not proof that every caller must change. Closed bounds such as `*1..2` are intentional: bare `*2` is not an exact two-hop bound in this planner. Expand depth only to resolve a concrete remaining risk.
+A reachability result is potential impact, not proof that every caller must change. Closed bounds such as `*1..2` are intentional: bare `*2` is not an exact two-hop bound in this planner. Expand depth only to resolve a concrete remaining risk.
 
-Test candidates: add a reached-endpoint filter to the direct-caller query, e.g. `AND caller.path ENDS WITH '_test.go'` for Go. Adapt naming to the project; inspect candidates in source. Tests may call through helpers, interfaces or runtime dispatch, so also inspect bounded indirect callers and known suites. A matching filename or empty direct-call result does not establish test coverage.
+Test candidates: add a reached-endpoint filter to the direct-caller query, e.g. `AND caller.path ENDS WITH '_test.go'` for Go. Tests may call through helpers, interfaces or runtime dispatch, so also inspect bounded indirect callers and known suites. A matching filename or empty direct-call result does not establish test coverage.
 
-Relationship-query constraints: use `RETURN DISTINCT` and project properties of one endpoint only (as above). Put anchor and reached-node filters in separate top-level `AND` clauses; do not combine both endpoints inside one grouped predicate or cross-endpoint `OR`. For ordering, project the property/alias being sorted. Do not assume a general Cypher engine accepts `collect()`, `label()` or both-endpoint projections here; query the other endpoint separately if needed.
+Relationship-query constraints: use `RETURN DISTINCT` and project properties of one endpoint only (as above). Put anchor and reached-node filters in separate top-level `AND` clauses; do not combine both endpoints inside one grouped predicate or cross-endpoint `OR`. For ordering, project the property/alias being sorted. Do not assume a general Cypher engine accepts `collect()`, `label()` or both-endpoint projections here; query the other endpoint separately, or page one node's neighbors with `{{ mcp_tool_ast_neighborhood }}`.
 
-Implementations / type hierarchy: the schema describes the selected graph, not the entire framework's language capabilities. For a target whose schema advertises `(Class)-[:IMPLEMENTS]->(Interface)`, use its observed contract name/path:
+Neighborhood paging: `{{ mcp_tool_ast_neighborhood }}` takes the anchor's `anchor_label`, its typed primary key `anchor_key` (`{type:"string"|"int64",value}`) and `limit` (1–1000); optional `relationship`, `other_label` and `direction` (`incoming` or `outgoing`) filter the page, and omitting them returns both directions and all relationship families. Continue with the returned opaque `cursor`.
+
+Implementations / type hierarchy: for a target whose schema advertises `(Class)-[:IMPLEMENTS]->(Interface)`, use its observed contract name/path:
 ```cypher
 MATCH (impl:Class)-[:IMPLEMENTS]->(contract:Interface)
 WHERE contract.name = 'OrderStore' AND contract.path = 'src/contracts.ts'
 RETURN DISTINCT impl.name, impl.path LIMIT 10
 ```
 
-Adapt labels/direction to the target's schema. In languages with explicit declarations, an indexed implementation or inheritance edge can answer directly. Go interfaces are satisfied implicitly; do not expect an explicit `implements` declaration or infer a framework-wide limitation from its absence in a Go project. If the target has no relevant edge, compare candidate type/method source with the interface and distinguish candidates from verified implementations. Existing Interface nodes alone do not prove that the relation was materialized.
-
-Treat `REFERENCES` according to its declared source/target kinds, not as universal find-usages. Unresolved stubs, empty source paths and dynamic dispatch limit graph completeness; no rows means only no indexed match.
+Go interfaces are satisfied implicitly; do not expect an explicit `implements` declaration. If the target has no relevant edge, compare candidate type/method source with the interface and distinguish candidates from verified implementations. Treat `REFERENCES` according to its declared source/target kinds, not as universal find-usages. Unresolved stubs, empty source paths and dynamic dispatch limit graph completeness; no rows means only no indexed match.
 
 ## Integrated change workflow
 
-Before writing an impact assessment, reconciling code with a documented contract, or handing an investigation to another agent, read [the completed impact case](references/impact-assessment.md). It shows observations, limits, test selection and a reusable result. Read it only for that workflow; simple lookups use the recipes above. If the local resource is unavailable, call `{{ mcp_tool_module_skill }}` with `module: ast`, `reference: references/impact-assessment.md` and the known `project_dir` when available.
+Before writing an impact assessment, reconciling code with a documented contract, or handing an investigation to another agent, read [the completed impact case](references/impact-assessment.md). Simple lookups use the recipes above. If the local resource is unavailable, call `{{ mcp_tool_module_skill }}` with `module: ast`, `reference: references/impact-assessment.md` and the known `project_dir` when available.
 
-For a request such as changing order validation: locate the definition → read relevant branches → inspect callers and test candidates → record affected contracts, files, dependencies and acceptance checks in Task before implementation. Use Knowledge for contracts and AST for current behavior. At any new question during exploration, recall Memory facts/lessons or Task investigations/decisions before guessing; reuse sufficient evidence. Resolve ecosystem identity through cluster/Hub. Load each additional skill immediately before its module is needed; do not preload every module.
+For a request such as changing order validation: locate the definition → read relevant branches → inspect callers and test candidates → record affected contracts, files, dependencies and acceptance checks in Task before implementation. Use Knowledge for contracts and AST for current behavior. At any new question during exploration, recall Memory facts/lessons or Task investigations/decisions before guessing. Load each additional skill immediately before its module is needed; do not preload every module.
 
-In Task preserve logical project/context and revision, relative source paths/lines, symbol names, metrics/relationships, limits and next validation. Keep host-bound UIDs only in the live query; normalize their provenance to relative path and symbol before saving. This evidence lets another agent continue without repeating discovery. Surface discrepancies between code and Knowledge, then reconcile affected documentation. Stop retrieval once the scoped question has enough evidence to answer, plan or validate.
+In Task preserve logical project/context and revision, relative source paths/lines, symbol names, metrics/relationships, limits and next validation. Keep host-bound UIDs only in the live query; normalize their provenance to relative path and symbol before saving. Surface discrepancies between code and Knowledge, then reconcile affected documentation. Stop retrieval once the scoped question has enough evidence to answer, plan or validate.
 
 ## Recovery and maintenance
 
-For a database-open failure retry once, then inspect `{{ mcp_tool_index_status }}` when advertised and report the limitation. For a schema rejection refresh the schema once and correct the query; an unsupported planner form calls for a simpler supported query. Indexing is automatic. For an explicit administrative repair, `{{ mcp_tool_index_run }}` requests the existing supervisor's full-project rescan; acceptance is not completion. It does not support a separate path/module scheduler or independent embed command. Do not reset a corpus to repair a read. Delegated transports without these controls report the gap to the coordinator.
+For a database-open failure retry once, then inspect `{{ mcp_tool_index_status }}` (AST graph/source, lexical and embedding phases) and report the limitation. For a schema rejection refresh the schema once and correct the query; an unsupported planner form calls for a simpler supported query. Indexing is automatic: the daemon indexes writes and the adapter stop hook requests an asynchronous rescan, so do not duplicate or wait for it. For an explicit administrative repair, `{{ mcp_tool_index_run }}` (optional `input.module: "ast"`) requests the existing supervisor's coalesced full-project rescan; acceptance is not completion, and optional `wait_ms` follows it for a bounded time. Do not reset a corpus to repair a read. Delegated transports without these controls report the gap to the coordinator.
 
-Use native discovery only when the required MCP tool is unavailable or current-project text is unsupported/unindexed; state this fallback once and do not substitute the {{ brand_display }} CLI. The daemon indexes writes; when a decision requires freshness, inspect the selected source and content fingerprint exposed by that operation. Preserve any SDK snapshot, offset, CAS or authorization binding required by that operation; independent AST, Source and search reads need no common generation. `{{ mcp_tool_sync }}` reconciles installed artifacts and agent files; it does not wait for index completion. The adapter stop hook requests a PROJECT index rescan asynchronously; do not duplicate or wait for it. Context installation/export/removal are maintenance operations only when required; removal without `context` clears the project graph.
+Use native discovery only when the required MCP tool is unavailable or current-project text is unsupported/unindexed; state this fallback once and do not substitute the {{ brand_display }} CLI. When a decision requires freshness, inspect the selected source and content fingerprint exposed by that operation. `{{ mcp_tool_sync }}` reconciles installed artifacts and agent files; it does not wait for index completion. `{{ mcp_tool_ast_export }}` writes an admitted graph to the `output` package file and is a maintenance action, used only when requested.
 {%- endif %}

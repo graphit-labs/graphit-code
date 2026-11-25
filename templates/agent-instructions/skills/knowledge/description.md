@@ -1,1 +1,1 @@
-Knowledge: retrieve and maintain user/technical documentation by business domain; verify code/documentation consistency for every changed work unit using wiki and implementation evidence.
+Knowledge: retrieve and maintain user and technical documentation organized by business domain. Use when reading or writing docs, creating a page (ID and reading path), reviewing coverage, staleness or broken references, and when completing any code or documentation work unit, to verify that code and documentation agree in both directions.

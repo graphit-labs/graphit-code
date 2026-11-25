@@ -1,3 +1,3 @@
-Revise changed intent before affected work. Before reporting delivery, verify code and Knowledge in both directions, record evidence, and explicitly close completed work. If interrupted, checkpoint and release owned claims. The stop hook can request an asynchronous PROJECT rescan.
+Definition of done: revise changed intent before affected work; before reporting delivery, run the Task's checks, verify code and Knowledge in both directions against results observed in this session, record the evidence, capture the unit's decisions, lessons and discoveries in Memory, and close completed work. If interrupted, checkpoint the next step and release owned claims.
 
-Install commands needed for delivery validation. Use project-relative executables or system PATH names across platforms. Verify fast checks in pre-commit and long checks in pre-push when those checks are required for delivery. Only the engineer’s explicit request authorizes a push.
+Install the commands delivery validation needs, as project-relative executables or system PATH names; fast checks go in pre-commit, long ones in pre-push. Only the engineer's explicit request authorizes a push.

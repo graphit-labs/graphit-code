@@ -1,13 +1,12 @@
 # Execute, revise, verify and hand off
 
-This reference describes coordinator-owned workflows. For delegated roles, apply the current protocol:
-{% include "protocol.md" %}
+This reference describes coordinator-owned workflows. A delegated role reads the IDs it was given, reports anchored findings and returns a draft for any write that needs a claim.
 
 The coordinator owns acceptance, checks, checkpoints and lifecycle. Read [session.md](session.md) for current demand and [planning.md](planning.md) for a material contract change. The coordinator claims executable Tasks; delegated roles receive the bounded task and report findings without taking claims.
 
 ## Start a leaf
 
-Read the leaf, parent requirement and named prerequisite results. Compare them with current AST/Knowledge and relevant decisions. Confirm file/interface ownership, readiness, real APIs, input/output/error/authority boundaries and practical verification. A path or completed badge alone does not prove that a dependency matches the saved plan.
+Find ready work with `{{ mcp_tool_task_list }}` (for example `filter: {session_id, status: "open", blocked: false}`), then read the leaf, parent requirement and named prerequisite results. Compare them with current AST/Knowledge and relevant decisions. Confirm file/interface ownership, readiness, real APIs, input/output/error/authority boundaries and practical verification. A path or completed badge alone does not prove that a dependency matches the saved plan.
 
 Claim the actual ready Task through its advertised schema. The actor comes from authentication, not an input label. Keep its returned token and current specification revision privately; a claim is not a new permission. Keep one active Task per executing agent as an operational workflow. Do not claim a parent and child concurrently, drop prerequisites to acquire a claim, reuse an expired fence or use another target’s private token. The authenticated owner, token/fence, lease and revision are checked on the target; distinct targets can have independent claims for the same actor.
 
@@ -55,7 +54,9 @@ The duration is explicit example input, not a framework default. The claim's `re
 
 New questions trigger focused Task/Memory recall and selected AST/Knowledge reads; reuse sufficient evidence. Preserve completed specifications and check evidence as provenance; their optional commit association is the metadata exception described below. A newly discovered requirement or interface mismatch changes the affected specifications, checks, coverage and ordering before affected implementation.
 
-Use `{{ mcp_tool_task_revise }}` with its actual input: `target`, `lease_ms`, `reason`, changed specification fields and typed `add_checks`. Omission preserves fields; null clears only fields whose current schema permits it. Do not send flat claim_token, add_acceptance_criteria, tests or dependency edits copied from another protocol. Use the advertised links mutation for parent/dependency changes. Read the returned gates/revision and revalidate affected checks against the new behavior.
+Use `{{ mcp_tool_task_revise }}` with its actual input: `target`, `lease_ms`, `reason`, changed specification fields and typed `add_checks`. Omission preserves fields; null clears only fields whose current schema permits it. Do not send flat claim_token, add_acceptance_criteria, tests or dependency edits copied from another protocol. Parent and dependency changes go through `{{ mcp_tool_task_update_links }}` (`parent_id`, `depends_on`, `reason`). Read the returned gates/revision and revalidate affected checks against the new behavior.
+
+Record a decision, problem, lesson or reusable knowledge discovered during the leaf with `{{ mcp_tool_task_comment_add }}` (`kind` `decision`, `problem`, `lesson`, `knowledge` or `note`, plus an `idempotency_key`), so the reasoning survives next to the work. A lesson that future, unrelated work needs also belongs in Memory. Use `{{ mcp_tool_task_flag }}` with a reason when the leaf needs attention it cannot resolve itself, and renew a long-running claim with `{{ mcp_tool_task_heartbeat }}` before its lease expires.
 
 If a required producer is absent, preserve the concrete contract, affected requirement and exact prerequisite in the current packet. Do not implement a mock authority, Boolean grant callback, compatibility wrapper or guessed default. Continue independent authorized work. Completed deliveries cannot be reopened by a fabricated operation; save genuine corrective work under the applicable still-open outcome when necessary and avoid dependency cycles.
 
@@ -63,11 +64,11 @@ If a required producer is absent, preserve the concrete contract, affected requi
 
 Every changed work unit compares source and maintained docs in both directions. Name the source/symbols, documented commands/contracts and actual observations; resolve drift or retain the unresolved condition. Integration review cannot postpone that obligation.
 
-Record each active native check by the producer-returned canonical check ID, with concrete evidence and actual passed/failed status. Supersede obsolete checks with reason/replacement; do not mark them passed. A parser, fixture or in-process peer proves its recorded boundary, not an installed host, vendor/model delivery or whole product.
+Record each active native check with `{{ mcp_tool_task_check }}` by the producer-returned canonical `check_id`, with `passed` and concrete `evidence` (the command you ran and what it printed, or the source/page you inspected). Evidence comes from this session: before writing "passed", confirm it against a result you actually observed, and say "inspected" rather than "tested" when nothing ran. Supersede obsolete checks with `{{ mcp_tool_task_check_supersede }}` and a reason or replacement; do not mark them passed. A parser, fixture or in-process peer proves its recorded boundary, not an installed host, vendor/model delivery or whole product.
 
 `{{ mcp_tool_task_progress }}` uses the current owned target plus lease_ms, summary and next_step. Preserve result/artifacts, evidence, decisions, failures/unrun work and exact continuation; refresh the revision from its result. A flag prevents premature completion; clear it only through a supported admitted operation after recording the resolution. Never replay an uncertain write automatically or claim rollback when the producer reports a committed/uncertain effect.
 
-Complete only after actual checks, dependencies/descendants and documentation gates pass. Completion uses the operation's advertised `input.id` and `input.claim`; it does not accept a generic progress payload. When interrupted, release with current fence, summary and exact next step. The coordinator checkpoints cross-Task effects in the Session; closing a leaf does not close the demand.
+Complete only after actual checks, dependencies/descendants and documentation gates pass. `{{ mcp_tool_task_complete }}` uses the operation's advertised `input.id` and `input.claim`; it does not accept a generic progress payload. When interrupted, `{{ mcp_tool_task_release }}` with the current fence, a summary and the exact next step, so the next agent starts where you stopped. The coordinator checkpoints cross-Task effects in the Session; closing a leaf does not close the demand.
 
 ## Associate the delivered commit
 

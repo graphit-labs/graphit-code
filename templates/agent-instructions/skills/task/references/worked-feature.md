@@ -1,7 +1,6 @@
 # Worked feature: authorized archive browsing
 
-This reference describes coordinator-owned workflows. For delegated roles, apply the current protocol:
-{% include "protocol.md" %}
+This reference describes coordinator-owned workflows. A delegated role reads the IDs it was given, reports anchored findings and returns a draft for any write that needs a claim.
 
 The coordinator owns acceptance, checks, checkpoints and lifecycle. This fictional case demonstrates a complete specification, graph and evidence map. Its domain labels and hypothetical results are not saved IDs, live grants, executed checks or native call arguments. Use [planning.md](planning.md) and the actual MCP schema to save the packets.
 

@@ -38,7 +38,7 @@ Descriptions are normative Markdown assets alongside each entrypoint, using the 
 | memory | `skills/memory/entry.md` | `references/durable-context.md` |
 | task | `skills/task/entry.md` | `references/execution.md`, `references/planning.md`, `references/session.md`, `references/worked-feature.md`, `references/worked-system.md` |
 
-The 20 maintained sources under `templates/agent-instructions/skills/` comprise five bodies, ten references and five descriptions. All sets reuse the six shared reference/persistence sources from [policy instructions](rust-policy-instructions.md). Task additionally reuses the existing protocol.md for its body and standalone references, reconciling legacy own-Task claims/releases with current coordinator-only lifecycle.
+The 20 maintained sources under `templates/agent-instructions/skills/` comprise five bodies, ten references and five descriptions. All sets reuse the six shared reference/persistence sources from [policy instructions](rust-policy-instructions.md). Task states the coordinator-only lifecycle directly in its body and each reference; delegates receive the full protocol.md through their role profile.
 
 ## Effective values
 
@@ -46,24 +46,24 @@ brand_display labels the authored body/reference text. Every mcp_tool_<operation
 
 | Body | Direct MCP variable slots in the current entry template |
 |---|---|
-| ast | `ast_embed`, `ast_index`, `ast_list`, `ast_query`, `ast_schema`, `ast_search`, `ast_source`, `daemon_status`, `module_skill`, `sync` |
-| hub | `cluster_get`, `cluster_projects`, `cluster_set`, `cluster_unset`, `config_get`, `config_list`, `config_set`, `config_unset`, `hub_content`, `hub_forget`, `hub_install`, `hub_install_local`, `hub_install_native`, `hub_list`, `hub_projects`, `hub_remove`, `hub_search`, `hub_show`, `hub_sync`, `hub_type_path`, `hub_unpublish`, `hub_update`, `module_skill`, `sync` |
-| knowledge | `daemon_status`, `knowledge_export`, `knowledge_index`, `knowledge_lint`, `knowledge_references`, `knowledge_remove`, `knowledge_schema`, `knowledge_search`, `knowledge_sync`, `module_skill`, `sync`, `task_get`, `task_search`, `wiki_embed`, `wiki_log`, `wiki_source` |
-| memory | `cluster_projects`, `memory_delete`, `memory_demote`, `memory_important`, `memory_index`, `memory_insert`, `memory_list`, `memory_mandatory`, `memory_mark_mandatory`, `memory_promote`, `memory_remove`, `memory_schema`, `memory_search`, `memory_source`, `memory_sync`, `memory_unmark_mandatory`, `memory_update`, `module_skill` |
-| task | `task_commit_set`, `task_get`, `task_list`, `task_query`, `task_schema`, `task_search`, `task_session_get`, `task_session_list` |
+| ast | `ast_export`, `ast_imports`, `ast_neighborhood`, `ast_query`, `ast_sample`, `ast_schema`, `ast_search`, `ast_source`, `index_run`, `index_status`, `module_skill`, `sync` |
+| hub | `hub_authored_content`, `hub_authored_list`, `hub_authored_review`, `hub_content`, `hub_forget`, `hub_install`, `hub_install_local`, `hub_install_native`, `hub_list`, `hub_projects`, `hub_publish_file`, `hub_publish_native`, `hub_remove`, `hub_search`, `hub_show`, `hub_sync`, `hub_type_path`, `hub_unpublish`, `hub_update`, `module_skill`, `projects_get`, `projects_labels_set`, `projects_labels_unset`, `projects_list`, `sync` |
+| knowledge | `index_run`, `index_status`, `knowledge_ask`, `knowledge_export`, `knowledge_id`, `knowledge_lint`, `knowledge_list`, `knowledge_references`, `knowledge_search`, `module_skill`, `sync`, `task_get`, `task_search`, `wiki_log`, `wiki_source` |
+| memory | `memory_get`, `memory_history`, `memory_important`, `memory_index`, `memory_list`, `memory_mandatory`, `memory_search`, `memory_source`, `module_skill`, `projects_list` |
+| task | `task_cancel`, `task_check`, `task_check_supersede`, `task_claim`, `task_comment_add`, `task_commit_set`, `task_complete`, `task_create`, `task_flag`, `task_get`, `task_heartbeat`, `task_list`, `task_progress`, `task_query`, `task_references`, `task_release`, `task_revise`, `task_schema`, `task_search`, `task_session_cancel`, `task_session_checkpoint`, `task_session_claim`, `task_session_complete`, `task_session_create`, `task_session_get`, `task_session_heartbeat`, `task_session_list`, `task_session_release`, `task_session_revise`, `task_update_links` |
 
 Task, Memory and Knowledge include shared query instructions requiring mcp_tool_references_query/reconcile. All bodies include the maintained persistence boundary: shared records contain only necessary non-sensitive project facts, decisions and evidence; durable user-only preferences belong only in private user memory. Generic context instructions never incorporate actual standing-memory titles, contents or runtime snapshots.
 
 | Companion entry | Direct variables in the current source |
 |---|---|
 | `skills/ast/references/impact-assessment.md` | `brand_display`, `mcp_tool_ast_query`, `mcp_tool_ast_schema`, `mcp_tool_ast_search`, `mcp_tool_ast_source` |
-| `skills/hub/references/discovery-cases.md` | `brand_display`, `mcp_tool_cluster_projects`, `mcp_tool_hub_content`, `mcp_tool_hub_forget`, `mcp_tool_hub_install`, `mcp_tool_hub_install_native`, `mcp_tool_hub_list`, `mcp_tool_hub_projects`, `mcp_tool_hub_remove`, `mcp_tool_hub_search`, `mcp_tool_hub_show`, `mcp_tool_hub_type_path`, `mcp_tool_hub_unpublish`, `mcp_tool_module_skill` |
+| `skills/hub/references/discovery-cases.md` | `brand_display`, `mcp_tool_projects_list`, `mcp_tool_hub_content`, `mcp_tool_hub_forget`, `mcp_tool_hub_install`, `mcp_tool_hub_install_native`, `mcp_tool_hub_list`, `mcp_tool_hub_projects`, `mcp_tool_hub_remove`, `mcp_tool_hub_search`, `mcp_tool_hub_show`, `mcp_tool_hub_type_path`, `mcp_tool_hub_unpublish`, `mcp_tool_module_skill` |
 | `skills/knowledge/references/documentation-design.md` | `mcp_tool_knowledge_search`, `mcp_tool_module_skill`, `mcp_tool_wiki_source` |
 | `skills/knowledge/references/worked-domain.md` | `brand_display`, `mcp_tool_knowledge_search`, `mcp_tool_wiki_source` |
-| `skills/memory/references/durable-context.md` | `brand_display`, `mcp_tool_memory_delete`, `mcp_tool_memory_insert`, `mcp_tool_memory_mark_mandatory`, `mcp_tool_memory_search`, `mcp_tool_memory_source`, `mcp_tool_memory_update`, `mcp_tool_task_get`, `mcp_tool_task_search` |
-| `skills/task/references/execution.md` | `mcp_tool_task_claim`, `mcp_tool_task_commit_set`, `mcp_tool_task_create`, `mcp_tool_task_progress`, `mcp_tool_task_revise` |
+| `skills/memory/references/durable-context.md` | `mcp_tool_memory_get`, `mcp_tool_memory_insert`, `mcp_tool_memory_mark_mandatory`, `mcp_tool_memory_promote`, `mcp_tool_memory_search`, `mcp_tool_memory_source`, `mcp_tool_memory_update`, `mcp_tool_task_get` |
+| `skills/task/references/execution.md` | `mcp_tool_task_check`, `mcp_tool_task_check_supersede`, `mcp_tool_task_claim`, `mcp_tool_task_comment_add`, `mcp_tool_task_commit_set`, `mcp_tool_task_complete`, `mcp_tool_task_create`, `mcp_tool_task_flag`, `mcp_tool_task_heartbeat`, `mcp_tool_task_list`, `mcp_tool_task_progress`, `mcp_tool_task_release`, `mcp_tool_task_revise`, `mcp_tool_task_update_links` |
 | `skills/task/references/planning.md` | None |
-| `skills/task/references/session.md` | `mcp_tool_task_session_complete`, `mcp_tool_task_session_create`, `mcp_tool_task_session_revise` |
+| `skills/task/references/session.md` | `mcp_tool_task_release`, `mcp_tool_task_session_cancel`, `mcp_tool_task_session_checkpoint`, `mcp_tool_task_session_complete`, `mcp_tool_task_session_create`, `mcp_tool_task_session_heartbeat`, `mcp_tool_task_session_release`, `mcp_tool_task_session_revise` |
 | `skills/task/references/worked-feature.md` | None |
 | `skills/task/references/worked-system.md` | None |
 

@@ -63,7 +63,9 @@
     "mcp_tool_ast_imports": "catalog_g__ast_imports",
     "mcp_tool_knowledge_list": "catalog_g__knowledge_list",
     "mcp_tool_knowledge_lint": "catalog_g__knowledge_lint",
-    "mcp_tool_memory_list": "catalog_g__memory_list"
+    "mcp_tool_memory_list": "catalog_g__memory_list",
+    "mcp_tool_hub_content": "catalog_g__hub_content",
+    "mcp_tool_hub_list": "catalog_g__hub_list"
   },
   "orbit": {
     "mcp_tool_ast_fts_query": "catalog_o__ast_fts_query",
@@ -129,6 +131,8 @@
     "mcp_tool_ast_imports": "catalog_o__ast_imports",
     "mcp_tool_knowledge_list": "catalog_o__knowledge_list",
     "mcp_tool_knowledge_lint": "catalog_o__knowledge_lint",
-    "mcp_tool_memory_list": "catalog_o__memory_list"
+    "mcp_tool_memory_list": "catalog_o__memory_list",
+    "mcp_tool_hub_content": "catalog_o__hub_content",
+    "mcp_tool_hub_list": "catalog_o__hub_list"
   }
 }

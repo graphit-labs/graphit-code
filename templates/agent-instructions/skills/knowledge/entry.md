@@ -76,7 +76,21 @@ For each authorized work unit, reconcile relevant source/test behavior and the d
 
 Structured MCP calls accept top-level `ai_optimized`: omitted/`true` selects TOON text without duplicate JSON `structuredContent`; `false` selects JSON for machine consumers. Knowledge Source is a structured envelope: its Markdown string is preserved, rather than treated as a raw-text tool exception.
 
-Knowledge maintains user/technical documentation by business domain and reader goal. Make it usable by someone or another project without this conversation. Task owns executable specifications/plans/results; AST proves code behavior; Memory holds durable constraints.
+Knowledge is the project's maintained documentation, authored as Markdown under DOCS_ROOT and indexed into a searchable wiki. It is organized by business domain and reader goal, and must stay usable by someone, or another project, without this conversation. Task owns executable specifications, plans and results; AST proves code behavior; Memory holds durable constraints. Documentation is treated as code: it changes in the same work unit as the behavior it describes, because a page that drifts from the code misleads every later reader, human or agent.
+
+| Need | Tool |
+| --- | --- |
+| Read a known page or a line range of it | `{{ mcp_tool_wiki_source }}` |
+| Find pages by topic | `{{ mcp_tool_knowledge_search }}` |
+| Catalogue pages by kind, source prefix, staleness or metadata errors | `{{ mcp_tool_knowledge_list }}` |
+| Check the published corpus for broken references, missing metadata, orphan, short or stale pages | `{{ mcp_tool_knowledge_lint }}` |
+| Follow outgoing links or find pages that reference a record | `{{ mcp_tool_knowledge_references }}` |
+| See which pages changed in recent synchronizations | `{{ mcp_tool_wiki_log }}` |
+| ID for a new page | `{{ mcp_tool_knowledge_id }}` |
+| Index health or an explicit rescan | `{{ mcp_tool_index_status }}`, `{{ mcp_tool_index_run }}` |
+| Export as a package or Markdown/OKF/Obsidian directory (only when requested) | `{{ mcp_tool_knowledge_export }}` |
+
+`{{ mcp_tool_knowledge_ask }}` answers a question through a separate completion provider; as an agent, read the pages directly instead unless the engineer asks for it.
 
 {% include "shared/references/agent-contract.md" %}
 {% include "shared/references/agent-example.md" %}
@@ -133,7 +147,7 @@ Write in {% if publication_scope | default("project") == "global" %}the active P
 ## Verify both directions for every work unit
 
 For EVERY code work unit, inspect/update affected user/technical docs, examples and navigation in that unit. For EVERY doc work unit, inspect corresponding implementation with AST and validate its claims. Check rule → source/test → page and changed page → implementation/consumers; inspect affected references for contradictions. No-impact conclusions name inspected targets and rationale.
-Resolve drift: correct stale docs, fix authorized defects, or label future intent/current limitations and preserve unresolved work in Task. Never weaken a requirement to bless a bug or expand code scope to match a draft. Verify relevant commands/examples, links and outcomes. Distinguish documentation quality from implementation agreement, executed tests from inspection. Before unit completion record targets, version/scope, actual evidence, findings and next action in Task progress/checks. The references show review criteria and both drift directions.
+Resolve drift: correct stale docs, fix authorized defects, or label future intent/current limitations and preserve unresolved work in Task. Never weaken a requirement to bless a bug or expand code scope to match a draft. Verify relevant commands/examples, links and outcomes. Distinguish documentation quality from implementation agreement, executed tests from inspection, and base each "consistent" claim on a source read or command run in this session. Before unit completion record targets, version/scope, actual evidence, findings and next action in Task progress/checks. The references show review criteria and both drift directions.
 
 Other-project documentation is read only through its resolved wiki tools. If required MCP tools are unavailable or current-project text is unindexed, use focused native reads of current-project authoritative documents, state the fallback once and do not substitute the {{ brand_display }} CLI.
 
@@ -141,5 +155,5 @@ Other-project documentation is read only through its resolved wiki tools. If req
 
 The daemon indexes {% if publication_scope | default("project") == "global" %}the active PROJECT's configured documentation directory{% else %}`{{ docs_dir }}/`{% endif %} after writes. Use `{{ mcp_tool_index_status }}` when advertised to diagnose observed document/lexical and embedding phases. Explicit administrative `{{ mcp_tool_index_run }}` requests a coalesced full-project rescan from the current supervisor, not a separate indexer. Acceptance is not completion; optional bounded waiting follows the producer observations. `{{ mcp_tool_sync }}` reconciles installed artifacts and agent files rather than waiting for indexes. Do not duplicate the asynchronous completion hook. Delegated transports without these controls report the gap to the coordinator. Retry transient read failures once before reporting them.
 
-Use advertised `{{ mcp_tool_knowledge_list }}` for metadata catalogues and `{{ mcp_tool_knowledge_lint }}` for published metadata/reference/staleness diagnostics. `{{ mcp_tool_knowledge_export }}` handles requested exports. Do not clear corpora or invent an independent embed/sync/remove command for recovery. For reuse through Hub, make scope/version, prerequisites, supported contracts, navigation and provenance self-contained; use the Hub skill at publication/consumption boundaries. Documentation maintenance alone does not publish an artifact.
+Use advertised `{{ mcp_tool_knowledge_list }}` (`input.filter` with `kind`, `source_prefix`, `stale`, `metadata_errors`, plus `page_size` and `cursor`) for metadata catalogues. After a documentation unit has been indexed, run `{{ mcp_tool_knowledge_lint }}` (optional `input.max_age_days`) to catch broken references, missing metadata, orphan or short pages and stale markers in the published snapshot; it does not read unindexed authored files or repair anything. `{{ mcp_tool_knowledge_export }}` handles requested exports. Do not clear corpora or invent an independent embed/sync/remove command for recovery. For reuse through Hub, make scope/version, prerequisites, supported contracts, navigation and provenance self-contained; use the Hub skill at publication/consumption boundaries. Documentation maintenance alone does not publish an artifact.
 {%- endif %}

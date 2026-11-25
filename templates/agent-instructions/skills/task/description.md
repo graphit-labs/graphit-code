@@ -1,1 +1,1 @@
-Task: preserve requests in durable sessions; plan, execute, checkpoint and hand off work; recall sessions, specifications, decisions and evidence whenever questions arise.
+Task: durable sessions, plans and checkpoints for project work. Use when starting, resuming or handing off work; turning a request into a specification and dependency-ordered Tasks with acceptance and test checks; recording progress, decisions and evidence; associating a commit; closing or cancelling a session; or answering what was asked, decided or tried before.

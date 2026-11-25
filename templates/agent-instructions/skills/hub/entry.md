@@ -58,7 +58,18 @@ Read the scoped discovery companion through `{{ mcp_tool_module_skill }}`:
 
 {% include "shared/persistence-boundary.md" %}
 
-Use this skill for named ecosystem projects, Hub artifacts and {{ brand_display }} configuration. Public libraries, frameworks and APIs do not require Hub discovery; use their official documentation when current details matter. Honor an explicit artifact request and reuse verified identities and versions.
+Hub answers two questions: where is another project of this ecosystem (the local cluster first, then the published catalog), and which shared artifact (skill, agent, rule, command, workflow, MCP configuration, language, power, or an AST/Knowledge library) should be installed, read, updated or published. Public libraries, frameworks and APIs do not require Hub discovery; use their official documentation when current details matter. Honor an explicit artifact request and reuse verified identities and versions.
+
+| Need | Tool |
+| --- | --- |
+| Find a local project of the cluster | `{{ mcp_tool_projects_list }}` (name, label filters), `{{ mcp_tool_projects_get }}` |
+| Find a published project or its manifests | `{{ mcp_tool_hub_projects }}`, `{{ mcp_tool_hub_search }}` |
+| Install | `{{ mcp_tool_hub_install }}` (FILE), `{{ mcp_tool_hub_install_native }}` (AST/Knowledge), `{{ mcp_tool_hub_install_local }}` (a local source directory) |
+| Inspect installed artifacts | `{{ mcp_tool_hub_list }}`, `{{ mcp_tool_hub_content }}` |
+| Inspect this project's authored resources | `{{ mcp_tool_hub_authored_list }}`, `{{ mcp_tool_hub_authored_review }}`, `{{ mcp_tool_hub_authored_content }}` |
+| Keep installations current | `{{ mcp_tool_hub_sync }}`, `{{ mcp_tool_hub_update }}`, `{{ mcp_tool_sync }}` |
+| Publish or retract | `{{ mcp_tool_hub_publish_file }}`, `{{ mcp_tool_hub_publish_native }}`, `{{ mcp_tool_hub_unpublish }}` |
+| Remove or detach | `{{ mcp_tool_hub_remove }}`, `{{ mcp_tool_hub_forget }}` |
 
 ## Resolve, select, read
 
@@ -88,7 +99,15 @@ Remove additionally accepts explicit `scope: global_cache` or `scope: global_nat
 
 A failed mutation reports its actual effect as NotApplied, MayHaveApplied or Applied. Physical changes can precede a failed metadata save. Inspect the selected metadata and affected files before explicitly running the normal operation again; an ordinary retry can conflict with files already created. There is no automatic rollback or saved filesystem operation to resume. Preserve user changes, including foreign files whose bytes happen to match. Use Forget when the authorized purpose is to detach metadata while keeping files.
 
-Use currently advertised type/layout and configuration schemas when authoring or configuring artifacts; do not guess destinations. `{{ mcp_tool_config_get }}`/`{{ mcp_tool_config_list }}` inspect keys, and `{{ mcp_tool_config_set }}`/`{{ mcp_tool_config_unset }}` change them within the authorized work. Use `{{ mcp_tool_projects_list }}` with an exact `label_key` and optional `label_value` to find admitted local projects by label. Edit labels only for an explicitly authorized checkout with the advertised Runtime `{{ mcp_tool_projects_labels_set }}` and `{{ mcp_tool_projects_labels_unset }}` tools.
+## Authored resources and publication
+
+A project can author its own Resources (skills, agents, rules and other kinds) for publication. `{{ mcp_tool_hub_authored_list }}` lists exact kind/id/version tuples in an authorized PROJECT/version, `{{ mcp_tool_hub_authored_review }}` lists one tuple's captured relative files, and `{{ mcp_tool_hub_authored_content }}` reads one relative text file; none of them touches a provider or remote storage. Review the exact tuple before publishing.
+
+Publishing is an explicit, requested action, never a side effect of discovery, installation or documentation work. `{{ mcp_tool_hub_publish_file }}` publishes a captured PROJECT FILE artifact (provider, type, full id, concrete version, name, optional description, tags, dependencies, `expected_sha256` and `set_latest`) through the configured HubWrite provider; `{{ mcp_tool_hub_publish_native }}` publishes the captured PROJECT AST or Knowledge snapshot. Both need PROJECT read and HubWrite authority separately. Record the published identity and version in Task.
+
+## Projects and configuration
+
+Use `{{ mcp_tool_projects_list }}` with an exact `label_key` and optional `label_value` to find admitted local projects by label, and `{{ mcp_tool_projects_get }}` for one project by ID or exact name. Edit labels only for an explicitly authorized checkout with the advertised Runtime `{{ mcp_tool_projects_labels_set }}` and `{{ mcp_tool_projects_labels_unset }}` tools. {{ brand_display }} configuration has no MCP tool; when a change is needed, name the `config` key and value for the engineer to set. Use the advertised type/layout schemas when authoring artifacts; do not guess destinations.
 
 Record resolved project, producer, artifact identity, concrete version and consequential decisions in Task. Knowledge keeps contracts; Memory keeps reusable operating decisions. Reference evidence instead of copying artifact bodies or saving host-specific roots.
 {%- endif %}

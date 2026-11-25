@@ -68,12 +68,13 @@ Save a compact map in the active Task or a maintained domain overview when that 
 
 Use this to decide the documentation work units and their checks in Task. A row is covered only when a reader can act on its page and its claims have support. A filename, headings, keyword match or a passing generic lint check is not coverage. Map all relevant journey classes: primary, alternate, exception, recovery and operational constraints; explain deliberate exclusions rather than creating empty sections.
 
-Choose the smallest coherent set:
+Choose the smallest coherent set. Each page serves one kind of reader need, following the Diátaxis split between learning, doing, looking up and understanding; mixing them makes a page hard to use for any of them, so link between page types instead:
 - Root/index: audience entry points and domain navigation, with scope/version and links to shared concepts.
-- Domain overview: vocabulary, business purpose, boundaries, rules, journeys, dependencies and navigation.
-- User guide: one reader goal or coherent journey, with prerequisites, steps, outcomes and recovery.
-- Technical reference/design: stable contracts, architecture, data/state, integration boundaries, trade-offs and provenance.
-- Operational guide: deployment/migration/recovery or diagnosis when an operator has a real distinct job.
+- Domain overview (explanation): vocabulary and glossary, business purpose, boundaries, rules, journeys, dependencies and navigation.
+- User guide (how-to, or a tutorial for a first-time journey): one reader goal or coherent journey, with prerequisites, steps, outcomes and recovery.
+- Technical reference/design (reference and explanation): stable contracts, architecture, data/state, integration boundaries, trade-offs and provenance.
+- Operational guide (how-to for operators): deployment/migration/recovery or diagnosis when an operator has a real distinct job.
+- Decision record: a consequential architectural choice with its context, the decision, its status and consequences. Never delete one; mark it superseded and link its successor. Record the same decision in Memory so agents recall it.
 
 Adapt to the existing project. A CLI can need command/input/output/exit-status contracts; a library needs call/return/error/lifetime contracts; a compiler needs syntax, diagnostics and compatibility; an API needs request/response/access/error contracts. Do not force HTTP, a web UI or a fixed language onto a different project.
 

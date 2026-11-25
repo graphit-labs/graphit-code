@@ -47,7 +47,7 @@ a historical slot such as `mcp_tool_task_session_search` does not expose a Sessi
 
 Variables use explicit `InstructionVariable` values; strings are Text and the router list is TextList. All effective MCP names are supplied as `mcp_tool_<operation>`. Skill names are `skill_name_task/memory/ast/hub/knowledge`. A caller obtains actual aliases from its catalog; deriving a name from a brand does not establish that a tool exists. `brand_display`, `brand_marker` and effective role names come from validated Core/managed-role inputs. Text metadata never establishes grants or availability.
 
-Mandate template operation-name slots are TaskCoordinator: task_session_get/list/create/claim, task_get/query/create; TaskDelegate: task_get/search/progress/comment_add; Memory: memory_search/source/update/insert/query; AST: ast_source/search/schema/query/fts_schema/fts_query; Hub: cluster_projects, hub_projects/search/show, config_get; Knowledge: wiki_source, knowledge_search/query. All five use their effective skill name; all use brand_display. Shared query instructions use references_query/reconcile.
+Mandate template operation-name slots are TaskCoordinator: task_session_get/list/create/claim, task_get/query/create, task_commit_set; TaskDelegate: task_get/search/comment_add; Memory: memory_search/update/insert; AST: ast_source/search/schema/query; Hub: projects_list, hub_projects/search, and for delegates hub_list/show/content; Knowledge: knowledge_id, wiki_source, knowledge_search. All five use their effective skill name; all use brand_display. Shared query instructions use references_query/reconcile.
 
 | Current template under `templates/agent-instructions/policy/` | Direct named inputs |
 |---|---|
@@ -61,7 +61,7 @@ Mandate template operation-name slots are TaskCoordinator: task_session_get/list
 | `hooks/bootstrap-task-planning.md` | None |
 | `hooks/bootstrap-task-recall.md` | `mcp_tool_task_get`, `mcp_tool_task_search`, `skill_name_task` |
 | `hooks/bootstrap-task-session.md` | `brand_display`, `mcp_tool_task_session_create`, `mcp_tool_task_session_get`, `mcp_tool_task_session_list`, `mcp_tool_task_session_search`, `skill_name_task` |
-| `hooks/core-invariant.md` | `brand_display`, `project_version` |
+| `hooks/core-invariant.md` | None (appended verbatim to static profiles) |
 | `hooks/cursor-compensation.md` | `brand_display` |
 | `hooks/documentation-consistency-reminder.md` | None |
 | `hooks/module-wrapper.md` | `module_content`, `module_tag` |
@@ -77,12 +77,12 @@ Mandate template operation-name slots are TaskCoordinator: task_session_get/list
 | `hooks/worker-memory-recall.md` | `mcp_tool_memory_search`, `mcp_tool_memory_source`, `skill_name_memory` |
 | `hooks/worker-protocol-header.md` | `protocol_marker`, `role_name` |
 | `hooks/worker-task-recall.md` | `mcp_tool_task_get`, `mcp_tool_task_search` |
-| `mandates/ast.md` | `brand_display`, `mcp_tool_ast_fts_query`, `mcp_tool_ast_fts_schema`, `mcp_tool_ast_query`, `mcp_tool_ast_schema`, `mcp_tool_ast_search`, `mcp_tool_ast_source`, `skill_name_ast` |
-| `mandates/hub.md` | `brand_display`, `mcp_tool_cluster_projects`, `mcp_tool_config_get`, `mcp_tool_hub_projects`, `mcp_tool_hub_search`, `mcp_tool_hub_show`, `skill_name_hub` |
-| `mandates/knowledge.md` | `brand_display`, `mcp_tool_knowledge_query`, `mcp_tool_knowledge_search`, `mcp_tool_wiki_source`, `skill_name_knowledge` |
-| `mandates/memory.md` | `brand_display`, `mcp_tool_memory_insert`, `mcp_tool_memory_query`, `mcp_tool_memory_search`, `mcp_tool_memory_source`, `mcp_tool_memory_update`, `skill_name_memory` |
+| `mandates/ast.md` | `brand_display`, `mandate_audience`, `mcp_tool_ast_query`, `mcp_tool_ast_schema`, `mcp_tool_ast_search`, `mcp_tool_ast_source`, `skill_name_ast` |
+| `mandates/hub.md` | `brand_display`, `mandate_audience`, `mcp_tool_hub_content`, `mcp_tool_hub_list`, `mcp_tool_hub_projects`, `mcp_tool_hub_search`, `mcp_tool_hub_show`, `mcp_tool_projects_list`, `skill_name_hub` |
+| `mandates/knowledge.md` | `brand_display`, `mcp_tool_knowledge_id`, `mcp_tool_knowledge_search`, `mcp_tool_wiki_source`, `skill_name_knowledge` |
+| `mandates/memory.md` | `brand_display`, `mcp_tool_memory_insert`, `mcp_tool_memory_search`, `mcp_tool_memory_update`, `skill_name_memory` |
 | `mandates/task-coordinator.md` | `brand_display`, `mcp_tool_task_commit_set`, `mcp_tool_task_create`, `mcp_tool_task_get`, `mcp_tool_task_query`, `mcp_tool_task_session_claim`, `mcp_tool_task_session_create`, `mcp_tool_task_session_get`, `mcp_tool_task_session_list`, `skill_name_task` |
-| `mandates/task-delegate.md` | `brand_display`, `mcp_tool_task_comment_add`, `mcp_tool_task_get`, `mcp_tool_task_progress`, `mcp_tool_task_search`, `skill_name_task` |
+| `mandates/task-delegate.md` | `brand_display`, `mcp_tool_task_comment_add`, `mcp_tool_task_get`, `mcp_tool_task_search`, `skill_name_task` |
 | `prompts/dream-consolidation.md` | `dream_agent`, `dream_session_id`, `project_version` |
 | `prompts/user-dream-consolidation.md` | `dream_session_id` |
 
@@ -101,6 +101,8 @@ admitted USER lane. It does not reuse PROJECT authority or create a generic Drea
 [Dream records](../specs/rust_dream_records.md) define the paired write and recovery boundary.
 
 `ProjectHookContext` selects `policy/hooks/project-hook-context.md`, including Header, ProjectVersionNotice, Router/preamble and CoreInvariant. Its App consumer supplies reserved `module_mandates`, `project_memory_state` and `project_memory_json` from the actual PROJECT admission and Memory read. The production hook renders the current project and global overrides, the active Broker layer and the compiled defaults. See [PROJECT hook context](../specs/rust_project_hook_context.md).
+
+Size budget: the rendered ProjectHookContext is injected at SessionStart and at every UserPromptSubmit, and Claude Code caps each hook-injected string at 10,000 characters, replacing longer text with a file path and a 2,000-character preview that the model is not asked to open ([hooks reference](https://code.claude.com/docs/en/hooks)). Keep the static part (preamble, five mandates and core invariant) near 7,000 characters so mandatory Memory and Task JSON still fit; detailed procedures belong in the module skills.
 
 The caller renders each selected module mandate, wraps its already rendered body with ModuleWrapper, and supplies the list in Task → Memory → AST → Hub → Knowledge order to Router. This stage preserves supplied order; it does not consult ModuleSettings or silently filter unsupported modules. Empty module_mandates renders an empty body. module_content is literal data, so native tokens or braces inside it are not evaluated again.
 

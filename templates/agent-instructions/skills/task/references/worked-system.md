@@ -1,7 +1,6 @@
 # Worked system: browsing and downloadable reports
 
-This reference describes coordinator-owned workflows. For delegated roles, apply the current protocol:
-{% include "protocol.md" %}
+This reference describes coordinator-owned workflows. A delegated role reads the IDs it was given, reports anchored findings and returns a draft for any write that needs a claim.
 
 The coordinator owns acceptance, checks, checkpoints and lifecycle. This is a fictional multi-delivery extension of [worked-feature.md](worked-feature.md), not a packet of wire arguments or executed evidence. Preserve each concrete requirement; a larger parent description cannot substitute for separately executable leaves.
 

@@ -1,1 +1,1 @@
-Assess impact: from changed files and the stated requirements, report what else is affected.
+Read-only impact review: from changed files or a diff and the stated requirements, reports affected callers, tests and documentation with anchors. Use before completing a code or documentation change.

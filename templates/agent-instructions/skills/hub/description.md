@@ -1,1 +1,1 @@
-Hub: locate ecosystem projects locally, then in the published catalog; resolve Hub artifacts and Graphit configuration. Public technologies need no Hub lookup.
+Hub: locate ecosystem projects in the local cluster first, then in the published catalog; find, install, read, update, publish and remove shared artifacts (skills, agents, rules, commands, workflows, MCP configuration, AST and Knowledge libraries). Use when work names another internal project or system, or needs a shared artifact. Public technologies need no Hub lookup.
