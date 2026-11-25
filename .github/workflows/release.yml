@@ -1,0 +1,662 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Native package to qualify
+        type: choice
+        default: all
+        options: [all, linux-amd64, darwin-arm64, windows-amd64]
+      native_integrations:
+        description: Qualify Linux GGUF inference and Broker/S3 integration
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (${{ matrix.platform }})
+    runs-on: ${{ matrix.platform == 'linux-amd64' && 'ubuntu-22.04' || matrix.platform == 'darwin-arm64' && 'macos-15' || 'windows-2022' }}
+    defaults:
+      run:
+        working-directory: graphit-code
+    env:
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(inputs.platform == 'linux-amd64' && '["linux-amd64"]' || inputs.platform == 'darwin-arm64' && '["darwin-arm64"]' || inputs.platform == 'windows-amd64' && '["windows-amd64"]' || '["linux-amd64", "darwin-arm64", "windows-amd64"]') }}
+    steps:
+      - name: Validate requested native platform
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        env:
+          REQUESTED_PLATFORM: ${{ inputs.platform || 'all' }}
+        run: |
+          case "$REQUESTED_PLATFORM" in
+            all|linux-amd64|darwin-arm64|windows-amd64) ;;
+            *) echo "Unsupported native platform." >&2; exit 2 ;;
+          esac
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          path: graphit-code
+      - name: Install pinned Rust toolchain
+        run: rustup show active-toolchain
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: graphit-code/ui/package-lock.json
+      - name: Install current Git on Linux (native hooks/reftable required)
+        if: runner.os == 'Linux'
+        run: |
+          sudo add-apt-repository --yes ppa:git-core/ppa
+          sudo apt-get update
+          sudo apt-get install --yes git
+      - name: Install current Git on macOS (native hooks/reftable required)
+        if: runner.os == 'macOS'
+        run: |
+          brew install git
+          echo "$(brew --prefix git)/bin" >> "$GITHUB_PATH"
+      - name: Install current Git on Windows (native hooks/reftable required)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco upgrade git --yes --no-progress
+          "${env:ProgramFiles}\Git\cmd" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          git config --global core.longpaths true
+      - name: Verify Git native hooks and shell on PATH (2.54+)
+        run: |
+          git --version
+          git var GIT_SHELL_PATH
+          git -c hook.graphit-ci-native.event=pre-commit -c hook.graphit-ci-native.command='exit 0' hook run pre-commit
+      - name: Install Linux native build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo add-apt-repository --yes ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install --yes build-essential gcc-13 g++-13 cmake clang llvm libclang-dev libssl-dev pkg-config protobuf-compiler libprotobuf-dev patchelf
+          echo "CC=gcc-13" >> "$GITHUB_ENV"
+          echo "CXX=g++-13" >> "$GITHUB_ENV"
+      - name: Install macOS native build dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake openssl@3 protobuf pkg-config llvm
+          {
+            echo "OPENSSL_DIR=$(brew --prefix openssl@3)"
+            echo "LIBCLANG_PATH=$(brew --prefix llvm)/lib"
+            echo "RUSTFLAGS=${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-Wl,-headerpad_max_install_names"
+          } >> "$GITHUB_ENV"
+      - name: Install Windows native build dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install protoc unzip llvm ninja --yes --no-progress
+      - name: Capture Windows compiler and redistributable runtime
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+          vsversion: '2022'
+      - name: Build UI shipped with Rust
+        run: |
+          npm --prefix ui ci
+          node scripts/build-rust-ui.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Identify Windows native ABI
+        if: runner.os == 'Windows'
+        id: windows-abi
+        shell: python
+        run: |
+          import hashlib, json, os, pathlib, subprocess
+          vcpkg = os.environ["VCPKG_INSTALLATION_ROOT"]
+          revision = subprocess.check_output(["git", "-C", vcpkg, "rev-parse", "HEAD"], text=True).strip()
+          identity = {name: os.environ[name] for name in ("ImageOS", "ImageVersion", "VCToolsVersion", "WindowsSDKVersion")}
+          identity.update(vcpkg=revision, triplet="x64-windows", crt="dynamic", ports=["openssl", "pkgconf"])
+          identity["compiler_options"] = {name: os.environ.get(name, "") for name in ("CL", "_CL_")}
+          digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+          cache = pathlib.Path(os.environ["RUNNER_TEMP"]) / "vcpkg-binary-cache"
+          cache.mkdir(exist_ok=True)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"digest={digest}", file=output)
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              print(f"VCPKG_DEFAULT_BINARY_CACHE={cache}", file=output)
+              print(f"VCPKG_BINARY_SOURCES=clear;files,{cache},readwrite", file=output)
+              print(f"GRAPHIT_CI_VCPKG_REVISION={revision}", file=output)
+      - name: Restore Windows native binary packages
+        if: runner.os == 'Windows'
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: code-release-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.windows-abi.outputs.digest }}-${{ hashFiles('graphit-code/.github/workflows/release.yml') }}
+      - name: Install Windows OpenSSL
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install openssl:x64-windows pkgconf:x64-windows
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "OPENSSL_DIR=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows" >> $env:GITHUB_ENV
+          "LIBCLANG_PATH=C:/Program Files/LLVM/bin" >> $env:GITHUB_ENV
+          "$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/bin" >> $env:GITHUB_PATH
+          "PKG_CONFIG=$env:VCPKG_INSTALLATION_ROOT/installed/x64-windows/tools/pkgconf/pkgconf.exe" >> $env:GITHUB_ENV
+      - name: Save Windows native binary packages before qualification
+        if: runner.os == 'Windows' && steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+      - name: Restore locked Cargo sources
+        id: cargo-sources
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: code-sources-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('graphit-code/Cargo.lock') }}
+          restore-keys: code-sources-v2-${{ runner.os }}-${{ runner.arch }}-
+      - name: Fetch locked Rust dependencies
+        run: cargo fetch --locked
+      - name: Save locked Cargo sources before compilation
+        if: steps.cargo-sources.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ steps.cargo-sources.outputs.cache-primary-key }}
+      - name: Install CUDA build toolchain for the Cargo backend
+        if: runner.os == 'Linux'
+        uses: Jimver/cuda-toolkit@21aaab8dcb4e9329ae86f60cf6586a9ef3effbea # v0.2.32
+        with:
+          cuda: '12.9.1'
+          method: network
+          sub-packages: '["nvcc", "cudart-dev", "cccl"]'
+          non-cuda-sub-packages: '["libcublas-dev"]'
+      - name: Configure portable CUDA compilation
+        if: runner.os == 'Linux'
+        run: |
+          {
+            echo "CMAKE_CUDA_HOST_COMPILER=$(command -v g++-13)"
+            echo 'CMAKE_CUDA_ARCHITECTURES=75-real;80-real;86-real;89-real;90-virtual'
+          } >> "$GITHUB_ENV"
+      - name: Identify compiled Release cache ABI
+        id: build-abi
+        shell: python
+        env:
+          RELEASE_FEATURES: ${{ runner.os == 'Linux' && 'graphit-app/cuda' || 'default' }}
+        run: |
+          import hashlib, json, os, platform, subprocess
+          def version(*args, accepted=(0,)):
+              result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+              if result.returncode not in accepted:
+                  raise RuntimeError(f"{args}: {result.stdout}")
+              return result.stdout.strip()
+          tools = {name: version(name, flag) for name, flag in (("rustc", "-vV"), ("cargo", "-vV"), ("cmake", "--version"), ("protoc", "--version"), ("clang", "--version"))}
+          host, = [line.removeprefix("host: ") for line in tools["rustc"].splitlines() if line.startswith("host: ")]
+          target = os.environ.get("CARGO_BUILD_TARGET") or host
+          tools["target_cfg"] = version("rustc", "--print", "cfg", "--target", target)
+          if platform.system() == "Windows":
+              tools["compiler"] = version("cl", "/Bv", accepted=(0, 2))
+              tools["ninja"] = version("ninja", "--version")
+          else:
+              tools["cc"] = version(os.environ.get("CC", "cc"), "--version")
+              tools["cxx"] = version(os.environ.get("CXX", "c++"), "--version")
+              if platform.system() == "Darwin":
+                  tools["sdk"] = version("xcrun", "--show-sdk-version")
+                  tools["libraries"] = version("brew", "list", "--versions", "openssl@3", "protobuf", "llvm", "cmake")
+              else:
+                  tools["libraries"] = version("dpkg-query", "-W", "libc6-dev", "libstdc++-13-dev", "libssl-dev", "libclang-dev", "libprotobuf-dev")
+                  tools["cuda"] = version("nvcc", "--version")
+          names = ("ImageOS", "ImageVersion", "CC", "CXX", "CFLAGS", "CPPFLAGS", "CXXFLAGS", "LDFLAGS", "RUSTFLAGS", "RUSTDOCFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_TARGET", "CARGO_INCREMENTAL", "CARGO_PROFILE_DEV_DEBUG", "CARGO_PROFILE_TEST_DEBUG", "CMAKE_GENERATOR", "CMAKE_TOOLCHAIN_FILE", "CMAKE_PLATFORM_NO_VERSIONED_SONAME", "OPENSSL_DIR", "OPENSSL_ROOT_DIR", "OPENSSL_STATIC", "PKG_CONFIG", "LIBCLANG_PATH", "VCToolsVersion", "WindowsSDKVersion", "GRAPHIT_CI_VCPKG_REVISION", "VCPKG_TARGET_TRIPLET", "VCPKG_CRT_LINKAGE", "VCPKG_LIBRARY_LINKAGE")
+          options = {name: os.environ.get(name, "") for name in names}
+          prefixes = ("CC_", "CXX_", "CFLAGS_", "CPPFLAGS_", "CXXFLAGS_", "LDFLAGS_", "GGML_", "LLAMA_", "CMAKE_", "CARGO_PROFILE_", "CUDA", "CUDNN", "LBUG_")
+          options.update({name: value for name, value in os.environ.items() if name.startswith(prefixes) or name in ("HOST_CC", "HOST_CXX", "TARGET_CC", "TARGET_CXX") or (name.startswith("CARGO_TARGET_") and name.endswith(("_RUSTFLAGS", "_LINKER")))})
+          if platform.system() == "Windows":
+              options.update({name: os.environ.get(name, "") for name in ("CL", "_CL_")})
+          identity = dict(tools=tools, system=platform.system(), architecture=platform.machine(), target=target, profile="release", features=os.environ["RELEASE_FEATURES"], options=options)
+          digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
+          print(json.dumps(dict(tools=tools, architecture=platform.machine(), target=target, profile="release", features=os.environ["RELEASE_FEATURES"], option_names=sorted(options)), sort_keys=True, indent=2))
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"digest={digest}", file=output)
+      - name: Restore native engine preparation
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: graphit-code/target/native/ladybug
+          key: code-release-native-v1-${{ matrix.platform }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('graphit-code/Cargo.lock', 'graphit-code/Cargo.toml', 'graphit-code/crates/graphit-ast/Cargo.toml', 'graphit-code/xtask/Cargo.toml', 'graphit-code/xtask/src/ladybug.rs', 'graphit-code/rust-toolchain.toml', 'graphit-code/.cargo/config.toml') }}
+      - name: Restore compiled Release artifacts
+        id: rust-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            graphit-code/target/debug/.fingerprint
+            graphit-code/target/debug/build
+            graphit-code/target/debug/deps/*.rlib
+            graphit-code/target/debug/deps/*.rmeta
+            graphit-code/target/debug/deps/*.d
+            graphit-code/target/debug/deps/*.so
+            graphit-code/target/debug/deps/*.dylib
+            graphit-code/target/debug/deps/*.dll
+            graphit-code/target/debug/deps/*.lib
+            graphit-code/target/debug/deps/*.a
+            graphit-code/target/release/.fingerprint
+            graphit-code/target/release/build
+            graphit-code/target/release/deps/*.rlib
+            graphit-code/target/release/deps/*.rmeta
+            graphit-code/target/release/deps/*.d
+            graphit-code/target/release/deps/*.so
+            graphit-code/target/release/deps/*.dylib
+            graphit-code/target/release/deps/*.dll
+            graphit-code/target/release/deps/*.lib
+            graphit-code/target/release/deps/*.a
+            graphit-code/target/debug/deps/xtask-*
+            graphit-code/target/debug/xtask
+            graphit-code/target/debug/xtask.exe
+            graphit-code/target/release/deps/graphit-*
+            graphit-code/target/release/deps/graphit_model_server-*
+            graphit-code/target/release/graphit
+            graphit-code/target/release/graphit.exe
+            graphit-code/target/release/graphit-model-server
+            graphit-code/target/release/graphit-model-server.exe
+          key: code-release-rust-v1-${{ matrix.platform }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('graphit-code/Cargo.lock', 'graphit-code/Cargo.toml', 'graphit-code/crates/graphit-ast/Cargo.toml', 'graphit-code/crates/*/build.rs', 'graphit-code/xtask/Cargo.toml', 'graphit-code/xtask/src/ladybug.rs', 'graphit-code/rust-toolchain.toml', 'graphit-code/.cargo/config.toml', 'graphit-code/.github/workflows/release.yml') }}-${{ hashFiles('graphit-code/crates/*/Cargo.toml') }}-${{ github.sha }}
+          # Prefix restores retain the ABI/config boundary; Cargo checks changed inputs.
+          restore-keys: code-release-rust-v1-${{ matrix.platform }}-${{ runner.arch }}-${{ steps.build-abi.outputs.digest }}-${{ hashFiles('graphit-code/Cargo.lock', 'graphit-code/Cargo.toml', 'graphit-code/crates/graphit-ast/Cargo.toml', 'graphit-code/crates/*/build.rs', 'graphit-code/xtask/Cargo.toml', 'graphit-code/xtask/src/ladybug.rs', 'graphit-code/rust-toolchain.toml', 'graphit-code/.cargo/config.toml', 'graphit-code/.github/workflows/release.yml') }}-
+      - name: Check source formatting for the manual package build
+        if: github.event_name == 'workflow_dispatch'
+        run: cargo xtask check
+      - name: Prepare native engine offline
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: cargo xtask native --offline
+      - name: Save completed native engine before Rust compilation
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: graphit-code/target/native/ladybug
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+      - name: Build Rust executables on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          GRAPHIT_BUILD_VERSION: ${{ github.ref_name }}
+        run: |
+          mkdir -p .build
+          features=()
+          if [ "$RUNNER_OS" = Linux ]; then features=(--features graphit-app/cuda); fi
+          cargo xtask cargo build --locked --release -p graphit-app -p graphit-daemon --bin graphit --bin graphit-model-server "${features[@]}" --message-format=json-render-diagnostics > .build/release-artifacts.jsonl
+      - name: Build Rust executables with the Windows compiler environment
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GRAPHIT_BUILD_VERSION: ${{ github.ref_name }}
+        run: |
+          New-Item -ItemType Directory -Force .build | Out-Null
+          cargo xtask cargo build --locked --release -p graphit-app -p graphit-daemon --bin graphit --bin graphit-model-server --message-format=json-render-diagnostics > .build/release-artifacts.jsonl
+          if ($LASTEXITCODE -ne 0) { throw 'Windows Release build failed' }
+      - name: Save compiled Release artifacts before qualification
+        if: steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            graphit-code/target/debug/.fingerprint
+            graphit-code/target/debug/build
+            graphit-code/target/debug/deps/*.rlib
+            graphit-code/target/debug/deps/*.rmeta
+            graphit-code/target/debug/deps/*.d
+            graphit-code/target/debug/deps/*.so
+            graphit-code/target/debug/deps/*.dylib
+            graphit-code/target/debug/deps/*.dll
+            graphit-code/target/debug/deps/*.lib
+            graphit-code/target/debug/deps/*.a
+            graphit-code/target/release/.fingerprint
+            graphit-code/target/release/build
+            graphit-code/target/release/deps/*.rlib
+            graphit-code/target/release/deps/*.rmeta
+            graphit-code/target/release/deps/*.d
+            graphit-code/target/release/deps/*.so
+            graphit-code/target/release/deps/*.dylib
+            graphit-code/target/release/deps/*.dll
+            graphit-code/target/release/deps/*.lib
+            graphit-code/target/release/deps/*.a
+            graphit-code/target/debug/deps/xtask-*
+            graphit-code/target/debug/xtask
+            graphit-code/target/debug/xtask.exe
+            graphit-code/target/release/deps/graphit-*
+            graphit-code/target/release/deps/graphit_model_server-*
+            graphit-code/target/release/graphit
+            graphit-code/target/release/graphit.exe
+            graphit-code/target/release/graphit-model-server
+            graphit-code/target/release/graphit-model-server.exe
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
+      - name: Package executables and native runtime
+        shell: bash
+        env:
+          NATIVE_PLATFORM: ${{ matrix.platform }}
+        run: scripts/package-release.sh "$NATIVE_PLATFORM" .build/release-artifacts.jsonl .build/dist
+      # This artifact is build output; subsequent qualification still gates publication.
+      - name: Upload complete release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: |
+            graphit-code/.build/dist/*.tar.gz
+            graphit-code/.build/dist/*.tar.gz.sha256
+          retention-days: 1
+          if-no-files-found: error
+          include-hidden-files: true
+          overwrite: true
+      - name: Resolve the Broker fixture revision
+        id: broker-fixture
+        if: runner.os == 'Linux' && (github.event_name != 'workflow_dispatch' || inputs.native_integrations)
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import tomllib
+
+          with open("Cargo.lock", "rb") as lock:
+              source, = [package["source"] for package in tomllib.load(lock)["package"]
+                         if package["name"] == "broker-now-wire"]
+          match = re.fullmatch(r"git\+https://github\.com/graphit-labs/graphit-broker\.git\?rev=([0-9a-f]{40})#\1", source)
+          if match is None:
+              raise SystemExit("Expected broker-now-wire locked to an exact Broker revision")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print(f"revision={match.group(1)}", file=output)
+          PY
+      - name: Checkout Broker for S3 qualification
+        if: runner.os == 'Linux' && (github.event_name != 'workflow_dispatch' || inputs.native_integrations)
+        uses: actions/checkout@v4
+        with:
+          repository: graphit-labs/graphit-broker
+          ref: ${{ steps.broker-fixture.outputs.revision }}
+          path: graphit-broker
+          persist-credentials: false
+      - name: Set up compiler for external S3 test tools
+        if: runner.os == 'Linux' && (github.event_name != 'workflow_dispatch' || inputs.native_integrations)
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.9'
+          cache: false
+      - name: Prepare pinned S3 test tools
+        if: runner.os == 'Linux' && (github.event_name != 'workflow_dispatch' || inputs.native_integrations)
+        shell: bash
+        run: |
+          tools="$RUNNER_TEMP/broker-s3-test-tools"
+          GOBIN="$tools" sh ../graphit-broker/scripts/prepare-s3-test-tools.sh
+          echo "$tools" >> "$GITHUB_PATH"
+      - name: Build owned Broker Hub storage fixture
+        if: runner.os == 'Linux' && (github.event_name != 'workflow_dispatch' || inputs.native_integrations)
+        shell: bash
+        run: |
+          cargo build --locked --manifest-path ../graphit-broker/Cargo.toml -p broker-presence --example hub_storage_fixture --target-dir target
+          fixture_bin="$PWD/target/debug/examples/hub_storage_fixture"
+          test -f "$fixture_bin"
+          test -x "$fixture_bin"
+          echo "GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN=$fixture_bin" >> "$GITHUB_ENV"
+      - name: Build model-server executable for Linux contract tests
+        if: runner.os == 'Linux' && (github.event_name != 'workflow_dispatch' || inputs.native_integrations)
+        shell: bash
+        run: |
+          cargo xtask cargo build --locked -p graphit-daemon --bin graphit-model-server
+          model_server="$PWD/target/debug/graphit-model-server"
+          test -s "$model_server"
+          test -x "$model_server"
+          echo "GRAPHIT_TEST_MODEL_SERVER=$model_server" >> "$GITHUB_ENV"
+      - name: Prepare pinned embedding GGUF for the Linux native NN gate
+        if: runner.os == 'Linux' && (github.event_name != 'workflow_dispatch' || inputs.native_integrations)
+        shell: bash
+        env:
+          EMBEDDING_MODEL_URL: https://huggingface.co/ggml-org/embeddinggemma-2-GGUF/resolve/bfcd298762cc34d0357ece5ebdd31791a3a374d8/embeddinggemma-2-BF16.gguf
+          EMBEDDING_MODEL_SHA256: 68bae29d62fb8c7d23e98d21fd4662753ddd636e6b62b8a70dfe059a9844f216
+          EMBEDDING_MODEL_BYTES: '557950176'
+        run: |
+          model_file="$RUNNER_TEMP/embeddinggemma-2-BF16.gguf"
+          curl --fail --location --show-error --silent "$EMBEDDING_MODEL_URL" --output "$model_file"
+          printf '%s  %s\n' "$EMBEDDING_MODEL_SHA256" "$model_file" | sha256sum --check
+          test "$(wc -c < "$model_file")" -eq "$EMBEDDING_MODEL_BYTES"
+          echo "GRAPHIT_EMBEDDINGGEMMA2_MODEL=$model_file" >> "$GITHUB_ENV"
+      - name: Prepare pinned reranker GGUF
+        if: runner.os == 'Linux' && (github.event_name != 'workflow_dispatch' || inputs.native_integrations)
+        shell: bash
+        env:
+          RERANK_MODEL_URL: https://huggingface.co/sinjab/bge-reranker-v2-m3-F16-GGUF/resolve/1458e3304258a8a11773000c7d0c192abfe78291/bge-reranker-v2-m3-F16.gguf
+          RERANK_MODEL_SHA256: 3c2de408d2c0a85a9472dc09f9d5a22c9b73743c6343952c15053299c777c298
+          RERANK_MODEL_BYTES: '1159774912'
+        run: |
+          model_file="$RUNNER_TEMP/bge-reranker-v2-m3-F16.gguf"
+          curl --fail --location --show-error --silent "$RERANK_MODEL_URL" --output "$model_file"
+          printf '%s  %s\n' "$RERANK_MODEL_SHA256" "$model_file" | sha256sum --check
+          test "$(wc -c < "$model_file")" -eq "$RERANK_MODEL_BYTES"
+          echo "GRAPHIT_BGE_RERANKER_V2_M3_MODEL=$model_file" >> "$GITHUB_ENV"
+      - name: Qualify native model and S3 integrations
+        if: runner.os == 'Linux' && (github.event_name != 'workflow_dispatch' || inputs.native_integrations)
+        run: cargo xtask qualify
+      - name: Install complete local package on Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        env:
+          NATIVE_PLATFORM: ${{ matrix.platform }}
+        run: |
+          sh install.sh --archive ".build/dist/graphit-$NATIVE_PLATFORM.tar.gz" --dir "$RUNNER_TEMP/graphit-install"
+          test -x "$RUNNER_TEMP/graphit-install/graphit-model-server"
+          test -s "$RUNNER_TEMP/graphit-install/graphit-runtime/build.json"
+          cd "$RUNNER_TEMP"
+          env -i HOME="$RUNNER_TEMP" PATH=/usr/bin:/bin "$RUNNER_TEMP/graphit-install/graphit" --version
+          set +e
+          env -i HOME="$RUNNER_TEMP" PATH=/usr/bin:/bin "$RUNNER_TEMP/graphit-install/graphit-model-server" > model-startup.log 2>&1
+          status=$?
+          set -e
+          test "$status" -eq 1
+          grep -F 'model child startup/service failed: InvalidInput' model-startup.log
+      - name: Install complete local package on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & ./scripts/test-install.ps1 -Archive .build/dist/graphit-windows-amd64.tar.gz
+          & powershell.exe -NoProfile -NonInteractive -File ./scripts/test-install.ps1 -Archive .build/dist/graphit-windows-amd64.tar.gz
+          if ($LASTEXITCODE -ne 0) { throw 'Windows PowerShell 5.1 installer qualification failed' }
+          ./install.ps1 -Archive .build/dist/graphit-windows-amd64.tar.gz -Dir "$env:RUNNER_TEMP/graphit-install"
+          Set-Location $env:RUNNER_TEMP
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          Remove-Item Env:OPENSSL_DIR, Env:OPENSSL_LIB_DIR, Env:CMAKE_PREFIX_PATH, Env:PKG_CONFIG_PATH -ErrorAction SilentlyContinue
+          & "$env:RUNNER_TEMP/graphit-install/graphit.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw 'Installed Graphit failed to start' }
+          foreach ($file in @('graphit-model-server.exe', 'graphit-runtime/build.json')) {
+            if (-not (Test-Path "$env:RUNNER_TEMP/graphit-install/$file" -PathType Leaf)) { throw "Missing installed $file" }
+          }
+          $startup = & "$env:RUNNER_TEMP/graphit-install/graphit-model-server.exe" 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 1 -or $startup -notlike '*model child startup/service failed: InvalidInput*') {
+            throw "Packaged model-server did not reach its entrypoint: $startup"
+          }
+          $global:LASTEXITCODE = 0
+      - name: Exercise the installed model-server on native Windows and macOS
+        if: runner.os != 'Linux'
+        env:
+          GRAPHIT_TEST_MODEL_SERVER: ${{ runner.temp }}/graphit-install/graphit-model-server${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: cargo xtask cargo test --locked --release -p graphit-daemon --test model_child packaged_model_child_preserves_bootstrap_errors_and_shutdown -- --ignored --exact
+      - name: Verify Git record snapshots with the Release build
+        if: github.event_name == 'workflow_dispatch'
+        run: cargo xtask cargo test --locked --release -p graphit-records --lib git_records::tests
+
+  packaging-contracts:
+    name: Native packaging contracts
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check affected shell scripts and package contracts
+        run: |
+          shellcheck -x install.sh scripts/package-release.sh scripts/graphit-entrypoint.sh
+          node scripts/test-native-packaging.mjs
+          node scripts/test-package-platform-runtime.mjs
+
+  publish:
+    name: Publish GitHub Release
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    needs: [build, packaging-contracts]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: "*-amd64"
+          path: release-assets
+          merge-multiple: true
+      - name: Download macOS release artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: darwin-arm64
+          path: release-assets
+      - name: Verify and combine artifact checksums
+        working-directory: release-assets
+        run: |
+          cat ./*.tar.gz.sha256 > checksums.sha256
+          sha256sum --check checksums.sha256
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Graphit Code ${{ github.ref_name }}"
+          generate_release_notes: true
+          body: |
+            Each archive contains graphit, graphit-model-server and graphit-runtime.
+            Keep the complete extracted package, including Windows app-local DLLs.
+            The native runtime includes its upstream license, notices and provenance.
+
+            Install Linux/macOS:
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.sh | sh
+            ```
+
+            Install Windows (PowerShell):
+            ```powershell
+            irm https://raw.githubusercontent.com/graphit-labs/graphit-code/main/install.ps1 | iex
+            ```
+
+            Verify downloaded archives with checksums.sha256.
+            Linux packages the optional Cargo-built CUDA engine and redistributable runtime with relative loader paths.
+            CPU remains the default. CUDA requires a compatible NVIDIA host driver.
+            See graphit-runtime/NATIVE-RUNTIME.md for model execution configuration.
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.sha256
+          fail_on_unmatched_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-image:
+    name: Publish Docker image (linux-amd64)
+    needs: [publish]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: linux-amd64
+          path: dist
+      - name: Prepare complete Docker build context
+        run: |
+          (cd dist && sha256sum --check graphit-linux-amd64.tar.gz.sha256)
+          mkdir -p .build/release
+          tar -xzf dist/graphit-linux-amd64.tar.gz -C .build/release
+          test -x .build/release/graphit-linux-amd64/graphit
+          test -x .build/release/graphit-linux-amd64/graphit-model-server
+          test -f .build/release/graphit-linux-amd64/graphit-runtime/build.json
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+      - name: Build image for native lifecycle validation
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: graphit-code:release-validation
+      - name: Validate native container startup, access and shutdown
+        run: |
+          name="graphit-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          volume="$name-state"
+          cleanup() {
+            docker rm --force "$name" >/dev/null 2>&1 || true
+            docker volume rm "$volume" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker volume create "$volume"
+          docker run -d --name "$name" --health-interval=1s --health-start-interval=1s \
+            --health-start-period=5s -p 127.0.0.1::8081 \
+            -v "$volume:/home/graphit/.graphit" graphit-code:release-validation
+          for phase in first restart; do
+            if [ "$phase" = restart ]; then docker start "$name"; fi
+            healthy=false
+            for _attempt in $(seq 1 30); do
+              if [ "$(docker container inspect --format '{{.State.Health.Status}}' "$name")" = healthy ]; then
+                healthy=true
+                break
+              fi
+              if [ "$(docker container inspect --format '{{.State.Running}}' "$name")" != true ]; then break; fi
+              sleep 1
+            done
+            if [ "$healthy" != true ]; then docker logs "$name"; exit 1; fi
+            test "$(docker exec "$name" id -u)" = 10001
+            docker exec "$name" graphit --non-interactive daemon status >/dev/null
+            published=$(docker port "$name" 8081/tcp)
+            status=$(curl --silent --show-error --connect-timeout 5 --max-time 10 --output /dev/null --write-out '%{http_code}' \
+              --header 'Content-Type: application/json' --header 'X-Graphit-Auth-Origin: runtime' \
+              --data '{"operation":"status"}' "http://$published/admin/daemon")
+            case "$status" in 401|403) ;; *) echo "Unauthenticated admin access returned $status" >&2; exit 1 ;; esac
+            docker stop --time 15 "$name"
+            code=$(docker container inspect --format '{{.State.ExitCode}}' "$name")
+            case "$code" in 0|130) ;; *) docker logs "$name"; exit 1 ;; esac
+          done
+      - name: Build and publish Docker image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

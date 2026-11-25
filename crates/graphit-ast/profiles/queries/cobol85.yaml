@@ -1,0 +1,890 @@
+
+
+language: cobol85
+parser: antlr4
+grammar: antlr-cobol85
+start_rule: startRule
+extensions: [".cob", ".cbl", ".cpy", ".cobol"]
+
+target_rules:
+  CALLS: { labels: [Paragraph, Program, Section] }
+queries:
+
+  - data_key: programs
+    graph_label: Program
+    pattern: "//programIdParagraph/programName"
+    type: entity
+
+  - data_key: end_programs
+    graph_label: ""
+    pattern: "//endProgramStatement/programName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: source_computers
+    graph_label: ""
+    pattern: "//sourceComputerParagraph/computerName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: object_computers
+    graph_label: ""
+    pattern: "//objectComputerParagraph/computerName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: alphabets
+    graph_label: Variable
+    pattern: "//alphabetClauseFormat1/alphabetName"
+    type: entity
+
+  - data_key: alphabets
+    graph_label: Variable
+    pattern: "//alphabetClauseFormat2/alphabetName"
+    type: entity
+
+  - data_key: class_names
+    graph_label: Variable
+    pattern: "//classClause/className"
+    type: entity
+
+  - data_key: mnemonics
+    graph_label: Variable
+    pattern: "//environmentSwitchNameClause/mnemonicName"
+    type: entity
+
+  - data_key: mnemonics
+    graph_label: Variable
+    pattern: "//channelClause/mnemonicName"
+    type: entity
+
+  - data_key: mnemonics
+    graph_label: Variable
+    pattern: "//odtClause/mnemonicName"
+    type: entity
+
+  - data_key: file_selects
+    graph_label: ""
+    pattern: "//selectClause/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: file_assigns
+    graph_label: ""
+    pattern: "//assignClause/assignmentName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: record_keys
+    graph_label: ""
+    pattern: "//recordKeyClause/qualifiedDataName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: alternate_keys
+    graph_label: ""
+    pattern: "//alternateRecordKeyClause/qualifiedDataName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: file_statuses
+    graph_label: ""
+    pattern: "//fileStatusClause/qualifiedDataName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: relative_keys
+    graph_label: ""
+    pattern: "//relativeKeyClause/qualifiedDataName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: same_areas
+    graph_label: ""
+    pattern: "//sameClause/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: reruns
+    graph_label: ""
+    pattern: "//rerunClause/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: multiple_files
+    graph_label: ""
+    pattern: "//multipleFilePosition/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: commitment_files
+    graph_label: ""
+    pattern: "//commitmentControlClause/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: files
+    graph_label: FileDescription
+    pattern: "//fileDescriptionEntry/fileName"
+    type: entity
+
+  - data_key: fd_reports
+    graph_label: ""
+    pattern: "//reportClause/reportName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//dataDescriptionEntryFormat1"
+    value_label: Value
+    type: entity
+    captures: {"name": [{"xpath": "/dataName"}], "value": [{"xpath": "/dataValueClause/dataValueInterval/dataValueIntervalFrom/literal"}]}
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//dataDescriptionEntryFormat1/dataName"
+    type: entity
+
+  - data_key: renames
+    graph_label: Variable
+    pattern: "//dataDescriptionEntryFormat2/dataName"
+    type: entity
+
+  - data_key: conditions
+    graph_label: Condition
+    pattern: "//dataDescriptionEntryFormat3/conditionName"
+    type: entity
+
+  - data_key: redefines
+    graph_label: ""
+    pattern: "//dataRedefinesClause/dataName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: rename_refs
+    graph_label: ""
+    pattern: "//dataRenamesClause/qualifiedDataName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: occurs_depending
+    graph_label: ""
+    pattern: "//dataOccursClause/qualifiedDataName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: indexes
+    graph_label: Variable
+    pattern: "//dataOccursClause/indexName"
+    type: entity
+
+  - data_key: reports
+    graph_label: Variable
+    pattern: "//reportDescriptionEntry/reportName"
+    type: entity
+
+  - data_key: report_groups
+    graph_label: Variable
+    pattern: "//reportGroupDescriptionEntryFormat1/dataName"
+    type: entity
+
+  - data_key: report_groups
+    graph_label: Variable
+    pattern: "//reportGroupDescriptionEntryFormat2/dataName"
+    type: entity
+
+  - data_key: report_groups
+    graph_label: Variable
+    pattern: "//reportGroupDescriptionEntryFormat3/dataName"
+    type: entity
+
+  - data_key: report_sources
+    graph_label: ""
+    pattern: "//reportGroupSourceClause/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: report_sums
+    graph_label: ""
+    pattern: "//reportGroupSumClause/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: screens
+    graph_label: Variable
+    pattern: "//screenDescriptionEntry/screenName"
+    type: entity
+
+  - data_key: screen_froms
+    graph_label: ""
+    pattern: "//screenDescriptionFromClause/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: screen_usings
+    graph_label: ""
+    pattern: "//screenDescriptionUsingClause/identifier"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: comm_descs
+    graph_label: Variable
+    pattern: "//communicationDescriptionEntryFormat1/cdName"
+    type: entity
+
+  - data_key: comm_descs
+    graph_label: Variable
+    pattern: "//communicationDescriptionEntryFormat2/cdName"
+    type: entity
+
+  - data_key: comm_descs
+    graph_label: Variable
+    pattern: "//communicationDescriptionEntryFormat3/cdName"
+    type: entity
+
+  - data_key: libraries
+    graph_label: Variable
+    pattern: "//libraryDescriptionEntryFormat1/libraryName"
+    type: entity
+
+  - data_key: libraries
+    graph_label: Variable
+    pattern: "//libraryDescriptionEntryFormat2/libraryName"
+    type: entity
+
+  - data_key: sections
+    graph_label: Section
+    pattern: "//procedureSection/procedureSectionHeader/sectionName"
+    type: entity
+
+  - data_key: sections
+    graph_label: Section
+    pattern: "//procedureDeclarative/procedureSectionHeader/sectionName"
+    type: entity
+
+  - data_key: paragraphs
+    graph_label: Paragraph
+    pattern: "//paragraph/paragraphName"
+    type: entity
+
+  - data_key: proc_params
+    graph_label: ""
+    pattern: "//procedureDivisionByReference/identifier"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: proc_params
+    graph_label: ""
+    pattern: "//procedureDivisionByValue/identifier"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: proc_giving
+    graph_label: ""
+    pattern: "//procedureDivisionGivingClause/dataName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//performProcedureStatement/procedureName"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//callStatement/literal"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//callStatement/identifier"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: gotos
+    graph_label: ""
+    pattern: "//goToStatementSimple/procedureName"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: gotos_depending
+    graph_label: ""
+    pattern: "//goToDependingOnStatement/procedureName"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: cancels
+    graph_label: ""
+    pattern: "//cancelStatement/identifier"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: cancels
+    graph_label: ""
+    pattern: "//cancelStatement/literal"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: entries
+    graph_label: Paragraph
+    pattern: "//entryStatement/literal"
+    type: entity
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alterStatement/procedureName"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: reads
+    graph_label: ""
+    pattern: "//readStatement/fileName"
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: read_intos
+    graph_label: ""
+    pattern: "//readInto/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: read_keys
+    graph_label: ""
+    pattern: "//readKey/qualifiedDataName"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: writes
+    graph_label: ""
+    pattern: "//writeStatement/recordName"
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: write_froms
+    graph_label: ""
+    pattern: "//writeFromPhrase/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: rewrites
+    graph_label: ""
+    pattern: "//rewriteStatement/recordName"
+    type: relation
+    relation_type: UPDATES
+
+  - data_key: rewrite_froms
+    graph_label: ""
+    pattern: "//rewriteFrom/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: file_deletes
+    graph_label: ""
+    pattern: "//deleteStatement/fileName"
+    type: relation
+    relation_type: DELETES
+
+  - data_key: opens
+    graph_label: ""
+    pattern: "//openInput/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: opens
+    graph_label: ""
+    pattern: "//openOutput/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: opens
+    graph_label: ""
+    pattern: "//openIOStatement/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: opens
+    graph_label: ""
+    pattern: "//openExtendStatement/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: closes
+    graph_label: ""
+    pattern: "//closeStatement//fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: starts
+    graph_label: ""
+    pattern: "//startStatement/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: start_keys
+    graph_label: ""
+    pattern: "//startKey/qualifiedDataName"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: move_sources
+    graph_label: ""
+    pattern: "//moveToSendingArea/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: move_targets
+    graph_label: ""
+    pattern: "//moveToStatement/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: move_corr_sources
+    graph_label: ""
+    pattern: "//moveCorrespondingToSendingArea/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: move_corr_targets
+    graph_label: ""
+    pattern: "//moveCorrespondingToStatement/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: compute_targets
+    graph_label: ""
+    pattern: "//computeStore/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: add_targets
+    graph_label: ""
+    pattern: "//addToStatement/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: add_giving
+    graph_label: ""
+    pattern: "//addToGivingStatement/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: add_corr
+    graph_label: ""
+    pattern: "//addCorrespondingStatement/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: subtract_targets
+    graph_label: ""
+    pattern: "//subtractMinuend/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: subtract_giving
+    graph_label: ""
+    pattern: "//subtractGiving/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: multiply_targets
+    graph_label: ""
+    pattern: "//multiplyRegularOperand/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: multiply_giving
+    graph_label: ""
+    pattern: "//multiplyGivingResult/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: divide_targets
+    graph_label: ""
+    pattern: "//divideInto/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: divide_giving
+    graph_label: ""
+    pattern: "//divideGiving/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: divide_remainder
+    graph_label: ""
+    pattern: "//divideRemainder/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: string_targets
+    graph_label: ""
+    pattern: "//stringIntoPhrase/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: string_pointers
+    graph_label: ""
+    pattern: "//stringWithPointerPhrase/qualifiedDataName"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: unstring_sources
+    graph_label: ""
+    pattern: "//unstringSendingPhrase/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: unstring_targets
+    graph_label: ""
+    pattern: "//unstringInto/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: unstring_tallying
+    graph_label: ""
+    pattern: "//unstringTallyingPhrase/qualifiedDataName"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: unstring_pointers
+    graph_label: ""
+    pattern: "//unstringWithPointerPhrase/qualifiedDataName"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: inspect_targets
+    graph_label: ""
+    pattern: "//inspectStatement/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: inspect_tallying
+    graph_label: ""
+    pattern: "//inspectFor/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: searches
+    graph_label: ""
+    pattern: "//searchStatement/qualifiedDataName"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: search_varying
+    graph_label: ""
+    pattern: "//searchVarying/qualifiedDataName"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: set_targets
+    graph_label: ""
+    pattern: "//setTo/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: set_updown_targets
+    graph_label: ""
+    pattern: "//setUpDownByStatement//setTo/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: initializes
+    graph_label: ""
+    pattern: "//initializeStatement/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: accepts
+    graph_label: ""
+    pattern: "//acceptStatement/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: accept_from_mnemonics
+    graph_label: ""
+    pattern: "//acceptFromMnemonicStatement/mnemonicName"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: displays
+    graph_label: ""
+    pattern: "//displayOperand/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: display_upons
+    graph_label: ""
+    pattern: "//displayUpon/mnemonicName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: sort_files
+    graph_label: ""
+    pattern: "//sortStatement/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: sort_keys
+    graph_label: ""
+    pattern: "//sortOnKeyClause/qualifiedDataName"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: sort_usings
+    graph_label: ""
+    pattern: "//sortUsing/fileName"
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: sort_givings
+    graph_label: ""
+    pattern: "//sortGiving/fileName"
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: sort_input_procs
+    graph_label: ""
+    pattern: "//sortInputProcedurePhrase/procedureName"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: sort_output_procs
+    graph_label: ""
+    pattern: "//sortOutputProcedurePhrase/procedureName"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: merge_files
+    graph_label: ""
+    pattern: "//mergeStatement/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: merge_keys
+    graph_label: ""
+    pattern: "//mergeOnKeyClause/qualifiedDataName"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: merge_usings
+    graph_label: ""
+    pattern: "//mergeUsing/fileName"
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: merge_givings
+    graph_label: ""
+    pattern: "//mergeGiving/fileName"
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: merge_output_procs
+    graph_label: ""
+    pattern: "//mergeOutputProcedurePhrase/procedureName"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: releases
+    graph_label: ""
+    pattern: "//releaseStatement/recordName"
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: release_froms
+    graph_label: ""
+    pattern: "//releaseStatement/qualifiedDataName"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: returns
+    graph_label: ""
+    pattern: "//returnStatement/fileName"
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: return_intos
+    graph_label: ""
+    pattern: "//returnInto/qualifiedDataName"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: receives
+    graph_label: ""
+    pattern: "//receiveIntoStatement/cdName"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: receive_targets
+    graph_label: ""
+    pattern: "//receiveIntoStatement/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: receive_thread
+    graph_label: ""
+    pattern: "//receiveFromStatement/dataName"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: sends
+    graph_label: ""
+    pattern: "//sendStatementSync/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: send_froms
+    graph_label: ""
+    pattern: "//sendFromPhrase/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+  - data_key: enables
+    graph_label: ""
+    pattern: "//enableStatement/cdName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: disables
+    graph_label: ""
+    pattern: "//disableStatement/cdName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: purges
+    graph_label: ""
+    pattern: "//purgeStatement/cdName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: generates
+    graph_label: ""
+    pattern: "//generateStatement/reportName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: initiates
+    graph_label: ""
+    pattern: "//initiateStatement/reportName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: terminates
+    graph_label: ""
+    pattern: "//terminateStatement/reportName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: exec_sql
+    graph_label: Variable
+    pattern: "//execSqlStatement"
+    type: entity
+
+  - data_key: exec_cics
+    graph_label: Variable
+    pattern: "//execCicsStatement"
+    type: entity
+
+  - data_key: exec_sql_ims
+    graph_label: Variable
+    pattern: "//execSqlImsStatement"
+    type: entity
+
+  - data_key: exec_sql_data
+    graph_label: Variable
+    pattern: "//dataDescriptionEntryExecSql"
+    type: entity
+
+  - data_key: imports
+    graph_label: ""
+    pattern: "//copyStatement/copySource"
+    source: cobol-preprocessor
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: use_after_files
+    graph_label: ""
+    pattern: "//useAfterOn/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: use_debug
+    graph_label: ""
+    pattern: "//useDebugOn/procedureName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: use_debug_files
+    graph_label: ""
+    pattern: "//useDebugOn/fileName"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: perform_varying
+    graph_label: ""
+    pattern: "//performVaryingPhrase/identifier"
+    type: relation
+    relation_type: WRITES_FIELD
+
+  - data_key: exhibits
+    graph_label: ""
+    pattern: "//exhibitOperand/identifier"
+    type: relation
+    relation_type: READS_FIELD
+
+exports:
+  strategy: none
+
+antlr_contexts:
+  - {"pattern": "//programUnit", "label": "Program"}
+  - {"pattern": "//procedureSection", "label": "Section"}
+  - {"pattern": "//procedureDeclarative", "label": "Section"}
+  - {"pattern": "//paragraph", "label": "Paragraph"}
+  - {"pattern": "//fileDescriptionEntry", "label": "FileDescription"}
+  - {"pattern": "//workingStorageSection", "label": "Program"}
+  - {"pattern": "//linkageSection", "label": "Program"}
+  - {"pattern": "//localStorageSection", "label": "Program"}
+  - {"pattern": "//communicationSection", "label": "Program"}
+  - {"pattern": "//screenSection", "label": "Program"}
+  - {"pattern": "//reportSection", "label": "Program"}
+  - {"pattern": "//dataBaseSection", "label": "Program"}
+  - {"pattern": "//programLibrarySection", "label": "Program"}
+
+comment_types:
+  - COMMENT_TAG
+
+declaration_types:
+  - programIdParagraph
+  - procedureSectionHeader
+  - paragraph
+  - fileDescriptionEntry
+  - dataDescriptionEntryFormat1
+  - dataDescriptionEntryFormat2
+  - dataDescriptionEntryFormat3
+  - reportDescriptionEntry
+  - reportGroupDescriptionEntryFormat1
+  - reportGroupDescriptionEntryFormat2
+  - reportGroupDescriptionEntryFormat3
+  - screenDescriptionEntry
+  - communicationDescriptionEntryFormat1
+  - communicationDescriptionEntryFormat2
+  - communicationDescriptionEntryFormat3
+  - libraryDescriptionEntryFormat1
+  - libraryDescriptionEntryFormat2
+
+complexity:
+  node_types:
+    - ifStatement
+    - performStatement
+    - evaluateWhen
+
+embed_labels:
+  - Program
+  - Section
+  - Paragraph
+  - FileDescription
+  - Condition
+  - Variable
+  - Comment

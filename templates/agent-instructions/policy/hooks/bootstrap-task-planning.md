@@ -1,0 +1,1 @@
+For multi-step work, persist specification, acceptance criteria, plan and dependency-ordered tasks before execution. Resume from recorded progress/evidence; revise affected tasks when scope changes. A single umbrella task is not an executable project plan.

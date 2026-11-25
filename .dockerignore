@@ -1,0 +1,11 @@
+# Include only the complete Linux release and maintained entrypoint.
+*
+!.build/
+!.build/release/
+!.build/release/graphit-linux-amd64/
+!.build/release/graphit-linux-amd64/graphit
+!.build/release/graphit-linux-amd64/graphit-model-server
+!.build/release/graphit-linux-amd64/graphit-runtime/
+!.build/release/graphit-linux-amd64/graphit-runtime/**
+!scripts/
+!scripts/graphit-entrypoint.sh

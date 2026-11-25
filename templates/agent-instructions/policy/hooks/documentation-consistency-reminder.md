@@ -1,0 +1,1 @@
+At a completed work unit, verify acceptance and code/Knowledge consistency, then checkpoint the active Task and session with evidence. Before final delivery, reconcile outstanding checks and close completed work through MCP.

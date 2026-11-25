@@ -1,0 +1,126 @@
+language: dart
+grammar: tree-sitter-dart
+extensions: [".dart"]
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_signature name: (identifier) @name)'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_signature (function_signature name: (identifier) @name))'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_signature (constructor_signature name: (identifier) @name))'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_signature (getter_signature name: (identifier) @name))'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_signature (setter_signature name: (identifier) @name))'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_declaration name: (identifier) @name)'
+  - data_key: enums
+    graph_label: Enum
+    pattern: '(enum_declaration name: (identifier) @name)'
+  - data_key: interfaces
+    graph_label: Mixin
+    pattern: '(mixin_declaration name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Extension
+    pattern: '(extension_declaration name: (identifier) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_specification (configurable_uri (uri (string_literal) @name)))'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(formal_parameter name: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(initialized_identifier (identifier) @name)'
+
+  - data_key: fields
+    graph_label: Field
+    pattern: '(initialized_identifier name: (identifier) @name value: [(decimal_integer_literal) (hex_integer_literal) (decimal_floating_point_literal) (true) (false) (null_literal) (string_literal)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(static_final_declaration name: (identifier) @name)'
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(static_final_declaration name: (identifier) @name value: [(decimal_integer_literal) (hex_integer_literal) (decimal_floating_point_literal) (true) (false) (null_literal) (string_literal)] @value)'
+    value_capture: value
+    value_label: Value
+
+  - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
+    pattern: '(annotation name: (identifier) @name)'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(superclass (type (type_identifier) @name))'
+  - data_key: implements
+    type: relation
+    relation_type: IMPLEMENTS
+    pattern: '(interfaces (type (type_identifier) @name))'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(mixins (type (type_identifier) @name))'
+
+exports:
+  strategy: no_prefix
+  config:
+    prefix: "_"
+
+self_keywords: ["this."]
+
+context_types:
+  class_declaration: Class
+  enum_declaration: Enum
+  mixin_declaration: Mixin
+  extension_declaration: Extension
+
+  function_signature: Function
+  method_signature: Method
+
+anon_func_types:
+  - function_expression
+
+declaration_types:
+  - class_declaration
+  - enum_declaration
+  - mixin_declaration
+  - extension_declaration
+  - type_alias
+  - function_signature
+  - method_signature
+
+comment_types:
+  - comment
+  - documentation_comment
+
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - while_statement
+    - switch_statement_case
+    - catch_clause
+    - conditional_expression
+    - logical_and_expression
+    - logical_or_expression
+
+embed_labels:
+  - Class
+  - Mixin
+  - Extension
+  - Enum
+  - Function
+  - Method
+  - Field
+  - Constant
+  - Comment

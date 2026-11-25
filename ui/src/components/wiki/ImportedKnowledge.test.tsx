@@ -1,0 +1,168 @@
+import '@/test/contextControls'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { nativeKnowledgeApi, type ImportedKnowledgeEnvelope, type ImportedKnowledgeSource } from '@/api/nativeKnowledge'
+import { importedKnowledgeHref } from '@/api/nativeRecordNavigation'
+import { NativeRecordReadError } from '@/api/nativeRecordRead'
+import WikiExplorerPage from './WikiExplorerPage'
+
+vi.mock('@/api/nativeKnowledge', async original => ({ ...await original<typeof import('@/api/nativeKnowledge')>(), nativeKnowledgeApi: { heads: vi.fn(), page: vi.fn(), importedContexts: vi.fn(), importedHeads: vi.fn(), importedPage: vi.fn(), importedSearch:vi.fn() } }))
+const source: ImportedKnowledgeSource = { kind: 'imported_knowledge', artifact: { id: 'literal@artifact', version: ' pinned / version ', context_alias: 'literal alias' } }
+const mirror: ImportedKnowledgeSource = { ...source, artifact: { ...source.artifact, context_alias: 'other alias' } }
+const document = { slug: 'literal /slug.md', title: 'Imported document', body: '# Complete imported body\n\n## Content\n\n**Imported guidance**', resolved_wiki_targets: ['literal target.md', 'literal target.md'] }
+const found: ImportedKnowledgeEnvelope = { source, focused_source: null, native: { state: 'published', page: { state: 'found', document } } }
+function SwitchArtifact() { const navigate = useNavigate(); return <button onClick={() => navigate(importedKnowledgeHref(mirror, document.slug))}>Switch imported tuple</button> }
+function mount(path = importedKnowledgeHref(source, document.slug)) { return render(<MemoryRouter initialEntries={[path]}><SwitchArtifact /><WikiExplorerPage /></MemoryRouter>) }
+beforeEach(() => {
+  vi.clearAllMocks()
+  HTMLElement.prototype.scrollIntoView = vi.fn()
+  HTMLElement.prototype.scrollTo = vi.fn()
+  window.scrollTo = vi.fn()
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  vi.mocked(nativeKnowledgeApi.importedContexts).mockResolvedValue({ contexts: [source, mirror] })
+  vi.mocked(nativeKnowledgeApi.importedHeads).mockResolvedValue({ source, native: { state: 'published', heads: [{ slug: document.slug, title: document.title, updated_at: '-9223372036854775808' }] } })
+  vi.mocked(nativeKnowledgeApi.importedPage).mockResolvedValue(found)
+})
+
+describe('native imported Knowledge reader', () => {
+  it.each(['catalogue', 'search', 'slug form'])('reveals an initial imported %s selection through loading, error and retry', async origin => {
+    let failPage!: (error:Error) => void
+    vi.mocked(nativeKnowledgeApi.importedPage).mockImplementationOnce(() => new Promise((_done,reject) => { failPage=reject }))
+    const focus = {slug:document.slug,title:document.title }
+    vi.mocked(nativeKnowledgeApi.importedSearch).mockResolvedValue({source,focused_source:null,native:{state:'hits',total:1,hits:[{ ...focus}],next_cursor:null}})
+    mount(importedKnowledgeHref(source))
+    const user = userEvent.setup()
+    const library = screen.getByRole('navigation',{name:'Published imported Knowledge pages'})
+    await within(library).findByRole('button',{name:document.title})
+    if (origin === 'search') {
+      await user.type(screen.getByRole('textbox',{name:'Search Knowledge pages'}),'guidance')
+      await user.click(screen.getByRole('button',{name:'Search pages'}))
+    }
+    const catalogue = origin === 'search' ? screen.getByRole('navigation',{name:'Knowledge search results'}) : library
+    if (origin === 'slug form') {
+      await user.type(screen.getByRole('textbox',{name:'Imported Knowledge page slug'}),document.slug)
+      await user.click(screen.getByRole('button',{name:'Read page'}))
+    } else await user.click(await within(catalogue).findByRole('button',{name:document.title}))
+    const reader = screen.getByRole('article',{name:'Imported Knowledge document'})
+    const scroll = vi.mocked(HTMLElement.prototype.scrollTo)
+    expect(within(reader).getByText('Loading imported Knowledge document…')).toBeTruthy()
+    expect(globalThis.document.activeElement).toBe(reader)
+    expect(scroll).toHaveBeenCalledTimes(1)
+    expect(scroll.mock.contexts.at(-1)).toBe(reader.closest('.work-page'))
+    expect(scroll).toHaveBeenLastCalledWith({top:0,behavior:'instant'})
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled()
+    expect(window.scrollTo).not.toHaveBeenCalled()
+    await waitFor(() => expect(nativeKnowledgeApi.importedPage).toHaveBeenCalledTimes(1))
+    await act(async () => failPage(new Error('HTTP 503 initial imported document unavailable')))
+    expect(within(reader).getByText('HTTP 503 initial imported document unavailable')).toBeTruthy()
+    expect(globalThis.document.activeElement).toBe(reader)
+    expect(scroll).toHaveBeenCalledTimes(1)
+    await user.click(within(reader).getByRole('button',{name:'Retry document'}))
+    const title = await within(reader).findByRole('heading',{name:document.title})
+    await waitFor(() => expect(globalThis.document.activeElement).toBe(title))
+    expect(scroll).toHaveBeenCalledTimes(1)
+    expect(nativeKnowledgeApi.importedPage).toHaveBeenLastCalledWith(source,document.slug,expect.any(AbortSignal))
+    expect(nativeKnowledgeApi.page).not.toHaveBeenCalled()
+  })
+
+  it('reads a clicked imported search hit inline with the same exact artifact tuple', async () => {
+    const focus = {slug:document.slug,title:document.title }
+    vi.mocked(nativeKnowledgeApi.importedSearch).mockResolvedValue({source,focused_source:null,native:{state:'hits',total:1,hits:[{ ...focus}],next_cursor:null}})
+    const next = {target:'authored next',slug:'outside imported hits',title:'Next imported page'}
+    let finish!: (reply:ImportedKnowledgeEnvelope) => void
+    vi.mocked(nativeKnowledgeApi.importedPage).mockResolvedValueOnce({...found,native:{state:'published',page:{state:'found',document:{...document,next}}}})
+      .mockImplementationOnce(() => new Promise(done => { finish = done }))
+    mount(importedKnowledgeHref(source))
+    const user = userEvent.setup()
+    await user.type(screen.getByRole('textbox',{name:'Search Knowledge pages'}),'imported guidance')
+    await user.click(screen.getByRole('button',{name:'Search pages'}))
+    const results = screen.getByRole('navigation',{name:'Knowledge search results'})
+    await user.click(await within(results).findByRole('button',{name:document.title}))
+    await within(results).findByRole('heading',{name:document.title})
+    expect(screen.getAllByRole('article',{name:'Imported Knowledge document'})).toHaveLength(1)
+    expect(nativeKnowledgeApi.importedPage).toHaveBeenCalledTimes(1)
+    expect(nativeKnowledgeApi.importedPage).toHaveBeenCalledWith(source,document.slug,expect.any(AbortSignal))
+    expect(nativeKnowledgeApi.page).not.toHaveBeenCalled()
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(HTMLElement.prototype.scrollTo).mock.contexts.at(-1)).toBe(within(results).getByRole('article',{name:'Imported Knowledge document'}).closest('.work-page'))
+    await user.click(within(results).getByRole('button',{name:'Next page: Next imported page'}))
+    const pending = within(results).getByRole('article',{name:'Imported Knowledge document'})
+    expect(within(pending).getByText('Loading imported Knowledge document…')).toBeTruthy()
+    expect(globalThis.document.activeElement).toBe(pending)
+    expect(vi.mocked(HTMLElement.prototype.scrollTo).mock.contexts.at(-1)).toBe(pending.closest('.work-page'))
+    expect(HTMLElement.prototype.scrollTo).toHaveBeenLastCalledWith({top:0,behavior:'instant'})
+    expect(nativeKnowledgeApi.importedPage).toHaveBeenLastCalledWith(source,next.slug,expect.any(AbortSignal))
+    await act(async () => finish({...found,native:{state:'published',page:{state:'found',document:{...document,slug:next.slug,title:next.title}}}}))
+    await within(results).findByRole('heading',{name:next.title})
+    expect(vi.mocked(HTMLElement.prototype.scrollTo).mock.calls).toHaveLength(2)
+  })
+
+  it('requires an explicit artifact choice and never chooses the first inventory item', async () => {
+    mount(importedKnowledgeHref(null))
+    await screen.findByRole('combobox', { name: 'Imported Knowledge artifact' })
+    expect(screen.getByText('Select an installed artifact')).toBeTruthy()
+    expect(nativeKnowledgeApi.importedPage).not.toHaveBeenCalled()
+    expect(nativeKnowledgeApi.heads).not.toHaveBeenCalled(); expect(nativeKnowledgeApi.page).not.toHaveBeenCalled()
+  })
+  it('uses the exact imported tuple and literal slug, retaining the original Markdown', async () => {
+    mount()
+    const dossier = screen.getByRole('article', { name: 'Imported Knowledge document' })
+    await within(dossier).findByRole('heading', { name: document.title })
+    expect(nativeKnowledgeApi.importedPage).toHaveBeenCalledWith(source, document.slug, expect.any(AbortSignal))
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Raw Markdown' }))
+    expect(within(dossier).getByRole('region', { name: 'Document body' }).querySelector('pre')!.textContent).toBe(document.body)
+    expect(nativeKnowledgeApi.heads).not.toHaveBeenCalled(); expect(nativeKnowledgeApi.page).not.toHaveBeenCalled()
+  })
+  it('distinguishes registry absent, empty publication and absent page, then retries a real causal error', async () => {
+    for (const [native, title] of [
+      [{ state: 'registry_absent' }, 'Knowledge artifact is not registered'],
+      [{ state: 'published', page: { state: 'published_empty' } }, 'The Knowledge publication is empty'],
+      [{ state: 'published', page: { state: 'page_absent' } }, 'Knowledge page not found'],
+    ] as const) {
+      vi.mocked(nativeKnowledgeApi.importedPage).mockResolvedValueOnce({ source, focused_source: null, native })
+      const view = mount(); await screen.findByText(title); view.unmount()
+    }
+    vi.mocked(nativeKnowledgeApi.importedPage).mockRejectedValueOnce(new NativeRecordReadError(503))
+    mount(); await screen.findByText('Record request failed (HTTP 503)')
+    expect(screen.queryByText('Knowledge artifact is not registered')).toBeNull()
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Retry document' }))
+    expect(await screen.findByRole('heading', { name: document.title })).toBeTruthy()
+  })
+  it('aborts reads on an imported tuple switch and ignores a late old publication', async () => {
+    let finish!: (value: ImportedKnowledgeEnvelope) => void
+    let finishHeads!: (value: Awaited<ReturnType<typeof nativeKnowledgeApi.importedHeads>>) => void
+    vi.mocked(nativeKnowledgeApi.importedPage).mockImplementationOnce(() => new Promise(done => { finish = done }))
+    vi.mocked(nativeKnowledgeApi.importedHeads).mockImplementationOnce(() => new Promise(done => { finishHeads = done }))
+    mount(); await waitFor(() => expect(nativeKnowledgeApi.importedPage).toHaveBeenCalledOnce())
+    await waitFor(() => expect(nativeKnowledgeApi.importedHeads).toHaveBeenCalledOnce())
+    const oldPage = vi.mocked(nativeKnowledgeApi.importedPage).mock.calls[0][2]!
+    const oldHeads = vi.mocked(nativeKnowledgeApi.importedHeads).mock.calls[0][1]!
+    const oldRegistry = vi.mocked(nativeKnowledgeApi.importedContexts).mock.calls[0][0]!
+    vi.mocked(nativeKnowledgeApi.importedPage).mockResolvedValue({ source: mirror, focused_source: null, native: { state: 'published', page: { state: 'found', document: { ...document, title: 'Current imported document' } } } })
+    vi.mocked(nativeKnowledgeApi.importedHeads).mockResolvedValue({ source: mirror, native: { state: 'published', heads: [{ slug: 'current-head.md', title: 'Current imported head', updated_at: '-9223372036854775808' }] } })
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Switch imported tuple' }))
+    await screen.findByRole('heading', { name: 'Current imported document' })
+    const currentHeads = await screen.findByRole('navigation', { name: 'Published imported Knowledge pages' })
+    await within(currentHeads).findByText('Current imported head')
+    expect(nativeKnowledgeApi.importedHeads).toHaveBeenLastCalledWith(mirror, expect.any(AbortSignal))
+    expect(oldPage.aborted).toBe(true); expect(oldHeads.aborted).toBe(true); expect(oldRegistry.aborted).toBe(true)
+    await act(async () => {
+      finish(found)
+      finishHeads({ source, native: { state: 'published', heads: [{ slug: 'late-old-head.md', title: 'Late old imported head', updated_at: '-9223372036854775808' }] } })
+    })
+    expect(screen.queryByRole('heading', { name: document.title })).toBeNull()
+    expect(within(currentHeads).getByText('Current imported head')).toBeTruthy()
+    expect(within(currentHeads).queryByText('Late old imported head')).toBeNull()
+    expect(within(currentHeads).queryByText('late-old-head.md')).toBeNull()
+  })
+  it('rejects malformed, ambiguous and PROJECT-bearing imported URIs before any read', async () => {
+    for (const path of ['/knowledge/explorer?library=unknown', '/knowledge/explorer?library=imported&source=%7B%7D', importedKnowledgeHref(source, document.slug) + '&source=%7B', importedKnowledgeHref(source) + '&selection=%7B%7D']) {
+      const view = mount(path); await screen.findByText('Invalid imported Knowledge selection'); view.unmount()
+    }
+    expect(nativeKnowledgeApi.importedContexts).not.toHaveBeenCalled(); expect(nativeKnowledgeApi.importedPage).not.toHaveBeenCalled()
+    expect(nativeKnowledgeApi.heads).not.toHaveBeenCalled(); expect(nativeKnowledgeApi.page).not.toHaveBeenCalled()
+  })
+})

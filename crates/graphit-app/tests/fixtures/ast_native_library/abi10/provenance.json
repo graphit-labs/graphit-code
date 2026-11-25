@@ -1,0 +1,23 @@
+{
+  "repository": "https://github.com/tree-sitter/tree-sitter-json",
+  "tag": "v0.15.1",
+  "tag_object": "e56f105809a2975412e0c445ab72d8c94dc9a0e2",
+  "commit": "fa7eb833f679314a37ec0d06ec30fcad0f18633f",
+  "abi": 10,
+  "purpose": "Official incompatible-ABI rejection fixture only; not a supported grammar",
+  "license": "MIT",
+  "files": [
+    {
+      "path": "parser.c",
+      "upstream": "src/parser.c"
+    },
+    {
+      "path": "tree_sitter/parser.h",
+      "upstream": "src/tree_sitter/parser.h"
+    },
+    {
+      "path": "LICENSE",
+      "upstream": "LICENSE"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+text: α😀
+list: ['123', "true", !!str null, 1_0]
+map:
+  nUlL: NuLl
+  other: yes
+flag: TRUE
+cleared: null

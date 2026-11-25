@@ -1,0 +1,17 @@
+[package]
+name = "graphit-runtime"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+minijinja = { version = "=2.24.0", default-features = false, features = ["builtins", "multi_template", "fuel", "serde"] }
+graphit-core = { path = "../graphit-core" }
+graphit-hub = { path = "../graphit-hub" }
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

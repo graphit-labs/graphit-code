@@ -1,0 +1,1337 @@
+
+
+language: plsql
+parser: antlr4
+grammar: antlr-plsql
+start_rule: sql_script
+extensions: [".sql", ".pks", ".pkb", ".pls", ".plb", ".prc", ".fnc", ".trg", ".typ", ".bdy", ".spc", ".vw"]
+exclusive: true
+
+target_rules:
+  CALLS: { labels: [Function, Procedure, Package] }
+  SELECTS: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
+  INSERTS: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
+  UPDATES: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
+  DELETES: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
+  ALTERS: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
+  DROPS: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
+  CREATES: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
+  TRUNCATES: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
+  REFERENCES: { labels: [Table, View, MaterializedView, Synonym, Sequence, Package, Procedure, Function, Trigger, Type, Index, DBLink, Tablespace], fallback: Table }
+
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//create_function_body/function_name"
+    type: entity
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//function_body/identifier"
+    type: entity
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//function_spec/identifier"
+    type: entity
+
+  - data_key: procedures
+    graph_label: Procedure
+    pattern: "//create_procedure_body/procedure_name"
+    type: entity
+
+  - data_key: procedures
+    graph_label: Procedure
+    pattern: "//procedure_body/identifier"
+    type: entity
+
+  - data_key: procedures
+    graph_label: Procedure
+    pattern: "//procedure_spec/identifier"
+    type: entity
+
+  - data_key: packages
+    graph_label: Package
+    pattern: "//create_package/package_name"
+    type: entity
+
+  - data_key: packages
+    graph_label: Package
+    pattern: "//create_package_body/package_name"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//create_type/type_definition/type_name"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//create_type/type_body/type_name"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//subtype_declaration/identifier"
+    type: entity
+
+  - data_key: triggers
+    graph_label: Trigger
+    pattern: "//create_trigger/trigger_name"
+    type: entity
+
+  - data_key: trigger_tables
+    graph_label: ""
+    pattern: "//create_trigger/tableview_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: tables
+    graph_label: Table
+    pattern: "//create_table/table_name"
+    type: entity
+
+  - data_key: views
+    graph_label: View
+    pattern: "//create_view/id_expression"
+    type: entity
+
+  - data_key: mviews
+    graph_label: MaterializedView
+    pattern: "//create_materialized_view/tableview_name"
+    type: entity
+
+  - data_key: column_writes_update
+    pattern: "//column_based_update_set_clause/column_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+    captures: {"qualifier": [{"nearest_ancestor": "update_statement"}, {"xpath": "/general_table_ref"}]}
+
+  - data_key: column_writes_insert
+    pattern: "//paren_column_list/column_list/column_name"
+    type: relation
+    relation_type: WRITES_COLUMN
+    captures: {"qualifier": [{"nearest_ancestor": "insert_into_clause"}, {"xpath": "/general_table_ref"}]}
+
+  - data_key: indexes
+    graph_label: Index
+    pattern: "//create_index"
+    value_label: Value
+    type: entity
+    captures: {"name": [{"xpath": "/index_name"}], "value": [{"xpath": "/UNIQUE"}]}
+
+  - data_key: index_table
+    pattern: "//create_index/table_index_clause/tableview_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//create_index/table_index_clause/index_expr/column_name"
+    type: entity
+
+  - data_key: sequences
+    graph_label: Sequence
+    pattern: "//create_sequence/sequence_name"
+    type: entity
+
+  - data_key: synonyms
+    graph_label: Synonym
+    pattern: "//create_synonym/synonym_name"
+    type: entity
+
+  - data_key: dblinks
+    graph_label: DBLink
+    pattern: "//create_database_link/link_name"
+    type: entity
+
+  - data_key: tablespaces
+    graph_label: Tablespace
+    pattern: "//create_tablespace"
+    type: entity
+    captures: {"name": [{"nearest_descendant": "id_expression"}]}
+
+  - data_key: directories
+    graph_label: Directory
+    pattern: "//create_directory/directory_name"
+    type: entity
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//column_definition/column_name"
+    type: entity
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//parameter/parameter_name"
+    type: entity
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//variable_declaration"
+    type: entity
+    keyword: "CONSTANT"
+    negate: true
+    captures: {"name": [{"xpath": "/identifier"}]}
+
+  - data_key: constants
+    graph_label: Constant
+    pattern: "//variable_declaration"
+    type: entity
+    keyword: "CONSTANT"
+    captures: {"name": [{"xpath": "/identifier"}]}
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//column_definition"
+    value_label: Value
+    type: entity
+    captures: {"name": [{"xpath": "/column_name"}], "value": [{"xpath": "/expression"}]}
+  - data_key: variables
+    graph_label: Variable
+    pattern: "//variable_declaration"
+    value_label: Value
+    type: entity
+    keyword: "CONSTANT"
+    negate: true
+    captures: {"name": [{"xpath": "/identifier"}], "value": [{"xpath": "/default_value_part/expression"}]}
+  - data_key: constants
+    graph_label: Constant
+    pattern: "//variable_declaration"
+    value_label: Value
+    type: entity
+    keyword: "CONSTANT"
+    captures: {"name": [{"xpath": "/identifier"}], "value": [{"xpath": "/default_value_part/expression"}]}
+
+  - data_key: cursors
+    graph_label: Cursor
+    pattern: "//cursor_declaration/identifier"
+    type: entity
+
+  - data_key: exceptions
+    graph_label: Exception
+    pattern: "//exception_declaration/identifier"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//type_declaration/identifier"
+    type: entity
+
+
+
+
+  - data_key: constraints
+    graph_label: Constraint
+    pattern: "//inline_constraint/constraint_name"
+    type: entity
+
+  - data_key: constraints
+    graph_label: Constraint
+    pattern: "//out_of_line_constraint/constraint_name"
+    type: entity
+
+  - data_key: fk_references
+    graph_label: ""
+    pattern: "//references_clause/tableview_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: comments
+    graph_label: Comment
+    pattern: "//comment_on_column/quoted_string"
+    type: entity
+
+  - data_key: comments
+    graph_label: Comment
+    pattern: "//comment_on_table/quoted_string"
+    type: entity
+
+  - data_key: comments
+    graph_label: Comment
+    pattern: "//comment_on_materialized/quoted_string"
+    type: entity
+
+  - data_key: comment_refs
+    graph_label: ""
+    pattern: "//comment_on_column/column_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: comment_refs
+    graph_label: ""
+    pattern: "//comment_on_table/tableview_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: comment_refs
+    graph_label: ""
+    pattern: "//comment_on_materialized/tableview_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//call_statement/routine_name"
+    type: relation
+    relation_type: CALLS
+    name_reject: '(?i)^(begin|declare|end|if|elsif|then|else|case|when|loop|while|for|exit|continue|goto|return|null|procedure|function|package|body|exception|raise|commit|rollback|savepoint|set|select|insert|update|delete|merge|values|into|from|where|and|or|not|is|as|declare|cursor|record|type|subtype|constant|pragma|open|close|fetch|forall|bulk|using|out|in)$'
+    captures: {"qualifier": [{"nearest_ancestor": "call_statement"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//general_element_part"
+    type: relation
+    relation_type: CALLS
+    name_reject: '(?i)^(begin|declare|end|if|elsif|then|else|case|when|loop|while|for|exit|continue|goto|return|null|procedure|function|package|body|exception|raise|commit|rollback|savepoint|set|select|insert|update|delete|merge|values|into|from|where|and|or|not|is|as|declare|cursor|record|type|subtype|constant|pragma|open|close|fetch|forall|bulk|using|out|in)$'
+    child_rule: "function_argument"
+    captures: {"name": [{"xpath": "/id_expression"}], "qualifier": [{"nearest_ancestor": "general_element"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//string_function/CHR"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "string_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//string_function/TRIM"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "string_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//string_function/TO_DATE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "string_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//numeric_function/SUM"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "numeric_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//numeric_function/COUNT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "numeric_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//numeric_function/AVG"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "numeric_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//numeric_function/MIN"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "numeric_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//numeric_function/MAX"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "numeric_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/CAST"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLCAST"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/COALESCE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/COLLECT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/LISTAGG"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/DECOMPOSE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/EXTRACT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/FIRST_VALUE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/LAST_VALUE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/LEAD"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/LAG"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/TO_BINARY_DOUBLE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/TO_BINARY_FLOAT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/TO_NUMBER"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/TO_TIMESTAMP"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/TO_TIMESTAMP_TZ"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/TO_DSINTERVAL"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/TO_YMINTERVAL"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/TRANSLATE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/TREAT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/VALIDATE_CONVERSION"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/AVG"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/CORR"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/LAG_DIFF"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/LAG_DIFF_PERCENT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/MAX"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/MEDIAN"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/MIN"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/NTH_VALUE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/NTILE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/RATIO_TO_REPORT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/ROW_NUMBER"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/SUM"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/VARIANCE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/REGR_"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/STDDEV"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/VAR_"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/VAR_POP"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/COVAR_"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/over_clause_keyword/WM_CONCAT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/within_or_over_clause_keyword/CUME_DIST"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/within_or_over_clause_keyword/DENSE_RANK"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/within_or_over_clause_keyword/PERCENT_RANK"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/within_or_over_clause_keyword/PERCENTILE_CONT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/within_or_over_clause_keyword/PERCENTILE_DISC"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/within_or_over_clause_keyword/RANK"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/standard_prediction_function_keyword/PREDICTION"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/standard_prediction_function_keyword/PREDICTION_BOUNDS"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/standard_prediction_function_keyword/PREDICTION_COST"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/standard_prediction_function_keyword/PREDICTION_DETAILS"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/standard_prediction_function_keyword/PREDICTION_PROBABILITY"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/standard_prediction_function_keyword/PREDICTION_SET"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//general_element/keyword_as_method/EXISTS"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "general_element"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//general_element/keyword_as_method/CASE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "general_element"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//general_element/keyword_as_method/WHEN"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "general_element"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//general_element/keyword_as_method/THEN"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "general_element"}]}
+
+  - data_key: dyn_sql
+    graph_label: ""
+    pattern: "//execute_immediate//expression"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//json_function/JSON_ARRAY"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "json_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//json_function/JSON_ARRAYAGG"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "json_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//json_function/JSON_OBJECT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "json_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//json_function/JSON_OBJECTAGG"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "json_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//json_function/JSON_QUERY"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "json_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//json_function/JSON_SERIALIZE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "json_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//json_function/JSON_TRANSFORM"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "json_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//json_function/JSON_VALUE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "json_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLAGG"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLCOLATTVAL"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLFOREST"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLELEMENT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLEXISTS"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLPARSE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLPI"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLQUERY"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLROOT"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//other_function/XMLSERIALIZE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "other_function"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//xmltable/XMLTABLE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "xmltable"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//json_table_clause/JSON_TABLE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "json_table_clause"}]}
+
+  - data_key: selects
+    graph_label: ""
+    pattern: "//from_clause/table_ref_list//tableview_name"
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: selects
+    graph_label: ""
+    pattern: "//query_block/from_clause//tableview_name"
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: inserts
+    graph_label: ""
+    pattern: "//insert_into_clause/general_table_ref//tableview_name"
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: inserts
+    graph_label: ""
+    pattern: "//multi_table_insert//tableview_name"
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: updates
+    graph_label: ""
+    pattern: "//update_statement/general_table_ref//tableview_name"
+    type: relation
+    relation_type: UPDATES
+
+  - data_key: deletes
+    graph_label: ""
+    pattern: "//delete_statement/general_table_ref//tableview_name"
+    type: relation
+    relation_type: DELETES
+
+  - data_key: merges
+    graph_label: ""
+    pattern: "//merge_statement//tableview_name"
+    type: relation
+    relation_type: UPDATES
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alter_table/tableview_name"
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alter_index/index_name"
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alter_view/tableview_name"
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alter_sequence/sequence_name"
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alter_trigger/trigger_name"
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_table/tableview_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_index/index_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_view/tableview_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_function/function_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_procedure/procedure_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_package/package_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_trigger/trigger_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_sequence/sequence_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_type/type_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_synonym/synonym_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//drop_database_link/link_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: truncates
+    graph_label: ""
+    pattern: "//truncate_table/tableview_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grant_statement//tableview_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: revokes
+    graph_label: ""
+    pattern: "//revoke_statement//tableview_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: savepoints
+    graph_label: Savepoint
+    pattern: "//savepoint_statement/savepoint_name"
+    type: entity
+
+  - data_key: rollback_to
+    graph_label: ""
+    pattern: "//rollback_statement/savepoint_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: commits
+    graph_label: ""
+    pattern: "//commit_statement"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: rollbacks
+    graph_label: ""
+    pattern: "//rollback_statement"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: set_transaction
+    graph_label: ""
+    pattern: "//set_transaction_command"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: locks
+    graph_label: ""
+    pattern: "//lock_table_statement/tableview_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: cursor_refs
+    graph_label: ""
+    pattern: "//open_for_statement/cursor_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: cursor_refs
+    graph_label: ""
+    pattern: "//fetch_statement/cursor_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: cursor_refs
+    graph_label: ""
+    pattern: "//close_statement/cursor_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: raises
+    graph_label: ""
+    pattern: "//raise_statement/exception_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: exception_refs
+    graph_label: ""
+    pattern: "//exception_handler/exception_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//collection_method_call/DELETE"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "collection_method_call"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//collection_method_call/EXTEND"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "collection_method_call"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//collection_method_call/TRIM"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    captures: {"qualifier": [{"nearest_ancestor": "collection_method_call"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//general_element"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    child_rule: "general_element"
+    select: "/general_element_part/id_expression/regular_id/non_reserved_keywords_pre12c/COUNT"
+    captures: {"qualifier": [{"nearest_ancestor": "general_element"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//general_element"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    child_rule: "general_element"
+    select: "/general_element_part/id_expression/regular_id/non_reserved_keywords_pre12c/FIRST"
+    captures: {"qualifier": [{"nearest_ancestor": "general_element"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//general_element"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    child_rule: "general_element"
+    select: "/general_element_part/id_expression/regular_id/non_reserved_keywords_pre12c/LAST"
+    captures: {"qualifier": [{"nearest_ancestor": "general_element"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//general_element"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    child_rule: "general_element"
+    select: "/general_element_part/id_expression/regular_id/non_reserved_keywords_pre12c/LIMIT"
+    captures: {"qualifier": [{"nearest_ancestor": "general_element"}]}
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//general_element"
+    type: relation
+    relation_type: CALLS
+    name_reject: ""
+    child_rule: "general_element"
+    select: "/general_element_part/id_expression/regular_id/non_reserved_keywords_pre12c/NEXT"
+    captures: {"qualifier": [{"nearest_ancestor": "general_element"}]}
+
+exports:
+  strategy: none
+
+antlr_contexts:
+  - {"pattern": "//create_package", "label": "Package"}
+  - {"pattern": "//create_package_body", "label": "Package"}
+  - {"pattern": "//create_function_body", "label": "Function"}
+  - {"pattern": "//create_procedure_body", "label": "Procedure"}
+  - {"pattern": "//function_body", "label": "Function"}
+  - {"pattern": "//procedure_body", "label": "Procedure"}
+  - {"pattern": "//function_spec", "label": "Function"}
+  - {"pattern": "//procedure_spec", "label": "Procedure"}
+  - {"pattern": "//create_type", "label": "Type"}
+  - {"pattern": "//create_trigger", "label": "Trigger"}
+  - {"pattern": "//create_table", "label": "Table"}
+  - {"pattern": "//create_index", "label": "Index"}
+  - {"pattern": "//create_view", "label": "View"}
+  - {"pattern": "//create_materialized_view", "label": "MaterializedView"}
+  - {"pattern": "//type_declaration", "label": "Type", "name": [{"xpath": "/identifier"}]}
+  - {"pattern": "//subtype_declaration", "label": "Type"}
+
+comment_types:
+  - SINGLE_LINE_COMMENT
+  - MULTI_LINE_COMMENT
+
+declaration_types:
+  - create_function_body
+  - create_procedure_body
+  - function_body
+  - procedure_body
+  - function_spec
+  - procedure_spec
+  - create_package
+  - create_package_body
+  - create_type
+  - create_trigger
+  - create_table
+  - create_view
+  - create_materialized_view
+  - create_index
+  - create_sequence
+  - create_synonym
+  - create_database_link
+
+complexity:
+  node_types:
+    - if_statement
+    - elsif_part
+    - loop_statement
+    - case_when_part_statement
+    - exception_handler
+  operators: ["AND", "OR"]
+
+embed_labels:
+  - Package
+  - Procedure
+  - Function
+  - Trigger
+  - Type
+  - Table
+  - View
+  - MaterializedView
+  - Cursor
+  - Exception
+  - Column
+  - Constraint
+  - Index
+  - Sequence
+  - Synonym
+  - Constant
+  - Variable
+  - Comment

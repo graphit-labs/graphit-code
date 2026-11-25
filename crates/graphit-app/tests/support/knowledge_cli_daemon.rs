@@ -1,0 +1,184 @@
+//! Productive daemon composition for compiled Knowledge CLI journeys.
+use super::fixture_support::Fixture;
+use graphit_app::foreground_source::{ForegroundFailure, ForegroundSource};
+use graphit_core::{
+    config::{ConfigSnapshot, ConfigStore},
+    file_lock::Cancellation,
+    runtime_key::RuntimeKeyError,
+};
+use graphit_daemon::auth_startup::DaemonAuth;
+use graphit_daemon::project_bootstrap::ProjectBootstrapInput;
+use graphit_hub::{NativeBinding, policy::RequestContext};
+use std::{ffi::OsString, sync::Arc};
+
+pub struct CliDaemon {
+    service: Arc<Cancellation>,
+    served: Option<tokio::task::JoinHandle<(Result<(), ForegroundFailure>, tempfile::TempDir)>>,
+}
+pub struct SeedCleanupFailure {
+    cause: RuntimeKeyError,
+    _auth: Arc<DaemonAuth>,
+    _temp: tempfile::TempDir,
+}
+impl std::fmt::Debug for SeedCleanupFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SeedCleanupFailure")
+            .field("cause", &self.cause)
+            .finish_non_exhaustive()
+    }
+}
+pub struct DaemonCleanupFailure {
+    pub failure: ForegroundFailure,
+    _temp: tempfile::TempDir,
+}
+impl std::fmt::Debug for DaemonCleanupFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.failure.fmt(f)
+    }
+}
+impl Drop for CliDaemon {
+    fn drop(&mut self) {
+        // Cancellation request only; the running task retains the installation.
+        self.service.cancel();
+    }
+}
+impl CliDaemon {
+    pub async fn start(
+        fixture: Fixture,
+        binding: NativeBinding,
+        extra: Vec<(OsString, OsString)>,
+        original: &RequestContext<'_>,
+    ) -> Result<Self, Box<SeedCleanupFailure>> {
+        let mut environment = vec![("PATH".into(), fixture.temp.path().as_os_str().to_owned())];
+        environment.extend(extra);
+        let selected_cli = graphit_core::config::ConfigKey::new("ai.cli").unwrap();
+        let captured = ConfigSnapshot::capture_environment(
+            fixture.paths.brand(),
+            &[selected_cli],
+            environment.clone(),
+        )
+        .unwrap();
+        let config = ConfigSnapshot::new(
+            fixture.paths.brand(),
+            [
+                ConfigStore::global(&fixture.paths).unwrap().load().unwrap(),
+                captured,
+            ],
+        )
+        .unwrap();
+        fixture.server.shutdown().await.unwrap();
+        let Fixture {
+            temp,
+            server,
+            raw,
+            auth,
+            paths,
+            projects,
+            stop,
+        } = fixture;
+        drop(server);
+        drop(stop);
+        if let Err(cause) = auth.remove_runtime(original.snapshot()) {
+            return Err(Box::new(SeedCleanupFailure {
+                cause,
+                _auth: auth,
+                _temp: temp,
+            }));
+        }
+        drop(auth);
+        drop(raw);
+        let (project, _, version) = &projects[0];
+        let owner = ForegroundSource::start_and_publish(
+            &paths,
+            &[ProjectBootstrapInput {
+                project,
+                explicit_version: version.version(),
+                pin: None,
+                detached_base: "",
+            }],
+            0,
+            &config,
+            binding,
+            environment,
+            original,
+        )
+        .await
+        .unwrap();
+        let service = Arc::new(Cancellation::default());
+        let running = Arc::clone(&service);
+        let served = tokio::spawn(async move {
+            let result = owner.run(&running).await;
+            (result, temp)
+        });
+        Ok(Self {
+            service,
+            served: Some(served),
+        })
+    }
+
+    pub async fn stop(&mut self) -> Result<(), Box<DaemonCleanupFailure>> {
+        self.service.cancel();
+        // Borrow the handle so cancellation of this wait preserves its output.
+        let (result, temp) = self
+            .served
+            .as_mut()
+            .expect("daemon stop observed once")
+            .await
+            .unwrap();
+        self.served.take();
+        match result {
+            Ok(()) => Ok(()),
+            Err(failure) => Err(Box::new(DaemonCleanupFailure {
+                failure,
+                _temp: temp,
+            })),
+        }
+    }
+}
+
+#[allow(dead_code)] // Other targets reuse only the in-process daemon fixture.
+pub async fn child_output(
+    mut child: tokio::process::Child,
+    timeout: std::time::Duration,
+) -> std::process::Output {
+    use tokio::io::AsyncReadExt;
+    async fn read(pipe: Option<impl tokio::io::AsyncRead + Unpin>) -> std::io::Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        if let Some(mut pipe) = pipe {
+            pipe.read_to_end(&mut bytes).await?;
+        }
+        Ok(bytes)
+    }
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    match tokio::time::timeout(timeout, async {
+        tokio::try_join!(child.wait(), read(stdout), read(stderr))
+    })
+    .await
+    {
+        Ok(Ok((status, stdout, stderr))) => std::process::Output {
+            status,
+            stdout,
+            stderr,
+        },
+        result => {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            panic!("compiled command did not complete: {result:?}");
+        }
+    }
+}
+#[allow(dead_code)] // STDIO targets retain and collect their live child separately.
+pub async fn output(command: std::process::Command) -> std::process::Output {
+    child_output(
+        tokio::process::Command::from(command)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .unwrap(),
+        std::time::Duration::from_secs(30),
+    )
+    .await
+}

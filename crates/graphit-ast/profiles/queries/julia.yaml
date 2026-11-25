@@ -1,0 +1,168 @@
+language: julia
+grammar: tree-sitter-julia
+extensions: [".jl"]
+
+target_rules:
+  CALLS: { labels: [Function, Macro] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_definition (signature (call_expression (identifier) @name))) @unit'
+    span_capture: unit
+    declaration_capture: unit
+  - data_key: functions
+    graph_label: Function
+    pattern: '(assignment (call_expression (identifier) @name)) @unit'
+    span_capture: unit
+    declaration_capture: unit
+  - data_key: macros
+    graph_label: Macro
+    pattern: '(macro_definition (signature (call_expression (identifier) @name))) @unit'
+    span_capture: unit
+    declaration_capture: unit
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(struct_definition (type_head (identifier) @name)) @unit'
+    span_capture: unit
+    declaration_capture: unit
+  - data_key: abstract_types
+    graph_label: AbstractType
+    pattern: '(abstract_definition (type_head (identifier) @name)) @unit'
+    span_capture: unit
+    declaration_capture: unit
+  - data_key: modules
+    graph_label: Module
+    pattern: '(module_definition (identifier) @name) @unit'
+    span_capture: unit
+    declaration_capture: unit
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_statement (assignment (identifier) @name)) @unit'
+    span_capture: unit
+    declaration_capture: unit
+    name_is_data: true
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment (identifier) @name) @unit'
+    span_capture: unit
+    declaration_capture: unit
+    name_is_data: true
+
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_statement (assignment (identifier) @name [(integer_literal) (float_literal) (boolean_literal) (character_literal) (string_literal)] @value)) @unit'
+    span_capture: unit
+    declaration_capture: unit
+    name_is_data: true
+    value_capture: value
+    value_label: Value
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment (identifier) @name [(integer_literal) (float_literal) (boolean_literal) (character_literal) (string_literal)] @value) @unit'
+    span_capture: unit
+    declaration_capture: unit
+    name_is_data: true
+    value_capture: value
+    value_label: Value
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(function_definition (signature (call_expression (identifier) @parent (argument_list (identifier) @name))))'
+    span_capture: name
+    name_is_data: true
+    parent_capture: parent
+    parent_label: Function
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(function_definition (signature (call_expression (identifier) @parent (argument_list (typed_expression (identifier) @name) @unit))))'
+    span_capture: unit
+    name_is_data: true
+    parent_capture: parent
+    parent_label: Function
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(assignment (call_expression (identifier) @parent (argument_list (identifier) @name)))'
+    span_capture: name
+    name_is_data: true
+    parent_capture: parent
+    parent_label: Function
+  - data_key: fields
+    graph_label: Field
+    pattern: '(struct_definition (block (typed_expression (identifier) @name) @unit))'
+    span_capture: unit
+  - data_key: fields
+    graph_label: Field
+    pattern: '(struct_definition (block (identifier) @name))'
+    span_capture: name
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_statement (identifier) @name) @unit'
+    span_capture: unit
+  - data_key: imports
+    graph_label: Import
+    pattern: '(using_statement (identifier) @name) @unit'
+    span_capture: unit
+  - data_key: exports
+    graph_label: Export
+    pattern: '(export_statement (identifier) @name) @unit'
+    span_capture: unit
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression (identifier) @name)'
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(import_statement (identifier) @name)'
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(using_statement (identifier) @name)'
+
+exports:
+  strategy: export_statement
+self_keywords: []
+
+context_types:
+  function_definition: Function
+  struct_definition: Struct
+  module_definition: Module
+
+anon_func_types:
+  - arrow_function_expression
+
+declaration_types:
+  - function_definition
+  - macro_definition
+  - struct_definition
+  - abstract_definition
+  - module_definition
+  - const_statement
+  - assignment
+
+comment_types:
+  - comment
+
+complexity:
+  node_types:
+    - if_statement
+    - elseif_clause
+    - for_statement
+    - while_statement
+    - catch_clause
+    - ternary_expression
+  operators: ["&&", "||"]
+
+embed_labels:
+  - Module
+  - Struct
+  - AbstractType
+  - Function
+  - Macro
+  - Constant
+  - Field
+  - Variable
+  - Comment

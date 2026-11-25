@@ -1,0 +1,92 @@
+language: groovy
+grammar: tree-sitter-groovy
+extensions: [".groovy", ".gvy", ".gy", ".gsh", ".gradle"]
+
+target_rules:
+  CALLS: { labels: [Method] }
+queries:
+
+  - data_key: functions
+    graph_label: Method
+    pattern: '(function_definition function: (identifier) @name)'
+  - data_key: functions
+    graph_label: Method
+    pattern: '(function_declaration function: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class_definition name: (identifier) @name)'
+  - data_key: closures
+    graph_label: Closure
+    pattern: '(closure (identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(declaration (identifier) @name)'
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(declaration name: (identifier) @name value: [(number_literal) (string) (boolean_literal) (null)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter (identifier) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(groovy_import import: (qualified_name) @name)'
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(function_call (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(function_call (dotted_identifier) @name)'
+  - data_key: decorators
+    type: relation
+    relation_type: DECORATOR
+    pattern: '(annotation (identifier) @name)'
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(groovy_import import: (qualified_name) @name)'
+
+exports:
+  strategy: modifier
+  config:
+    keyword: "public"
+
+self_keywords: ["this."]
+
+context_types:
+  class_definition: Class
+  function_definition: Method
+  function_declaration: Method
+
+anon_func_types:
+  - closure
+
+declaration_types:
+  - class_definition
+  - function_definition
+  - function_declaration
+
+comment_types:
+  - comment
+  - groovy_doc
+
+complexity:
+  node_types:
+    - if_statement
+    - for_loop
+    - while_loop
+    - case
+    - ternary_op
+  operators: ["&&", "||"]
+
+embed_labels:
+  - Class
+  - Method
+  - Closure
+  - Variable
+  - Comment

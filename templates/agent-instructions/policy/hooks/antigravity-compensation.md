@@ -1,0 +1,1 @@
+Antigravity: PreInvocation supplies project context before the model call. Recheck routing at each new work boundary and checkpoint before finishing a work unit. For delegation, pass bounded work and record IDs to the installed role instructions.

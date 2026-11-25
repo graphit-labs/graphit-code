@@ -1,0 +1,105 @@
+language: ruby
+grammar: tree-sitter-ruby
+extensions: [".rb"]
+
+target_rules:
+  CALLS: { labels: [Function] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(method name: (identifier) @name)'
+  - data_key: functions
+    graph_label: Function
+    pattern: '(singleton_method name: (identifier) @name)'
+  - data_key: classes
+    graph_label: Class
+    pattern: '(class name: (constant) @name)'
+  - data_key: modules
+    graph_label: Module
+    pattern: '(module name: (constant) @name)'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(call method: (identifier) @_method arguments: (argument_list (string (string_content) @name)) (#eq? @_method "require"))'
+  - data_key: imports
+    graph_label: Import
+    pattern: '(call method: (identifier) @_method arguments: (argument_list (string (string_content) @name)) (#eq? @_method "require_relative"))'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment left: (constant) @name)'
+
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(assignment left: (constant) @name right: [(integer) (float) (true) (false) (nil) (string) (simple_symbol) (delimited_symbol)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(method_parameters (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(instance_variable) @name'
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call method: (identifier) @name)'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(class superclass: (superclass (constant) @name))'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(call method: (identifier) @_method arguments: (argument_list (constant) @name) (#eq? @_method "include"))'
+  - data_key: heritage
+    type: relation
+    relation_type: INHERITS
+    pattern: '(call method: (identifier) @_method arguments: (argument_list (constant) @name) (#eq? @_method "extend"))'
+
+exports:
+  strategy: no_prefix
+  config:
+    prefix: "_"
+
+self_keywords: ["self."]
+
+context_types:
+  class: Class
+  module: Module
+  method: Method
+  singleton_method: Method
+  singleton_class: Class
+
+anon_func_types:
+  - lambda
+  - block
+  - do_block
+
+declaration_types:
+  - method
+  - singleton_method
+  - class
+  - module
+  - singleton_class
+
+comment_types:
+  - comment
+
+complexity:
+  node_types:
+    - if
+    - elsif
+    - while
+    - when
+    - rescue
+    - conditional
+  operators: ["&&", "||"]
+
+embed_labels:
+  - Class
+  - Module
+  - Function
+  - Field
+  - Variable
+  - Comment

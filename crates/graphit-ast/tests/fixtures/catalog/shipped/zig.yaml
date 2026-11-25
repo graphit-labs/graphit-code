@@ -1,0 +1,92 @@
+language: zig
+grammar: tree-sitter-zig
+extensions: [".zig"]
+
+target_rules:
+  CALLS: { labels: [Function] }
+  READS_FIELD: { labels: [Field] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (identifier) @name)'
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(variable_declaration (identifier) @name)'
+
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(variable_declaration (identifier) @name [(integer) (float) (string) (boolean) (character)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: fields
+    graph_label: Field
+    pattern: '(container_field (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(container_field name: (identifier) @name [(integer) (float) (string) (boolean) (character)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter (identifier) @name)'
+  - data_key: tests
+    graph_label: Test
+    pattern: '(test_declaration (string) @name)'
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (field_expression (identifier) @name))'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(field_expression (identifier) @name)'
+  - data_key: import_refs
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(builtin_function (builtin_identifier) @_fn (arguments (string) @name))'
+
+exports:
+  strategy: modifier
+  config:
+    keyword: "pub"
+
+self_keywords: []
+
+context_types:
+  function_declaration: Function
+  struct_declaration: Struct
+  enum_declaration: Enum
+  union_declaration: Union
+
+anon_func_types: []
+
+declaration_types:
+  - function_declaration
+  - variable_declaration
+  - struct_declaration
+  - enum_declaration
+  - union_declaration
+  - test_declaration
+
+comment_types:
+  - comment
+
+complexity:
+  node_types:
+    - if_statement
+    - while_statement
+    - switch_case
+  operators: ["and", "or"]
+
+embed_labels:
+  - Function
+  - Test
+  - Constant
+  - Field
+  - Comment

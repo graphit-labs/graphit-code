@@ -1,0 +1,279 @@
+
+
+language: postgresql
+parser: antlr4
+grammar: antlr-postgresql
+start_rule: root
+extensions: [".sql", ".pgsql", ".plpgsql", ".pg"]
+exclusive: true
+
+target_rules:
+  CALLS: { labels: [Function, Procedure, Trigger] }
+  SELECTS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  INSERTS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  UPDATES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  DELETES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  ALTERS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  DROPS: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  CREATES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  TRUNCATES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+  REFERENCES: { labels: [Table, View, MaterializedView, Sequence, Procedure, Function, Trigger, Type, Index, Schema, Extension], fallback: Table }
+
+  READS_COLUMN: { labels: [Column], fallback: Column }
+  WRITES_COLUMN: { labels: [Column], fallback: Column }
+queries:
+  - data_key: column_writes_update
+    pattern: "//set_clause/set_target"
+    type: relation
+    relation_type: WRITES_COLUMN
+    captures: {"qualifier": [{"nearest_ancestor": "updatestmt"}, {"xpath": "/relation_expr_opt_alias/relation_expr/qualified_name"}]}
+
+  - data_key: column_writes_insert
+    pattern: "//insert_column_list/insert_column_item"
+    type: relation
+    relation_type: WRITES_COLUMN
+    captures: {"qualifier": [{"nearest_ancestor": "insertstmt"}, {"xpath": "/insert_target/qualified_name"}]}
+
+  - data_key: functions
+    graph_label: Function
+    pattern: "//createfunctionstmt"
+    type: entity
+    keyword: "FUNCTION"
+    select: "/func_name"
+
+  - data_key: procedures
+    graph_label: Procedure
+    pattern: "//createfunctionstmt"
+    type: entity
+    keyword: "PROCEDURE"
+    select: "/func_name"
+
+  - data_key: schemas
+    graph_label: Schema
+    pattern: "//createschemastmt/colid"
+    type: entity
+
+  - data_key: tables
+    graph_label: Table
+    pattern: "//createstmt/qualified_name"
+    type: entity
+
+  - data_key: views
+    graph_label: View
+    pattern: "//viewstmt/qualified_name"
+    type: entity
+
+  - data_key: mviews
+    graph_label: MaterializedView
+    pattern: "//creatematviewstmt/qualified_name"
+    type: entity
+
+  - data_key: indexes
+    graph_label: Index
+    pattern: "//indexstmt"
+    value_label: Value
+    type: entity
+    captures: {"name": [{"xpath": "/index_name_"}], "value": [{"xpath": "/unique_"}]}
+
+  - data_key: index_table
+    pattern: "//indexstmt/relation_expr/qualified_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//indexstmt/index_params/index_elem"
+    type: entity
+
+  - data_key: sequences
+    graph_label: Sequence
+    pattern: "//createseqstmt/qualified_name"
+    type: entity
+
+  - data_key: triggers
+    graph_label: Trigger
+    pattern: "//createtrigstmt/name"
+    type: entity
+
+  - data_key: trigger_tables
+    graph_label: ""
+    pattern: "//createtrigstmt/qualified_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//createdomainstmt/any_name"
+    type: entity
+
+  - data_key: types
+    graph_label: Type
+    pattern: "//definestmt"
+    type: entity
+    keyword: "TYPE"
+    select: "/any_name"
+
+
+
+  - data_key: extensions
+    graph_label: Extension
+    pattern: "//createextensionstmt/name"
+    type: entity
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//columnDef/colid"
+    type: entity
+
+  - data_key: columns
+    graph_label: Column
+    pattern: "//columnDef"
+    value_label: Value
+    type: entity
+    captures: {"name": [{"xpath": "/colid"}], "value": [{"xpath": "/colquallist"}, {"nearest_descendant": "colconstraintelem"}, {"xpath": "/b_expr"}]}
+
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: "//func_arg/param_name"
+    type: entity
+
+  - data_key: constraints
+    graph_label: Constraint
+    pattern: "//colconstraint/name"
+    type: entity
+
+  - data_key: constraints
+    graph_label: Constraint
+    pattern: "//tableconstraint/name"
+    type: entity
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//callstmt//func_name"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: calls
+    graph_label: ""
+    pattern: "//func_application/func_name"
+    type: relation
+    relation_type: CALLS
+
+  - data_key: selects
+    graph_label: ""
+    pattern: "//from_clause//relation_expr/qualified_name"
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: selects
+    graph_label: ""
+    pattern: "//from_list//table_ref//qualified_name"
+    type: relation
+    relation_type: SELECTS
+
+  - data_key: inserts
+    graph_label: ""
+    pattern: "//insertstmt/insert_target/qualified_name"
+    type: relation
+    relation_type: INSERTS
+
+  - data_key: updates
+    graph_label: ""
+    pattern: "//updatestmt/relation_expr_opt_alias//qualified_name"
+    type: relation
+    relation_type: UPDATES
+
+  - data_key: deletes
+    graph_label: ""
+    pattern: "//deletestmt/relation_expr_opt_alias//qualified_name"
+    type: relation
+    relation_type: DELETES
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//altertablestmt/relation_expr/qualified_name"
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: alters
+    graph_label: ""
+    pattern: "//alterseqstmt/qualified_name"
+    type: relation
+    relation_type: ALTERS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//dropstmt//any_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: drops
+    graph_label: ""
+    pattern: "//dropstmt//function_with_argtypes//func_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: truncates
+    graph_label: ""
+    pattern: "//truncatestmt//relation_expr/qualified_name"
+    type: relation
+    relation_type: DROPS
+
+  - data_key: grants
+    graph_label: ""
+    pattern: "//grantstmt//qualified_name"
+    type: relation
+    relation_type: REFERENCES
+
+  - data_key: revokes
+    graph_label: ""
+    pattern: "//revokestmt//qualified_name"
+    type: relation
+    relation_type: REFERENCES
+
+exports:
+  strategy: none
+
+antlr_contexts:
+  - {"pattern": "//createfunctionstmt", "keyword": "FUNCTION", "label": "Function", "name": [{"xpath": "/func_name"}]}
+  - {"pattern": "//createfunctionstmt", "keyword": "PROCEDURE", "label": "Procedure", "name": [{"xpath": "/func_name"}]}
+  - {"pattern": "//createschemastmt", "label": "Schema"}
+  - {"pattern": "//createstmt", "label": "Table"}
+  - {"pattern": "//viewstmt", "label": "View"}
+  - {"pattern": "//creatematviewstmt", "label": "MaterializedView"}
+  - {"pattern": "//createtrigstmt", "label": "Trigger", "name": [{"xpath": "/name"}]}
+  - {"pattern": "//createdomainstmt", "label": "Type"}
+  - {"pattern": "//definestmt", "keyword": "TYPE", "label": "Type", "name": [{"xpath": "/any_name"}]}
+  - {"pattern": "//indexstmt", "label": "Index", "name": [{"xpath": "/index_name_"}]}
+
+comment_types:
+  - LineComment
+  - BlockComment
+
+declaration_types:
+  - createfunctionstmt
+  - createstmt
+  - viewstmt
+  - creatematviewstmt
+  - indexstmt
+  - createseqstmt
+  - createtrigstmt
+  - createschemastmt
+  - createdomainstmt
+
+embed_labels:
+  - Function
+  - Procedure
+  - Trigger
+  - Type
+  - Table
+  - View
+  - MaterializedView
+  - Schema
+  - Extension
+  - Column
+  - Constraint
+  - Index
+  - Sequence
+  - Variable
+  - Comment

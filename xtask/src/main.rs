@@ -1,0 +1,953 @@
+use std::{
+    env,
+    io::{BufRead, Write},
+    path::{Path, PathBuf},
+    process::{Command, ExitCode, Stdio},
+};
+mod ladybug;
+mod safety;
+mod test_fixtures;
+mod test_selection;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FastTest {
+    NativeHubPublication,
+    RoleHubFile,
+    AstGenericMainNativeNn,
+    Integration {
+        package: &'static str,
+        target: &'static str,
+        filter: Option<&'static str>,
+    },
+    Library {
+        package: &'static str,
+        filter: &'static str,
+    },
+    NamedLibrary {
+        package: &'static str,
+        filter: &'static str,
+        selector: &'static str,
+    },
+}
+
+impl FastTest {
+    fn arguments(&self) -> Vec<&'static str> {
+        match *self {
+            Self::RoleHubFile => vec![
+                "test",
+                "--locked",
+                "-p",
+                "graphit-app",
+                "--lib",
+                "role_tool_server::tests::hub::role_hub_file_metadata_uses_current_role_service_and_real_broker_project_grant",
+                "--",
+                "--ignored",
+                "--exact",
+                "--nocapture",
+            ],
+            Self::NativeHubPublication => vec![
+                "test",
+                "--locked",
+                "-p",
+                "graphit-app",
+                "--test",
+                "integration",
+                "source_executable::native_publication::compiled_hub_publish_native_uses_broker_sts_and_preserves_versions",
+                "--",
+                "--ignored",
+                "--exact",
+                "--nocapture",
+            ],
+            Self::AstGenericMainNativeNn => vec![
+                "test",
+                "--locked",
+                "-p",
+                "graphit-app",
+                "--test",
+                "integration",
+                "ast_generic_nn_executable::generic_main_native_nn",
+                "--",
+                "--ignored",
+                "--exact",
+                "--test-threads=1",
+            ],
+            Self::Integration {
+                package,
+                target,
+                filter,
+            } => {
+                let mut arguments = vec!["test", "--locked", "-p", package, "--test", target];
+                arguments.extend(filter);
+                arguments
+            }
+            Self::Library { package, filter }
+            | Self::NamedLibrary {
+                package, filter, ..
+            } => {
+                vec!["test", "--locked", "-p", package, "--lib", filter]
+            }
+        }
+    }
+
+    fn label(&self) -> String {
+        match *self {
+            Self::NativeHubPublication => "graphit-app/native-hub-publication".into(),
+            Self::RoleHubFile => "graphit-app/role-hub-file".into(),
+            Self::AstGenericMainNativeNn => "graphit-app/ast-generic-main-native-nn".into(),
+            Self::Integration {
+                package,
+                target,
+                filter,
+            } => {
+                let selector = filter
+                    .map(|value| value.trim_end_matches("::"))
+                    .unwrap_or(target);
+                format!("{package}/{selector}")
+            }
+            Self::NamedLibrary {
+                package, selector, ..
+            } => format!("{package}/{selector}"),
+            Self::Library {
+                package, filter, ..
+            } => {
+                let target = filter
+                    .rsplit("::")
+                    .find(|part| !part.is_empty() && *part != "tests")
+                    .unwrap_or(filter);
+                format!("{package}/{target}")
+            }
+        }
+    }
+}
+
+const POSTGRESQL_SEMANTIC_TEST: FastTest = FastTest::Integration {
+    package: "graphit-ast",
+    target: "postgresql_semantic",
+    filter: None,
+};
+const SOURCE_PUBLICATION_ORDER_TEST: FastTest = FastTest::Integration {
+    package: "graphit-core",
+    target: "project_source_publication_order",
+    filter: None,
+};
+const GIT_INSPECTION_TEST: FastTest = FastTest::Library {
+    package: "graphit-app",
+    filter: "role_tool_server::tests::git_inspection_",
+};
+const PROJECT_HOOK_INSTALL_TEST: FastTest = FastTest::Integration {
+    package: "graphit-app",
+    target: "integration",
+    filter: Some("project_hook_install::"),
+};
+const PROJECT_COORDINATOR_INSTALL_TEST: FastTest = FastTest::Integration {
+    package: "graphit-app",
+    target: "integration",
+    filter: Some("project_coordinator_install::"),
+};
+const MCP_SOURCE_TEST: FastTest = FastTest::Integration {
+    package: "graphit-app",
+    target: "integration",
+    filter: Some("mcp_source::"),
+};
+const ROLE_LIVE_TEST: FastTest = FastTest::Library {
+    package: "graphit-app",
+    filter: "role_tool_server::tests::actual_role_live_",
+};
+const ROLE_HOOK_EXECUTABLE_TEST: FastTest = FastTest::Integration {
+    package: "graphit-app",
+    target: "integration",
+    filter: Some("role_hook_v3_executable::"),
+};
+const ROLE_HOOK_TEST: FastTest = FastTest::Library {
+    package: "graphit-app",
+    filter: "role_tool_server::tests::role_hook_",
+};
+const MANAGED_LIVE_TEST: FastTest = FastTest::Library {
+    package: "graphit-app",
+    filter: "role_tool_server::tests::run_bootstrap_http_live_context_",
+};
+const SOURCE_STREAM_TEST: FastTest = FastTest::Integration {
+    package: "graphit-data",
+    target: "integration",
+    filter: Some("lance_source_stream::"),
+};
+const KIMI_UNIT_TEST: FastTest = FastTest::NamedLibrary {
+    package: "graphit-ai",
+    filter: "cli_kimi::tests::",
+    selector: "cli_kimi_unit",
+};
+
+const COPILOT_INTEGRATION_TEST: FastTest = FastTest::Integration {
+    package: "graphit-ai",
+    target: "integration",
+    filter: Some("cli_copilot::"),
+};
+
+const REGISTERED_TESTS: &[FastTest] = &[
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("git_hooks_executable::"),
+    },
+    FastTest::AstGenericMainNativeNn,
+    FastTest::NativeHubPublication,
+    FastTest::RoleHubFile,
+    POSTGRESQL_SEMANTIC_TEST,
+    SOURCE_PUBLICATION_ORDER_TEST,
+    GIT_INSPECTION_TEST,
+    PROJECT_HOOK_INSTALL_TEST,
+    PROJECT_COORDINATOR_INSTALL_TEST,
+    MCP_SOURCE_TEST,
+    ROLE_LIVE_TEST,
+    ROLE_HOOK_TEST,
+    ROLE_HOOK_EXECUTABLE_TEST,
+    MANAGED_LIVE_TEST,
+    SOURCE_STREAM_TEST,
+    FastTest::Integration {
+        package: "graphit-data",
+        target: "integration",
+        filter: Some("lance_module_creation::"),
+    },
+    FastTest::Library {
+        package: "graphit-app",
+        filter: "foreground_memory_jobs_watch_configs_follow_each_project_and_captured_overrides",
+    },
+    FastTest::Library {
+        package: "graphit-app",
+        filter: "foreground_memory_jobs_missing_model_keeps_source_without_compute",
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("now_executable::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("now_presence_integration::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("managed_role_run::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("source_executable::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("models_cli::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("help_cli::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("version_cli::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("package::"),
+    },
+    FastTest::Library {
+        package: "graphit-auth",
+        filter: "interactive_login::",
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "compilation_fingerprint",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-ast",
+        target: "source_ranges",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-records",
+        target: "gates",
+        filter: None,
+    },
+    FastTest::Library {
+        package: "graphit-ai",
+        filter: "model_bindings_tests::",
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("cli_claude::"),
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("cli_qwen::"),
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("cli_cursor::"),
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("cli_antigravity::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("knowledge_antigravity_ask::"),
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("cli_grok::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("knowledge_grok_ask::"),
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("cli_opencode::"),
+    },
+    KIMI_UNIT_TEST,
+    COPILOT_INTEGRATION_TEST,
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("knowledge_copilot_ask::"),
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("cli_kimi::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("knowledge_opencode_ask::"),
+    },
+    FastTest::Integration {
+        package: "graphit-app",
+        target: "integration",
+        filter: Some("knowledge_kimi_ask::"),
+    },
+    FastTest::Integration {
+        package: "graphit-process",
+        target: "detached",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("ranking::"),
+    },
+    FastTest::Integration {
+        package: "graphit-runtime",
+        target: "output",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "references",
+        filter: None,
+    },
+    FastTest::Library {
+        package: "graphit-core",
+        filter: "artifact_store::source_reader::",
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("direct_embeddings::"),
+    },
+    FastTest::Integration {
+        package: "graphit-runtime",
+        target: "roles",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "staleness",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-ast",
+        target: "scalar_policy",
+        filter: None,
+    },
+    FastTest::Library {
+        package: "graphit-auth",
+        filter: "issuer::tests::records::",
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "settings",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("cohere_embeddings::"),
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("voyage_embeddings::"),
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("google_embeddings::"),
+    },
+    FastTest::Integration {
+        package: "graphit-process",
+        target: "capture",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-process",
+        target: "incremental",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("native_rerank::"),
+    },
+    FastTest::Integration {
+        package: "graphit-ai",
+        target: "integration",
+        filter: Some("cohere_reranking::"),
+    },
+    FastTest::Library {
+        package: "graphit-core",
+        filter: "artifact_store::native_source::",
+    },
+    FastTest::Library {
+        package: "graphit-core",
+        filter: "file_io::",
+    },
+    FastTest::Library {
+        package: "graphit-fs",
+        filter: "read_directory::",
+    },
+    FastTest::Library {
+        package: "graphit-auth",
+        filter: "issuer::tests::service_credentials::",
+    },
+    FastTest::Library {
+        package: "graphit-auth",
+        filter: "issuer::tests::user_subject::",
+    },
+    FastTest::Library {
+        package: "graphit-hub",
+        filter: "remote_version::",
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "publication_metadata",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "project_document",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-ast",
+        target: "prepared_input",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "ignore_policy",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-ast",
+        target: "profiles",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "preview",
+        filter: None,
+    },
+    FastTest::Library {
+        package: "graphit-auth",
+        filter: "issuer::tests::profile_manager::broker_login::",
+    },
+    FastTest::Library {
+        package: "graphit-auth",
+        filter: "issuer::tests::profile_manager::",
+    },
+    FastTest::Integration {
+        package: "graphit-ast",
+        target: "catalog",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "document",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "markdown_export",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-knowledge",
+        target: "published_lint",
+        filter: None,
+    },
+    FastTest::Integration {
+        package: "graphit-ast",
+        target: "symbols",
+        filter: None,
+    },
+    FastTest::Library {
+        package: "graphit-daemon",
+        filter: "watcher::tests::",
+    },
+    FastTest::Library {
+        package: "graphit-daemon",
+        filter: "supervisor::tests::",
+    },
+    FastTest::Library {
+        package: "graphit-daemon",
+        filter: "services::tests::",
+    },
+];
+
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: xtask: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run() -> Result<(), String> {
+    let mode = env::args().nth(1).unwrap_or_else(|| "help".into());
+    if matches!(mode.as_str(), "help" | "--help" | "-h") {
+        println!(
+            "Graphit development commands\n\nUsage: cargo xtask <COMMAND> [OPTIONS]\n\nCommands:\n  check       Check source safety and formatting\n  safety      Check source safety rules\n  test        Run selected tests: cargo xtask test SELECTOR...\n  tests       Run workspace tests and doctests\n  gate        Run static checks and workspace tests\n  qualify     Run native qualification checks\n  native      Prepare native dependencies\n  cargo       Run Cargo with prepared native dependencies\n\nUse cargo xtask native --help for native preparation options."
+        );
+        return Ok(());
+    }
+    if mode == "native"
+        && env::args()
+            .skip(2)
+            .any(|a| matches!(a.as_str(), "--help" | "-h"))
+    {
+        println!(
+            "Prepare Graphit's native dependencies.\n\nUsage: cargo xtask native [CARGO OPTIONS]\n\nOptions:\n  --target TARGET       Prepare one Rust target triple\n  --target-dir PATH     Select the Cargo target directory\n  --offline             Use cached dependency metadata\n  -h, --help            Show this help\n\nUse CMAKE_BUILD_PARALLEL_LEVEL to select a positive build concurrency.\nCross compilation requires CMAKE_TOOLCHAIN_FILE."
+        );
+        return Ok(());
+    }
+    let workspace = workspace_root()?;
+    let root = workspace.as_path();
+    match mode.as_str() {
+        "native" => ladybug::prepare(root, &env::args().skip(2).collect::<Vec<_>>()).map(|_| ()),
+        "cargo" => {
+            let args = env::args().skip(2).collect::<Vec<_>>();
+            if !matches!(
+                args.first().map(String::as_str),
+                Some("build" | "check" | "clippy" | "test" | "rustc" | "nextest")
+            ) {
+                return Err(
+                    "usage: cargo xtask cargo <build|check|clippy|test|rustc|nextest run|nextest list> [arguments]"
+                        .into(),
+                );
+            }
+            execute(root, &args.iter().map(String::as_str).collect::<Vec<_>>())
+        }
+        "check" => check(root),
+        "safety" => safety::run(root),
+        "test" => test_selection::run_selected(root, &env::args().skip(2).collect::<Vec<_>>()),
+        "tests" => tests(root),
+        "gate" => {
+            static_checks(root)?;
+            tests(root)
+        }
+        "qualify" => qualify(root),
+        _ => Err(format!("unknown command {mode:?}; run cargo xtask --help")),
+    }
+}
+
+fn workspace_root() -> Result<PathBuf, String> {
+    let cargo = env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let output = Command::new(cargo)
+        .args(["locate-project", "--workspace", "--message-format", "plain"])
+        .output()
+        .map_err(|error| error.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    let manifest = PathBuf::from(
+        String::from_utf8(output.stdout)
+            .map_err(|error| error.to_string())?
+            .trim(),
+    );
+    manifest
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "workspace root missing".into())
+}
+
+fn execute(root: &Path, arguments: &[&str]) -> Result<(), String> {
+    let cargo = env::var_os("CARGO")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("cargo"));
+    let nextest = arguments.first() == Some(&"nextest");
+    let reuse_build = test_fixtures::reuses_build(arguments);
+    let preparation = test_fixtures::preparation_arguments(arguments)?;
+    let preparation = preparation.iter().map(String::as_str).collect::<Vec<_>>();
+    if nextest {
+        let installed = Command::new(&cargo)
+            .args(["nextest", "--version"])
+            .current_dir(root)
+            .output()
+            .map_err(|error| error.to_string())?;
+        if !installed.status.success() {
+            return Err(
+                "cargo-nextest is required; prepare version 0.9.151 before running offline tests"
+                    .into(),
+            );
+        }
+    }
+    eprintln!("Running: cargo {}", arguments.join(" "));
+    let mut command = Command::new(cargo);
+    command
+        .current_dir(root)
+        // Cargo supplies these for each package. Inheriting xtask metadata
+        // invalidates dependency build scripts that watch the same variables.
+        .env_remove("CARGO_MANIFEST_DIR")
+        .env_remove("CARGO_PKG_NAME")
+        .env_remove("CARGO_PKG_VERSION_MAJOR")
+        .env_remove("CARGO_PKG_VERSION_MINOR")
+        .env_remove("CARGO_PKG_VERSION_PATCH")
+        .env_remove("CARGO_PKG_VERSION_PRE");
+    let mut prepared = if !reuse_build
+        && matches!(
+            preparation.first(),
+            Some(&"build" | &"check" | &"clippy" | &"test" | &"rustc")
+        ) {
+        let prepared = ladybug::prepare(
+            root,
+            &preparation
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect::<Vec<_>>(),
+        )?;
+        if let Some(prepared) = &prepared {
+            prepared.apply(&mut command);
+        }
+        prepared
+    } else {
+        None
+    };
+    let test = arguments.first() == Some(&"test") || nextest;
+    if test && env::var_os("RUST_MIN_STACK").is_none() {
+        // Compound unoptimized Lance/S3 futures exceed libtest's 2 MiB default.
+        // This applies to test children only; production runtime is unchanged.
+        command.env("RUST_MIN_STACK", "8388608");
+    }
+    if !reuse_build {
+        test_fixtures::prepare(root, &preparation, &mut command)?;
+    }
+    let mut forwarded: Vec<_> = arguments.iter().map(|arg| (*arg).to_owned()).collect();
+    let cargo_args = arguments
+        .iter()
+        .copied()
+        .take_while(|arg| *arg != "--")
+        .collect::<Vec<_>>();
+    let message_format = if nextest {
+        "--cargo-message-format"
+    } else {
+        "--message-format"
+    };
+    let format_prefix = format!("{message_format}=");
+    let format = cargo_args.iter().enumerate().find_map(|(i, arg)| {
+        arg.strip_prefix(&format_prefix).or_else(|| {
+            (*arg == message_format)
+                .then(|| cargo_args.get(i + 1).copied())
+                .flatten()
+        })
+    });
+    let stream_build =
+        test && prepared.is_some() && format.is_none_or(|format| format.starts_with("json"));
+    if stream_build && format.is_none() {
+        let separator = forwarded
+            .iter()
+            .position(|arg| arg == "--")
+            .unwrap_or(forwarded.len());
+        forwarded.insert(
+            separator,
+            format!("{message_format}=json-render-diagnostics"),
+        );
+    }
+    command.args(forwarded);
+    let status = if stream_build {
+        let mut child = command
+            .stdout(Stdio::piped())
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        let stdout = child.stdout.take().ok_or("Cargo stdout missing")?;
+        let mut reader = std::io::BufReader::new(stdout);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(error) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error.to_string());
+                }
+            }
+            let message = serde_json::from_slice::<cargo_metadata::Message>(&line).ok();
+            if matches!(message, Some(cargo_metadata::Message::BuildFinished(_))) {
+                // Static engine/bridge linking is complete. Test execution must
+                // not keep unrelated consumers behind the native build lock.
+                drop(prepared.take());
+            }
+            if format.is_some()
+                || message.is_none()
+                || matches!(message, Some(cargo_metadata::Message::TextLine(_)))
+            {
+                if let Err(error) = std::io::stdout().write_all(&line) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(error.to_string());
+                }
+            } else if let Some(cargo_metadata::Message::CompilerMessage(message)) = message
+                && let Some(rendered) = message.message.rendered
+            {
+                eprint!("{rendered}");
+            }
+        }
+        child.wait().map_err(|e| e.to_string())?
+    } else {
+        command.status().map_err(|error| error.to_string())?
+    };
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("cargo {} failed: {status}", arguments.join(" ")))
+    }
+}
+
+fn check(root: &Path) -> Result<(), String> {
+    source_checks(root)
+}
+
+fn static_checks(root: &Path) -> Result<(), String> {
+    source_checks(root)?;
+    execute(
+        root,
+        &[
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            "--locked",
+            "--offline",
+            "--keep-going",
+            "--",
+            "-D",
+            "warnings",
+        ],
+    )
+}
+
+fn source_checks(root: &Path) -> Result<(), String> {
+    safety::run(root)?;
+    if cfg!(windows) {
+        // cargo fmt --all passes every target to one rustfmt invocation and
+        // exceeds CreateProcess's command-line size in this workspace. Keep
+        // its local path-dependency coverage.
+        let metadata = cargo_metadata::MetadataCommand::new()
+            .manifest_path(root.join("Cargo.toml"))
+            .other_options(vec!["--locked".into(), "--offline".into()])
+            .exec()
+            .map_err(|error| error.to_string())?;
+        for package in metadata.packages.iter().filter(|p| p.source.is_none()) {
+            execute(
+                root,
+                &[
+                    "fmt",
+                    "--manifest-path",
+                    package.manifest_path.as_str(),
+                    "--package",
+                    package.name.as_ref(),
+                    "--",
+                    "--check",
+                ],
+            )?;
+        }
+        Ok(())
+    } else {
+        execute(root, &["fmt", "--all", "--", "--check"])
+    }
+}
+
+fn tests(root: &Path) -> Result<(), String> {
+    test_stages(|arguments| execute(root, arguments))
+}
+
+fn test_stages(mut run: impl FnMut(&[&str]) -> Result<(), String>) -> Result<(), String> {
+    let binaries = run(&[
+        "nextest",
+        "run",
+        "--workspace",
+        "--locked",
+        "--offline",
+        "--no-fail-fast",
+        "--retries=0",
+    ]);
+    // Doctests are a separate Cargo stage, including after a failed binary run.
+    let docs = run(&[
+        "test",
+        "--workspace",
+        "--doc",
+        "--locked",
+        "--offline",
+        "--no-fail-fast",
+    ]);
+    match (binaries, docs) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(binaries), Err(docs)) => Err(format!("{binaries}\n{docs}")),
+    }
+}
+
+fn qualify(root: &Path) -> Result<(), String> {
+    if !cfg!(target_os = "linux") {
+        return Err("native model and S3 qualification requires Linux".into());
+    }
+    let reranker = "GRAPHIT_BGE_RERANKER_V2_M3_MODEL";
+    native_nn_resource(reranker, env::var_os(reranker))?;
+    execute_test(root, FastTest::AstGenericMainNativeNn)?;
+    execute(
+        root,
+        &[
+            "test",
+            "--locked",
+            "--offline",
+            "-p",
+            "graphit-app",
+            "--lib",
+            "--",
+            "--ignored",
+            "--test-threads=1",
+            "native_ast_fts_local_bge_rerank_without_embedding_preserves_the_published_page",
+            "knowledge_foreground_actual_local_bge_rerank_uses_control_without_local_embedding",
+        ],
+    )?;
+    execute_test(root, FastTest::RoleHubFile)?;
+    execute(
+        root,
+        &[
+            "test",
+            "--locked",
+            "--offline",
+            "-p",
+            "graphit-app",
+            "--test",
+            "integration",
+            "source_executable::native_publication::file_installation",
+            "--",
+            "--ignored",
+        ],
+    )
+}
+
+fn native_nn_resource(name: &str, value: Option<std::ffi::OsString>) -> Result<(), String> {
+    let path = PathBuf::from(
+        value
+            .ok_or_else(|| format!("{name} must name an existing absolute native CPU resource"))?,
+    );
+    if !path.is_absolute() || !path.is_file() {
+        return Err(format!(
+            "{name} must name an existing absolute native CPU resource"
+        ));
+    }
+    Ok(())
+}
+
+fn execute_test(root: &Path, test: FastTest) -> Result<(), String> {
+    if matches!(test, FastTest::AstGenericMainNativeNn) {
+        if !cfg!(target_os = "linux") {
+            return Err("AST generic Main NN is Linux-only; Windows/macOS UNRUN".into());
+        }
+        for name in ["GRAPHIT_TEST_MODEL_SERVER", "GRAPHIT_EMBEDDINGGEMMA2_MODEL"] {
+            native_nn_resource(name, env::var_os(name))?;
+        }
+    }
+    if matches!(test, FastTest::RoleHubFile) {
+        let path = env::var_os("GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN")
+            .map(PathBuf::from)
+            .ok_or(
+                "GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN must name the owned Broker storage fixture",
+            )?;
+        if !path.is_absolute() || !path.is_file() {
+            return Err("GRAPHIT_BROKER_HUB_STORAGE_FIXTURE_BIN must name an existing absolute Broker storage fixture".into());
+        }
+    }
+    let mut arguments = test.arguments();
+    arguments.insert(1, "--offline");
+    execute(root, &arguments)
+}
+
+#[cfg(test)]
+mod execution_tests {
+    #[test]
+    fn doctests_run_after_binary_failure_and_both_causes_are_retained() {
+        for (binary_failure, doc_failure) in
+            [(false, false), (true, false), (false, true), (true, true)]
+        {
+            let mut calls = Vec::new();
+            let result = super::test_stages(|arguments| {
+                calls.push(
+                    arguments
+                        .iter()
+                        .map(|arg| (*arg).to_owned())
+                        .collect::<Vec<_>>(),
+                );
+                if arguments[0] == "nextest" && binary_failure {
+                    Err("binary failure".into())
+                } else if arguments[0] == "test" && doc_failure {
+                    Err("doctest failure".into())
+                } else {
+                    Ok(())
+                }
+            });
+            assert_eq!(calls.len(), 2);
+            assert_eq!(&calls[0][..2], ["nextest", "run"]);
+            assert!(calls[1].iter().any(|arg| arg == "--doc"));
+            for call in &calls {
+                for required in ["--workspace", "--locked", "--offline", "--no-fail-fast"] {
+                    assert!(call.iter().any(|arg| arg == required));
+                }
+            }
+            assert_eq!(result.is_err(), binary_failure || doc_failure);
+            if binary_failure && doc_failure {
+                assert_eq!(result.unwrap_err(), "binary failure\ndoctest failure");
+            }
+        }
+    }
+}

@@ -1,0 +1,1 @@
+Read the ids the coordinator gave you with `{{ mcp_tool_task_get }}`. Search `{{ mcp_tool_task_search }}` with `input: {text: "<focused topic>", filter: {}, page_size: 5, top_k: 5, mode: "fts"}` (or an advertised semantic/hybrid mode when appropriate) only while a relevant gap remains.

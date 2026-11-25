@@ -1,0 +1,18 @@
+.hub-native .hub-source { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 16px; align-items: end; margin-bottom: 24px; }
+.hub-native .hub-source input, .hub-native .hub-source select { width: 100%; min-width: 0; }
+.hub-native .hub-directory { min-width: 0; }
+.hub-native .hub-row { width: 100%; text-align: left; }
+.hub-native .hub-row small, .hub-native .work-facts dd, .hub-native .work-facts dt, .hub-native .hub-paths, .hub-native .hub-outcome { overflow-wrap: anywhere; }
+.hub-native .hub-pagination { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 20px; }
+.hub-native .hub-outcome { margin-top: 24px; border-top: 1px solid hsl(var(--border)); padding-top: 24px; }
+.hub-native .hub-file { min-width: 0; margin-top: 16px; }
+.hub-native .hub-file:focus, .hub-native .artifact-inspector:focus { outline: 2px solid hsl(var(--ring)); outline-offset: 5px; }
+.hub-native .hub-file pre { max-width: 100%; overflow: auto; padding: 16px; border: 1px solid hsl(var(--border)); background: hsl(var(--muted)); font-family: 'IBM Plex Mono', monospace; }
+.hub-native .hub-paths { font-family: 'IBM Plex Mono', monospace; }
+.hub-native .work-field select { padding: 9px 11px; border: 1px solid hsl(var(--input)); border-radius: 6px; color: hsl(var(--foreground)); background: hsl(var(--card)); }
+@container work-surface (max-width: 900px) { .hub-native .hub-source { grid-template-columns: minmax(0, 1fr); } }
+
+.hub-native .hub-authored { margin-top: 20px; }
+.hub-native .hub-resource-tree { list-style: none; padding: 0; display: grid; gap: 12px; }
+.hub-native .hub-resource-tree li { min-width: 0; overflow-wrap: anywhere; }
+.hub-native .hub-resource-tree button { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }

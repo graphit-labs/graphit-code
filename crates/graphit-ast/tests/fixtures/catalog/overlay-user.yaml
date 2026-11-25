@@ -1,0 +1,7 @@
+language: x
+merge: true
+queries:
+  - {data_key: a, pattern: a3, graph_label: A}
+  - {data_key: a, pattern: a4, graph_label: A}
+embedded:
+  - {pattern: upper, text_capture: text, languages: {scss: ""}}

@@ -1,0 +1,58 @@
+name: Feature Request
+description: Propose a concrete capability or workflow improvement
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the engineering outcome, not only a preferred implementation. Explain how it fits Graphit's local-first context, deterministic coordination, or reusable ecosystem model.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Product area
+      options:
+        - Agent and team workflow
+        - AST and structural code intelligence
+        - Retrieval, embeddings, or reranking
+        - Knowledge and documentation
+        - Persistent memory
+        - Deterministic Task
+        - Hub, artifacts, or multi-system context
+        - Daemon, hooks, or filesystem synchronization
+        - MCP, CLI, or adapter integration
+        - Observatory UI or Live Search
+        - Configuration, deployment, or security
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Engineering problem
+      description: Who is blocked, what are they trying to accomplish, and why do current capabilities not solve it?
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Desired workflow
+      description: Show the user, agent, team, or multi-system flow from input to observable result.
+    validations:
+      required: true
+  - type: textarea
+    id: completion
+    attributes:
+      label: Definition of done
+      description: List observable acceptance conditions, including failure behavior and any determinism or security boundary.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe workarounds, related tools, and trade-offs if known.
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration and compatibility impact
+      description: Note proposed defaults, opt-in or opt-out behavior, paths, providers, adapters, migrations, and backward-compatibility concerns.

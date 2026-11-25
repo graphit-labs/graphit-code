@@ -1,0 +1,696 @@
+{
+  "task": "tsk-e4a9",
+  "decoder_executed": false,
+  "native_query_compile_executed": false,
+  "status": "PREPARED_EXPECTATIONS_UNRUN",
+  "cases": [
+    {
+      "name": "exports-null-lower",
+      "fixture": "schema-cases/exports-null-lower.yaml",
+      "bytes": 26,
+      "sha256": "2b470164caffec26c33962dea8164086573e194472552775ee5845f6886daa38",
+      "expected": {
+        "outcome": "decoded_patch",
+        "clear_paths": [
+          "exports"
+        ]
+      }
+    },
+    {
+      "name": "exports-null-title",
+      "fixture": "schema-cases/exports-null-title.yaml",
+      "bytes": 26,
+      "sha256": "0e79ef415dc9f370e0b0ff1f7c71a0d2ac2ad21aa6b337ba9623b76eefcb1cff",
+      "expected": {
+        "outcome": "decoded_patch",
+        "clear_paths": [
+          "exports"
+        ]
+      }
+    },
+    {
+      "name": "exports-null-upper",
+      "fixture": "schema-cases/exports-null-upper.yaml",
+      "bytes": 26,
+      "sha256": "88247d716e37e6729820f75fc730dc5af237301b70513cf03fed5fbe83fb5dc5",
+      "expected": {
+        "outcome": "decoded_patch",
+        "clear_paths": [
+          "exports"
+        ]
+      }
+    },
+    {
+      "name": "exports-null-tilde",
+      "fixture": "schema-cases/exports-null-tilde.yaml",
+      "bytes": 23,
+      "sha256": "d0db0216ff53d9345a5a83abff064b8eb594d600654f04a3c3c13e38a7135352",
+      "expected": {
+        "outcome": "decoded_patch",
+        "clear_paths": [
+          "exports"
+        ]
+      }
+    },
+    {
+      "name": "exports-null-implicit",
+      "fixture": "schema-cases/exports-null-implicit.yaml",
+      "bytes": 22,
+      "sha256": "836cf6e25554984d5a591c7b5c6f428d02fba39621ff1bdf9c84996ece2585dd",
+      "expected": {
+        "outcome": "decoded_patch",
+        "clear_paths": [
+          "exports"
+        ]
+      }
+    },
+    {
+      "name": "exports-empty-object",
+      "fixture": "schema-cases/exports-empty-object.yaml",
+      "bytes": 24,
+      "sha256": "9d479157c2d11b333b6d72c4ba00bf7d718ada9ad53f1d4a846e3d836568e763",
+      "expected": {
+        "outcome": "decoded_patch",
+        "set_paths": [
+          "exports"
+        ],
+        "preserve_empty_object": true
+      }
+    },
+    {
+      "name": "exports-clear",
+      "fixture": "schema-cases/exports-clear.yaml",
+      "bytes": 26,
+      "sha256": "2b470164caffec26c33962dea8164086573e194472552775ee5845f6886daa38",
+      "expected": {
+        "outcome": "decoded_patch",
+        "clear_paths": [
+          "exports"
+        ]
+      }
+    },
+    {
+      "name": "complexity-empty-object",
+      "fixture": "schema-cases/complexity-empty-object.yaml",
+      "bytes": 27,
+      "sha256": "5a3b714ab20052c28f6293313c313c58c7e3a097d77a8665e42e36e9d21a97f2",
+      "expected": {
+        "outcome": "decoded_patch",
+        "set_paths": [
+          "complexity"
+        ],
+        "preserve_empty_object": true
+      }
+    },
+    {
+      "name": "complexity-clear",
+      "fixture": "schema-cases/complexity-clear.yaml",
+      "bytes": 29,
+      "sha256": "7a8c5a62320a0bc62b3255f60ff6aee9877322577ff48b7ebb6a24ca4ca545e3",
+      "expected": {
+        "outcome": "decoded_patch",
+        "clear_paths": [
+          "complexity"
+        ]
+      }
+    },
+    {
+      "name": "head-calls-clear",
+      "fixture": "schema-cases/head-calls-clear.yaml",
+      "bytes": 43,
+      "sha256": "bb31b3621dfa1479903c4c3012a95ae3afdab29728461277cb40486819bd43da",
+      "expected": {
+        "outcome": "decoded_patch",
+        "clear_paths": [
+          "complexity.head_calls"
+        ]
+      }
+    },
+    {
+      "name": "map-text-null-clear",
+      "fixture": "schema-cases/map-text-null-clear.yaml",
+      "bytes": 53,
+      "sha256": "063f6f20f9e5e2d101981c9421be4cd524675bda423b4b082d29c859696ea9a5",
+      "expected": {
+        "outcome": "decoded_patch",
+        "clear_map_keys": {
+          "context_types": [
+            "gone"
+          ]
+        },
+        "text_map_values": {
+          "context_types.keep": "value"
+        }
+      }
+    },
+    {
+      "name": "map-string-null-set",
+      "fixture": "schema-cases/map-string-null-set.yaml",
+      "bytes": 77,
+      "sha256": "dcd82c521ed616265f4d1044e455c79211e2dde9674c876c55fb32a39ad8cf45",
+      "expected": {
+        "outcome": "decoded_patch",
+        "text_map_values": {
+          "context_types.quoted": "null",
+          "context_types.tagged": "null",
+          "context_types.mixed": "NuLl"
+        },
+        "clear_map_keys": {
+          "context_types": []
+        }
+      }
+    },
+    {
+      "name": "config-list-null-clear",
+      "fixture": "schema-cases/config-list-null-clear.yaml",
+      "bytes": 63,
+      "sha256": "90791e2f036ee1cd4d94c0e926bc4a47fcca4be8776d7365e015267563296925",
+      "expected": {
+        "outcome": "decoded_patch",
+        "clear_map_keys": {
+          "exports.config_list": [
+            "gone"
+          ]
+        },
+        "ordered_lists": {
+          "exports.config_list.keep": [
+            "a",
+            "b"
+          ]
+        }
+      }
+    },
+    {
+      "name": "empty-collections-set",
+      "fixture": "schema-cases/empty-collections-set.yaml",
+      "bytes": 72,
+      "sha256": "c5dc25433ee45dd8f23c6b1bd5c2b8a6313344e8ea8e21cea0c0ef6a8d68e251",
+      "expected": {
+        "outcome": "decoded_patch",
+        "set_empty": [
+          "queries",
+          "context_types",
+          "embedded",
+          "embed_labels"
+        ]
+      }
+    },
+    {
+      "name": "boolean-false-set",
+      "fixture": "schema-cases/boolean-false-set.yaml",
+      "bytes": 42,
+      "sha256": "35f2d457206a17534e6b7488a04506da380321dd9ad897c106202ab42ec03702",
+      "expected": {
+        "outcome": "decoded_patch",
+        "boolean_values": {
+          "merge": false,
+          "exclusive": false
+        }
+      }
+    },
+    {
+      "name": "start-rule-explicit-empty",
+      "fixture": "schema-cases/start-rule-explicit-empty.yaml",
+      "bytes": 27,
+      "sha256": "3808b35ffc7399fc4e51f0d6d9cecc00f7789e8c3c60f1fe21cc9e7fd18ab2eb",
+      "expected": {
+        "outcome": "decoded_patch",
+        "text_values": {
+          "start_rule": ""
+        }
+      }
+    },
+    {
+      "name": "relation-without-graph-label",
+      "fixture": "schema-cases/relation-without-graph-label.yaml",
+      "bytes": 96,
+      "sha256": "96abedae04dfb624d3af2bd26b367b44d9d8fce5748d6a3a7f657864c4df2537",
+      "expected": {
+        "outcome": "decoded_patch",
+        "query_types": [
+          "relation"
+        ],
+        "opaque_pattern": "(opaque)"
+      }
+    },
+    {
+      "name": "query-duplicate-group-order",
+      "fixture": "schema-cases/query-duplicate-group-order.yaml",
+      "bytes": 120,
+      "sha256": "e44cf089e6dc4bcd36ff8727928c194ca0481d1f8f44cb55b37f8c193f7b26a8",
+      "expected": {
+        "outcome": "decoded_patch",
+        "ordered_query_data_keys": [
+          "a",
+          "a"
+        ],
+        "ordered_query_patterns": [
+          "(one)",
+          "(two)"
+        ]
+      }
+    },
+    {
+      "name": "opaque-malformed-query",
+      "fixture": "schema-cases/opaque-malformed-query.yaml",
+      "bytes": 70,
+      "sha256": "f4a3453b172d7820ca26c5770b1f2f3816fbcf3940cf6d751eb06a4616646d06",
+      "expected": {
+        "outcome": "decoded_patch",
+        "ordered_query_patterns": [
+          "(((("
+        ],
+        "native_compile_executed": false
+      }
+    },
+    {
+      "name": "embedded-language-empty-skip",
+      "fixture": "schema-cases/embedded-language-empty-skip.yaml",
+      "bytes": 94,
+      "sha256": "ace2188600db0dcb8a91d4af31bb4ee5ad4c5d2cf73e83834798a7ad2cf5e54c",
+      "expected": {
+        "outcome": "decoded_patch",
+        "text_map_values": {
+          "embedded.languages.skip": "",
+          "embedded.languages.SQL": "sql"
+        }
+      }
+    },
+    {
+      "name": "core-string-controls",
+      "fixture": "schema-cases/core-string-controls.yaml",
+      "bytes": 74,
+      "sha256": "d42207156a2db0efeb275a1ea4d66aeff551ebbcae73bd690c9c95252d20f89c",
+      "expected": {
+        "outcome": "decoded_patch",
+        "ordered_lists": {
+          "extensions": [
+            "+0x1",
+            "-0o7",
+            "0X1",
+            "1_0",
+            "tRuE",
+            "nUlL",
+            "NuLl",
+            "yes",
+            "on"
+          ]
+        }
+      }
+    },
+    {
+      "name": "unicode-crlf",
+      "fixture": "schema-cases/unicode-crlf.yaml",
+      "bytes": 37,
+      "sha256": "0704bf49fab3c43ba8475666d02eb770d4dadb8188a9adfd96ac4ab4e3354777",
+      "expected": {
+        "outcome": "decoded_patch",
+        "text_values": {
+          "extensions[0]": "α😀"
+        },
+        "source_bytes_preserved": true
+      }
+    },
+    {
+      "name": "bom-origin",
+      "fixture": "schema-cases/bom-origin.yaml",
+      "bytes": 15,
+      "sha256": "22a47d365221db9a7972e1c5815597a3a4b1b56249f6d17a38c28071cefd6502",
+      "expected": {
+        "outcome": "decoded_patch",
+        "text_values": {
+          "language": "x"
+        },
+        "producer_original_origin": true
+      }
+    },
+    {
+      "name": "numeric-language-decimal",
+      "fixture": "schema-cases/numeric-language-decimal.yaml",
+      "bytes": 14,
+      "sha256": "e292fe59b24ed08958bf65844cf9c746852db0c1edfd0c3ac896557536ed1432",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      }
+    },
+    {
+      "name": "numeric-language-float-magnitude",
+      "fixture": "schema-cases/numeric-language-float-magnitude.yaml",
+      "bytes": 16,
+      "sha256": "c854f627a9754d2eb0fc14ba19fe16580cf47423c31f9adb212da69e3354c08f",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      }
+    },
+    {
+      "name": "numeric-language-hex-magnitude",
+      "fixture": "schema-cases/numeric-language-hex-magnitude.yaml",
+      "bytes": 30,
+      "sha256": "c8ffe4e0a9a136a119f1fe217fc015592a3dc1c73e2f8031065f81ad2b4a28b1",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      }
+    },
+    {
+      "name": "numeric-language-octal-magnitude",
+      "fixture": "schema-cases/numeric-language-octal-magnitude.yaml",
+      "bytes": 35,
+      "sha256": "ade8302d93f15ac41e7274fa4ca1ac565afe5c185af5f3cab69b04848d7f883c",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      }
+    },
+    {
+      "name": "exports-nonnull-scalar-mixed-null",
+      "fixture": "schema-cases/exports-nonnull-scalar-mixed-null.yaml",
+      "bytes": 26,
+      "sha256": "7c98b6232209156b80bb21813e8e8813b808cb5c78419139767bc018b6cb2aa5",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "exports"
+      }
+    },
+    {
+      "name": "exports-nonnull-scalar-quoted-null",
+      "fixture": "schema-cases/exports-nonnull-scalar-quoted-null.yaml",
+      "bytes": 28,
+      "sha256": "4241aa7e82ef7c9c801b870c56ed8802c87961fff8a9de996429ebcdf77128be",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "exports"
+      }
+    },
+    {
+      "name": "exports-nonnull-scalar-tagged-string-null",
+      "fixture": "schema-cases/exports-nonnull-scalar-tagged-string-null.yaml",
+      "bytes": 32,
+      "sha256": "9cc2d29c94ac87d34d3b31800bf439edb208b06dc66d72b96d4eb61a3e64cdfc",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "exports"
+      }
+    },
+    {
+      "name": "exports-nonnull-scalar-boolean",
+      "fixture": "schema-cases/exports-nonnull-scalar-boolean.yaml",
+      "bytes": 27,
+      "sha256": "ef1c22811f6a8f1591a186510578fb1acd87870a089732f7ea0f764a98b61c2a",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "exports"
+      }
+    },
+    {
+      "name": "exports-nonnull-scalar-numeric",
+      "fixture": "schema-cases/exports-nonnull-scalar-numeric.yaml",
+      "bytes": 25,
+      "sha256": "c30c925a1b9307267db5897853b9eeb1d0453af419298f0c5840c0765c314203",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "exports"
+      }
+    },
+    {
+      "name": "language-empty",
+      "fixture": "schema-cases/language-empty.yaml",
+      "bytes": 13,
+      "sha256": "95de08310f058c054a5d3218d14cb166609e05301715cc35d5ba365a998236a8",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      }
+    },
+    {
+      "name": "language-edge-space",
+      "fixture": "schema-cases/language-edge-space.yaml",
+      "bytes": 15,
+      "sha256": "62f7f6518003c9bbc040b8a246ecafd9bdff70cbd7edae18697d8977ede89bca",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      }
+    },
+    {
+      "name": "language-nul",
+      "fixture": "schema-cases/language-nul.yaml",
+      "bytes": 17,
+      "sha256": "79393c58dad26ea025a02afc14cc837dacc4192ade93c856a9fe09af83c25cd0",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      }
+    },
+    {
+      "name": "language-missing",
+      "fixture": "schema-cases/language-missing.yaml",
+      "bytes": 12,
+      "sha256": "7b9a968a3e5e50f324f9916fe367ba3f06c21024d9bf6e4e259db3fa6943b15e",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "language"
+      }
+    },
+    {
+      "name": "parser-invalid",
+      "fixture": "schema-cases/parser-invalid.yaml",
+      "bytes": 27,
+      "sha256": "548983cc48142d741fbedf36fd086af9a1d38fba8643bedb733e665f1019fe99",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "parser"
+      }
+    },
+    {
+      "name": "exclusive-quoted-bool",
+      "fixture": "schema-cases/exclusive-quoted-bool.yaml",
+      "bytes": 31,
+      "sha256": "ecdb4de67963fef0e6330624df424f028ed7ea4de3c36e4614ac8c739b29d4c4",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "exclusive"
+      }
+    },
+    {
+      "name": "extensions-null-element",
+      "fixture": "schema-cases/extensions-null-element.yaml",
+      "bytes": 31,
+      "sha256": "0e110082efb74506f440d164e5a06c003ac167d4bc0874345504a82bec094e39",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "extensions"
+      }
+    },
+    {
+      "name": "config-list-null-element",
+      "fixture": "schema-cases/config-list-null-element.yaml",
+      "bytes": 52,
+      "sha256": "4dc20f639721897b19d36eb4ea7752f6743fed0291afe0225f74d3c762d4826c",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "exports.config_list"
+      }
+    },
+    {
+      "name": "entity-without-label",
+      "fixture": "schema-cases/entity-without-label.yaml",
+      "bytes": 53,
+      "sha256": "236f9ab8ed0cc25ae5e1515e397c5b446c3d349e5529f805f05f409160339195",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "queries.graph_label"
+      }
+    },
+    {
+      "name": "relation-without-type",
+      "fixture": "schema-cases/relation-without-type.yaml",
+      "bytes": 69,
+      "sha256": "a302a0f09d9948aa4e893cf7ad9085e850d1c2fbcea5b3af65a69edb53f1f30b",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "queries.relation_type"
+      }
+    },
+    {
+      "name": "query-half-value-pair",
+      "fixture": "schema-cases/query-half-value-pair.yaml",
+      "bytes": 87,
+      "sha256": "c4df32b4b34e3372af3b0c1fc87cbd0d160e2719dcd1fb3a8d52cb07770773e5",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "queries.value_capture"
+      }
+    },
+    {
+      "name": "query-half-parent-pair",
+      "fixture": "schema-cases/query-half-parent-pair.yaml",
+      "bytes": 91,
+      "sha256": "40bfa8becbba662be7ee657f3d5412b0f75fc0b5e0b25664c63924ca483e2edd",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "queries.parent_capture"
+      }
+    },
+    {
+      "name": "query-missing-pattern",
+      "fixture": "schema-cases/query-missing-pattern.yaml",
+      "bytes": 53,
+      "sha256": "97a743da0b61165c22c5d3e7a16218d7f5d073c36a567f9ddfc77ca787ac969b",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "queries.pattern"
+      }
+    },
+    {
+      "name": "embedded-missing-text-capture",
+      "fixture": "schema-cases/embedded-missing-text-capture.yaml",
+      "bytes": 41,
+      "sha256": "c5593e974c1502970eeb72d504734a50dc893974eb66e6b3e6ac1321a159a670",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "embedded.text_capture"
+      }
+    },
+    {
+      "name": "embedded-language-casefold-ambiguity",
+      "fixture": "schema-cases/embedded-language-casefold-ambiguity.yaml",
+      "bytes": 94,
+      "sha256": "7115100e5721231984a51efa6ba266d5da7d6afeb6bffa5955a522a3924c1284",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "embedded.languages"
+      }
+    },
+    {
+      "name": "replace-empty-key",
+      "fixture": "schema-cases/replace-empty-key.yaml",
+      "bytes": 58,
+      "sha256": "7a2560d10e51ab647faeb79798d0a3d4ba7362651c5b91f0b1754ae8b0e7b4a4",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "text_normalizers.replace"
+      }
+    },
+    {
+      "name": "head-calls-missing-node",
+      "fixture": "schema-cases/head-calls-missing-node.yaml",
+      "bytes": 50,
+      "sha256": "7c72fca5bbd691e38057fc5df2feb2fb124578d0905bccb22e61b90da9fef03c",
+      "expected": {
+        "outcome": "error",
+        "code": "InvalidField",
+        "schema_path": "complexity.head_calls.node_type"
+      }
+    },
+    {
+      "name": "unknown-root",
+      "fixture": "schema-cases/unknown-root.yaml",
+      "bytes": 27,
+      "sha256": "42ec0e3519f30876a55acc400ada8f8b0706940b1c1d936d6fa1f4b4c0ea7c6a",
+      "expected": {
+        "outcome": "error",
+        "code": "Decode"
+      }
+    },
+    {
+      "name": "unknown-nested",
+      "fixture": "schema-cases/unknown-nested.yaml",
+      "bytes": 38,
+      "sha256": "22ceec2f6d7693f89cbd70443789f8da80a42067b6a9d3bf447beff506e8d2f8",
+      "expected": {
+        "outcome": "error",
+        "code": "Decode"
+      }
+    },
+    {
+      "name": "duplicate-key",
+      "fixture": "schema-cases/duplicate-key.yaml",
+      "bytes": 24,
+      "sha256": "1826dc62791aaec5b121f29b406956e838491f92ba3b1a8333b72e3c06716926",
+      "expected": {
+        "outcome": "error",
+        "code": "Decode"
+      }
+    },
+    {
+      "name": "anchor-alias",
+      "fixture": "schema-cases/anchor-alias.yaml",
+      "bytes": 27,
+      "sha256": "a6362b3ac3537406e48487c1448708e527828a4667f716290f182c41b7252b8f",
+      "expected": {
+        "outcome": "error",
+        "code": "Decode"
+      }
+    },
+    {
+      "name": "merge-key",
+      "fixture": "schema-cases/merge-key.yaml",
+      "bytes": 40,
+      "sha256": "732cbfbdb9372d97c0805d0a0981c52bbd7c14a2766f329271703f1475610906",
+      "expected": {
+        "outcome": "error",
+        "code": "Decode"
+      }
+    },
+    {
+      "name": "unsupported-tag",
+      "fixture": "schema-cases/unsupported-tag.yaml",
+      "bytes": 20,
+      "sha256": "055df9e2c5c86f4cc5281c83531aecee553a70f1c9e82d35a36c3bbde61180b5",
+      "expected": {
+        "outcome": "error",
+        "code": "Decode"
+      }
+    },
+    {
+      "name": "multiple-documents",
+      "fixture": "schema-cases/multiple-documents.yaml",
+      "bytes": 28,
+      "sha256": "5bc53d3893d9dfbc14b656f26b51040eee5acc77b4b9a40f269ff65c15b0cbc2",
+      "expected": {
+        "outcome": "error",
+        "code": "QuotaExceeded"
+      }
+    },
+    {
+      "name": "nullable-compound-sequence",
+      "fixture": "schema-cases/nullable-compound-sequence.yaml",
+      "bytes": 24,
+      "sha256": "e3fed7753e93d66d24ff40082aa1c1b29bf940eb8c077689ecdfdf93d3da6e22",
+      "expected": {
+        "outcome": "error",
+        "code": "Decode"
+      }
+    }
+  ],
+  "path_note": "Static schema_path strings and enclosing indices follow D1 Task tsk-e4a9 revision13 decided API conventions, not previously executed scalar-producer behavior. Decoder implementation/tests remain UNRUN; native-shape/unknown-key Decode and resource errors may lack a semantic path.",
+  "contract_revision": 13
+}

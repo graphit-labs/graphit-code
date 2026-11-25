@@ -1,0 +1,64 @@
+language: tracked_lang
+extensions: [.tracked]
+parser: tree-sitter
+grammar: tree-sitter-custom
+start_rule: source_file
+merge: true
+exclusive: false
+self_keywords: [self]
+anon_func_types: [lambda_expression]
+declaration_types: [function_declaration]
+comment_types: [comment]
+embed_labels: [Function, Type, Function]
+queries:
+  - data_key: declarations
+    pattern: '(function_declaration name: (identifier) @name) @span'
+    graph_label: Function
+    name_capture: name
+    relation_type: ''
+    value_capture: value
+    value_label: Value
+    name_reject: '^internal_'
+    span_capture: span
+    declaration_capture: span
+    context_capture: span
+    parent_capture: parent
+    parent_label: Type
+    qualifier_capture: qualifier
+    target_fallback: file
+    type: entity
+    name_is_data: true
+    target_labels: [Function, CustomLabel]
+exports:
+  strategy: modifier
+  config: {node_type: modifier, name: public}
+  config_list: {names: [public, exported]}
+context_types: {class_declaration: Type}
+context_requires_entity: [class_declaration]
+context_name_queries:
+  class_declaration: '(class_declaration name: (_) @name) @context'
+
+target_rules:
+  call: {labels: [Function, CustomLabel], fallback: file}
+embedded:
+  - pattern: '(template_string) @text'
+    text_capture: text
+    lang_capture: language
+    default: sql
+    wrap_prefix: 'select '
+    wrap_suffix: ';'
+    normalize: html_refs
+    languages: {sql: sql, scss: ''}
+    host_labels: [Function]
+text_normalizers:
+  html_refs:
+    replace: {'&lt;': '<', '\r\n': '\n'}
+    numeric_char_refs: true
+complexity:
+  node_types: [if_statement]
+  operators: ['&&', '||']
+  head_calls:
+    node_type: call_expression
+    names: [if]
+    pair_names: [elsif]
+    subject_pair_names: [when]

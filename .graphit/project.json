@@ -1,0 +1,30 @@
+{
+  "id": "01KSH1CRFFG8Z74B5ZS78WW808",
+  "name": "graphit-code",
+  "ephemeral": false,
+  "githooks": {
+    "pre-commit": [
+      "git diff --cached --check",
+      "actionlint",
+      "cargo xtask check",
+      "git diff --check"
+    ],
+    "pre-push": [
+      "cargo xtask check",
+      "cargo xtask cargo clippy --workspace --all-targets --locked -- -D warnings",
+      "cargo test --locked -p xtask --bin xtask",
+      "cargo xtask cargo test --locked -p graphit-app --bin graphit",
+      "cargo xtask cargo test --locked -p graphit-app --lib -- cli_output:: task_entry:: task_server::native_records:: source_server::projects:: source_server::record_tools:: source_server::memory_index::tests::native_terminal_user_memory source_server::project_hook::tests::user_context:: source_server::project_hook::tests::hosts:: user_local_dream_applies_to_private_memory task_server::tests:: instructions:: foreground_source::ast_source_tests::shard_maintenance::source_maintenance:: foreground_source::knowledge_source_tests:: --test-threads=2",
+      "cargo test --locked -p graphit-auth --lib issuer::tests::user_records::native_admin::",
+      "cargo test --locked -p graphit-core --lib project_inventory::tests::",
+      "cargo xtask cargo test --locked -p graphit-hub --lib native::shared_document::tests::command_hooks::",
+      "cargo xtask cargo test --locked -p graphit-records --test task_store",
+      "cargo xtask cargo test --locked -p graphit-runtime --test policy_instructions --test skill_instructions --test role_instructions",
+      "cargo xtask cargo test --locked -p graphit-app --test integration -- help_cli:: config_executable:: auth_executable:: auth_entry:: auth_active:: source_executable:: task_executable:: models_cli:: package:: knowledge_source_cli:: now_executable:: native_install_executable:: managed_roles:: project_hook_install:: project_coordinator_install:: role_hook_v3_executable:: daemon_control:: compiled_managed_empty_inventory_outside_project_maintains_and_retires_real_checkout mcp_source:: git_hooks_executable:: managed_role_run:: foreground_tasks::open_ui:: --test-threads=2",
+      "node scripts/test-native-packaging.mjs",
+      "npm --prefix ui run test -- src/components/wiki",
+      "cargo xtask cargo test --locked -p graphit-daemon --bin graphit-model-server"
+    ]
+  },
+  "settings": {}
+}

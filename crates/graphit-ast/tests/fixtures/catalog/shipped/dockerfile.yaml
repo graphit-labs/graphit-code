@@ -1,0 +1,81 @@
+language: dockerfile
+grammar: tree-sitter-dockerfile
+extensions: ["Dockerfile", ".dockerfile", ".containerfile"]
+queries:
+
+  - data_key: stages
+    graph_label: Stage
+    pattern: '(from_instruction (image_spec (image_name) @name))'
+  - data_key: stages
+    graph_label: Stage
+    name_capture: alias
+    pattern: '(from_instruction (image_spec) as: (image_alias) @alias)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(run_instruction (shell_command) @name)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(copy_instruction (path) @name)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(expose_instruction (expose_port) @name)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(workdir_instruction (path) @name)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(entrypoint_instruction (json_string_array) @name)'
+  - data_key: instructions
+    graph_label: Instruction
+    pattern: '(cmd_instruction (json_string_array) @name)'
+  - data_key: labels
+    graph_label: Label
+    pattern: '(label_instruction (label_pair (unquoted_string) @name))'
+  - data_key: args
+    graph_label: Arg
+    pattern: '(arg_instruction (unquoted_string) @name)'
+  - data_key: variables
+    graph_label: EnvVar
+    pattern: '(env_instruction (env_pair (unquoted_string) @name))'
+
+  - data_key: variables
+    graph_label: EnvVar
+    pattern: '(env_instruction (env_pair name: (unquoted_string) @name value: [(unquoted_string) (double_quoted_string) (single_quoted_string)] @value))'
+    value_capture: value
+    value_label: Value
+  - data_key: args
+    graph_label: Arg
+    pattern: '(arg_instruction name: (unquoted_string) @name default: [(unquoted_string) (double_quoted_string) (single_quoted_string)] @value)'
+    value_capture: value
+    value_label: Value
+  - data_key: labels
+    graph_label: Label
+    pattern: '(label_instruction (label_pair key: (unquoted_string) @name value: [(unquoted_string) (double_quoted_string) (single_quoted_string)] @value))'
+    value_capture: value
+    value_label: Value
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types:
+  from_instruction: Stage
+
+anon_func_types: []
+
+declaration_types:
+  - from_instruction
+  - arg_instruction
+  - label_instruction
+  - env_instruction
+
+comment_types:
+  - comment
+
+embed_labels:
+  - Stage
+  - Instruction
+  - Arg
+  - EnvVar
+  - Comment

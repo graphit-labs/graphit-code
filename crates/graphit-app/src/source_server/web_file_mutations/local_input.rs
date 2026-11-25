@@ -1,0 +1,167 @@
+//! Authored PROJECT selection for a local physical installation; paths are never inputs.
+use super::super::web_file_reads::inputs::Scope;
+use crate::{local_file_install::Kind, remote_file_install::client::PhysicalMode};
+use graphit_core::project_identity::ProjectId;
+use graphit_hub::{ArtifactId, ConcreteVersion, NativeBinding, policy::HubResourcePolicy};
+use serde::Deserialize;
+use std::io;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Source {
+    pub project_id: ProjectId,
+    pub project_version: String,
+    #[serde(rename = "artifact_type")]
+    pub kind: Kind,
+    pub id: String,
+    pub version: String,
+}
+fn non_null<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    value: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(value).map(Some)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LocalInstall {
+    pub source: Source,
+    pub scope: Scope,
+    pub binding: NativeBinding,
+    #[serde(default, deserialize_with = "non_null")]
+    pub alias: Option<String>,
+    #[serde(default, deserialize_with = "non_null")]
+    pub entry_name: Option<String>,
+    #[serde(default, deserialize_with = "non_null")]
+    pub mode: Option<PhysicalMode>,
+}
+impl LocalInstall {
+    pub(super) fn decode(bytes: &[u8]) -> io::Result<Self> {
+        serde_json::from_slice(bytes).map_err(|_| io::ErrorKind::InvalidInput.into())
+    }
+    pub(super) fn validate(&self, policy: &HubResourcePolicy) -> io::Result<()> {
+        let invalid = || io::Error::from(io::ErrorKind::InvalidInput);
+        let Scope::Project {
+            project_version, ..
+        } = &self.scope
+        else {
+            return Err(invalid());
+        };
+        for version in [&self.source.project_version, project_version] {
+            if version.is_empty()
+                || version.contains('\0')
+                || version.len() > policy.content().max_scalar_bytes
+            {
+                return Err(invalid());
+            }
+        }
+        if self.source.version == "latest" {
+            return Err(invalid());
+        }
+        ArtifactId::new(&self.source.id, policy.projection()).map_err(|_| invalid())?;
+        ConcreteVersion::new(&self.source.version, policy.projection()).map_err(|_| invalid())?;
+        for name in self.alias.iter().chain(self.entry_name.iter()) {
+            if name.contains('/') {
+                return Err(invalid());
+            }
+            ArtifactId::new(name, policy.projection()).map_err(|_| invalid())?;
+        }
+        Ok(())
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use graphit_core::{brand::Brand, config::ConfigSnapshot};
+    use serde_json::{Value, json};
+    fn policy() -> HubResourcePolicy {
+        let brand = Brand::default();
+        HubResourcePolicy::resolve(
+            &ConfigSnapshot::new(
+                &brand,
+                [HubResourcePolicy::distribution_defaults(&brand).unwrap()],
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+    fn input() -> Value {
+        json!({"source":{"project_id":"01KSH1CRFFG8Z74B5ZS78WW808","project_version":"feature",
+            "artifact_type":"skill","id":"fixture/authored","version":"release/one"},
+            "scope":{"kind":"project","project_id":"01M1YEAE1WYMWG9KJKV1XQC4T4","project_version":"main"},
+            "binding":NativeBinding::Codex})
+    }
+    fn decode(value: &Value) -> io::Result<LocalInstall> {
+        LocalInstall::decode(&serde_json::to_vec(value).unwrap())
+    }
+    #[test]
+    fn authored_install_has_independent_source_and_consumer_without_path_or_remote_authority() {
+        let value = input();
+        let policy = policy();
+        let decoded = decode(&value).unwrap();
+        decoded.validate(&policy).unwrap();
+        let Scope::Project { project_id, .. } = decoded.scope else {
+            panic!("PROJECT consumer");
+        };
+        assert_ne!(decoded.source.project_id, project_id);
+        for field in [
+            "source_dir",
+            "project_dir",
+            "producer",
+            "provider",
+            "transport",
+            "profile",
+            "identity_provider",
+            "runtime_grant",
+        ] {
+            let mut bad = value.clone();
+            bad[field] = json!("unexpected");
+            assert!(decode(&bad).is_err());
+            let mut bad = value.clone();
+            bad["source"][field] = json!("unexpected");
+            assert!(decode(&bad).is_err());
+        }
+        for kind in [
+            "agent", "skill", "command", "workflow", "rule", "mcp", "language", "power",
+        ] {
+            let mut value = value.clone();
+            value["source"]["artifact_type"] = json!(kind);
+            decode(&value).unwrap().validate(&policy).unwrap();
+        }
+        for kind in ["ast", "knowledge"] {
+            let mut value = value.clone();
+            value["source"]["artifact_type"] = json!(kind);
+            assert!(decode(&value).is_err());
+        }
+    }
+    #[test]
+    fn authored_install_preserves_mode_intent_and_rejects_ambiguous_input() {
+        let policy = policy();
+        for (mode, expected) in [(None, None), (Some("copy"), Some(PhysicalMode::Copy))] {
+            let mut value = input();
+            if let Some(mode) = mode {
+                value["mode"] = json!(mode);
+            }
+            let decoded = decode(&value).unwrap();
+            decoded.validate(&policy).unwrap();
+            assert_eq!(decoded.mode, expected);
+        }
+        let mut link = input();
+        link["mode"] = json!("link");
+        assert!(decode(&link).is_err());
+        for field in ["binding", "alias", "entry_name", "mode"] {
+            let mut value = input();
+            value[field] = Value::Null;
+            assert!(decode(&value).is_err());
+        }
+        let mut value = input();
+        value["scope"] = json!({"kind":"global_cache"});
+        assert!(decode(&value).unwrap().validate(&policy).is_err());
+        let mut value = input();
+        value["source"]["version"] = json!("latest");
+        assert!(decode(&value).unwrap().validate(&policy).is_err());
+        let mut bytes = serde_json::to_string(&input()).unwrap();
+        bytes.pop();
+        bytes.push_str(r#","mode":"copy","mode":"link"}"#);
+        assert!(LocalInstall::decode(bytes.as_bytes()).is_err());
+    }
+}

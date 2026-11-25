@@ -1,0 +1,61 @@
+{
+  "status": "EXPECTED_ONLY_BEFORE_SOURCE",
+  "overlays": {
+    "ordered_query_patterns": [
+      "b",
+      "a3",
+      "a4",
+      "c"
+    ],
+    "replacement_query_patterns": [
+      "c"
+    ],
+    "embedded_patterns": [
+      "upper",
+      "base"
+    ],
+    "cleared_queries": [],
+    "map_removed_old": true,
+    "map_keep": "Method",
+    "map_new": "Class",
+    "empty_map": {},
+    "empty_complexity_inherits": true,
+    "empty_exports_defaults": true,
+    "cleared_complexity_base": 1
+  },
+  "selection": {
+    "full_first_selector": "tree-sitter-x",
+    "full_first_language": "x",
+    "full_first_after_deny": "DisabledGrammar",
+    "full_first_never_alias_retry": true,
+    "no_full_bare_alias_shared": "AmbiguousSelector",
+    "two_exclusive_shared_route": "buildPASS",
+    "exclusive_plus_ordinary_shared_route": "ordinary_a",
+    "two_ordinary_shared_route": "AmbiguousSelector",
+    "full_grammar_collision": "DuplicateGrammar",
+    "runtime_retained_profiles": 45,
+    "runtime_auto_plpgsql": "NoSelector",
+    "runtime_explicit_plpgsql": "plpgsql",
+    "runtime_auto_sql": "sql",
+    "runtime_explicit_postgresql": "postgresql",
+    "runtime_auto_pks": "NoSelector",
+    "runtime_explicit_plsql": "plsql",
+    "runtime_auto_cob": "cobol85",
+    "runtime_dockerfile": "dockerfile"
+  },
+  "context": {
+    "cancelled": "Cancelled",
+    "expired": "DeadlineExceeded",
+    "cancelled_and_expired": "Cancelled",
+    "fresh_equal_values_different_borrow": "ContextDenied"
+  },
+  "provenance": {
+    "default": "no_source_site",
+    "compound": "NodeStart_not_full_range",
+    "declared_scalar": "ScalarExact",
+    "inherited": "original_source_site",
+    "merged": "ordered_unique_base_then_upper_sites",
+    "derived_grammar": "ordered_language_parser_empty_grammar_sites"
+  },
+  "native": "NONE"
+}

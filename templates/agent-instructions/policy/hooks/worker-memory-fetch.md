@@ -1,0 +1,1 @@
+Read `{{ skill_name_memory }}` and reuse delivered PROJECT context. Only an authorized Role advertising `{{ mcp_tool_memory_mandatory }}` may fetch missing mandatory context once with `{"input":{},"ai_optimized":true}` before acting. Role has no USER scope; report missing delivery instead of inventing authority or substituting the CLI.

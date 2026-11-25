@@ -1,0 +1,802 @@
+use crate::*;
+use graphit_core::{
+    artifact_store::{ArtifactMode, CopyPolicy},
+    brand::Brand,
+    native_path::NativePath,
+    project_identity::ProjectId,
+    project_paths::{InstallationPaths, ProjectPaths},
+};
+use graphit_fs::NodeKind;
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
+
+fn limits() -> ProjectionLimits {
+    ProjectionLimits::new(4096, 128, 8192, 128).unwrap()
+}
+
+fn producer_id() -> ProjectId {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
+}
+fn consumer_id() -> ProjectId {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAW".parse().unwrap()
+}
+struct Fixture {
+    temp: tempfile::TempDir,
+    installation: InstallationPaths,
+    project: ProjectPaths,
+    producer: ProjectPaths,
+}
+impl Fixture {
+    fn new() -> Self {
+        Self::branded("graphit")
+    }
+    fn branded(brand: &str) -> Self {
+        let temp = tempfile::tempdir_in(fs::canonicalize(std::env::temp_dir()).unwrap()).unwrap();
+        let installation = InstallationPaths::resolve(
+            Brand::new(brand).unwrap(),
+            temp.path(),
+            None,
+            Some(&temp.path().join("installation")),
+        )
+        .unwrap();
+        let projects: Vec<_> = ["consumer", "producer"]
+            .into_iter()
+            .map(|name| {
+                let root = temp.path().join(name);
+                fs::create_dir(&root).unwrap();
+                fs::create_dir(root.join(installation.brand().directory())).unwrap();
+                ProjectPaths::at(&root, &installation).unwrap()
+            })
+            .collect();
+        Self {
+            temp,
+            installation,
+            project: projects[0].clone(),
+            producer: projects[1].clone(),
+        }
+    }
+    fn parents(&self) {
+        for binding in NativeBinding::ALL {
+            let layout = binding.adapter().layout();
+            for folder in [Some(layout.skills), Some(layout.agents), layout.commands]
+                .into_iter()
+                .flatten()
+            {
+                fs::create_dir_all(self.project.root().join(layout.root).join(folder)).unwrap();
+            }
+        }
+        fs::create_dir_all(self.project.root().join(".agents/skills")).unwrap();
+    }
+    fn source_at(&self, directory: &Path, kind: ArtifactType, id: &str) -> SourceRef {
+        SourceRef::local_link(
+            NativePath::new(directory.to_owned()).unwrap(),
+            producer_id(),
+            kind,
+            ArtifactId::new(id, limits()).unwrap(),
+            ConcreteVersion::new("feature/projeção", limits()).unwrap(),
+            limits(),
+        )
+        .unwrap()
+    }
+    fn source(&self, kind: ArtifactType, id: &str) -> SourceRef {
+        let directory = self.temp.path().join(format!("source-{}", kind.as_str()));
+        fs::create_dir_all(&directory).unwrap();
+        let canonical = match kind {
+            ArtifactType::Command | ArtifactType::Workflow => Some("COMMAND.md"),
+            ArtifactType::Agent => Some("AGENT.md"),
+            ArtifactType::Rule => Some("RULE.md"),
+            _ => None,
+        };
+        if let Some(name) = canonical {
+            fs::write(directory.join(name), "body").unwrap();
+        }
+        self.source_at(&directory, kind, id)
+    }
+    fn planner(&self, mode: ArtifactMode) -> ProjectionPlanner {
+        ProjectionPlanner::new(
+            NativePath::new(self.project.root().to_owned()).unwrap(),
+            limits(),
+            mode,
+        )
+    }
+}
+fn request(source: &SourceRef, binding: NativeBinding) -> ProjectionRequest<'_> {
+    ProjectionRequest {
+        binding,
+        source,
+        alias: None,
+        entry_name: None,
+    }
+}
+fn physical(plan: Projection) -> ProjectionPlan {
+    match plan {
+        Projection::Physical(plan) => *plan,
+        _ => panic!("expected physical route"),
+    }
+}
+fn snapshot(root: &Path) -> Vec<(PathBuf, u64, std::time::SystemTime, bool)> {
+    fn walk(root: &Path, out: &mut Vec<(PathBuf, u64, std::time::SystemTime, bool)>) {
+        let metadata = fs::symlink_metadata(root).unwrap();
+        out.push((
+            root.to_owned(),
+            metadata.len(),
+            metadata.modified().unwrap(),
+            metadata.permissions().readonly(),
+        ));
+        if metadata.is_dir() {
+            let mut children: Vec<_> = fs::read_dir(root)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect();
+            children.sort();
+            for child in children {
+                walk(&child, out);
+            }
+        }
+    }
+    let mut result = Vec::new();
+    walk(root, &mut result);
+    result
+}
+
+#[test]
+fn all_adapters_and_types_have_explicit_routes_without_planner_writes() {
+    let fixture = Fixture::new();
+    fixture.parents();
+    let sources: Vec<_> = ArtifactType::ALL
+        .into_iter()
+        .map(|kind| fixture.source(kind, "group/item"))
+        .collect();
+    let before = snapshot(fixture.temp.path());
+    let planner = fixture.planner(ArtifactMode::Copy(CopyPolicy::RejectEntryLinks));
+    for binding in NativeBinding::ALL {
+        for source in &sources {
+            let result = planner.plan(request(source, binding));
+            let kind = source.artifact_type();
+            if matches!(binding, NativeBinding::Kimi | NativeBinding::KiroV3)
+                && matches!(kind, ArtifactType::Command | ArtifactType::Workflow)
+            {
+                assert_eq!(result.unwrap_err().stage(), ProjectionStage::Unsupported);
+                continue;
+            }
+            match result.unwrap() {
+                Projection::Physical(plan) => {
+                    let layout = binding.adapter().layout();
+                    let (folder, file, node) = match kind {
+                        ArtifactType::Skill => (layout.skills, "item".into(), NodeKind::Directory),
+                        ArtifactType::Command | ArtifactType::Workflow => {
+                            (layout.commands.unwrap(), "item.md".into(), NodeKind::File)
+                        }
+                        ArtifactType::Agent => (
+                            layout.agents,
+                            format!("item.{}", binding.agent_extension()),
+                            NodeKind::File,
+                        ),
+                        _ => panic!(),
+                    };
+                    assert_eq!(
+                        plan.destination().as_path(),
+                        fixture
+                            .project
+                            .root()
+                            .join(
+                                if kind == ArtifactType::Skill && binding == NativeBinding::Codex {
+                                    ".agents"
+                                } else {
+                                    layout.root
+                                }
+                            )
+                            .join(folder)
+                            .join(file)
+                    );
+                    assert_eq!(
+                        plan.key().adapter(),
+                        InstallationTarget::for_artifact(binding, kind).namespace()
+                    );
+                    assert_eq!(plan.key().artifact_type(), kind.as_str());
+                    assert_eq!(plan.key().id(), "group/item");
+                    assert_eq!(plan.kind(), node);
+                    assert!(!plan.destination().as_path().exists());
+                }
+                Projection::DynamicRule(plan) => {
+                    assert_eq!(kind, ArtifactType::Rule);
+                    assert!(plan.selected().ends_with("RULE.md"));
+                }
+                Projection::Native(plan) => {
+                    assert!(matches!(
+                        kind,
+                        ArtifactType::Mcp
+                            | ArtifactType::Ast
+                            | ArtifactType::Knowledge
+                            | ArtifactType::Language
+                            | ArtifactType::Power
+                    ));
+                    assert_eq!(plan.key().id(), source.id().as_str());
+                }
+            }
+        }
+    }
+    assert_eq!(snapshot(fixture.temp.path()), before);
+}
+
+#[test]
+fn source_identity_uses_producer_remote_version_and_captured_roots() {
+    let a = Fixture::new();
+    let b = Fixture::branded("other");
+    let id = ArtifactId::new("org/team/item", limits()).unwrap();
+    let remote = ArtifactId::new("upstream/item", limits()).unwrap();
+    let version = ConcreteVersion::new(&format!("branch/{}é", "x".repeat(300)), limits()).unwrap();
+    let before_a = snapshot(a.temp.path());
+    let before_b = snapshot(b.temp.path());
+    let cached = SourceRef::hub_cache(
+        &a.installation,
+        producer_id(),
+        ArtifactType::Skill,
+        id.clone(),
+        Some(remote.clone()),
+        version.clone(),
+        limits(),
+    )
+    .unwrap();
+    assert_eq!(cached.producer(), producer_id());
+    assert_ne!(cached.producer(), consumer_id());
+    assert_eq!(cached.id(), &id);
+    assert_eq!(cached.physical_id(), &remote);
+    assert_eq!(cached.version(), &version);
+    assert_eq!(cached.origin(), SourceOrigin::HubCache);
+    assert!(
+        cached.directory().as_path().starts_with(
+            a.installation
+                .root()
+                .join("artifacts/modules")
+                .join(producer_id().to_string())
+                .join("skill")
+        )
+    );
+    assert!(!cached.directory().as_path().exists());
+    let resources = SourceRef::resources(
+        &b.producer,
+        producer_id(),
+        ArtifactType::Skill,
+        id.clone(),
+        version.clone(),
+        limits(),
+    )
+    .unwrap();
+    assert_eq!(resources.origin(), SourceOrigin::Resources);
+    assert!(
+        resources
+            .directory()
+            .as_path()
+            .starts_with(b.producer.brand_directory().join("artifacts/skill"))
+    );
+    assert!(
+        !resources
+            .directory()
+            .as_path()
+            .starts_with(b.project.root())
+    );
+    let local = a.source_at(
+        &a.temp.path().join("exact-artifact"),
+        ArtifactType::Skill,
+        id.as_str(),
+    );
+    assert_eq!(
+        local.directory().as_path(),
+        a.temp.path().join("exact-artifact")
+    );
+    assert_eq!(local.origin(), SourceOrigin::LocalLink);
+    assert_eq!(cached.root().as_path(), a.installation.root());
+    assert_eq!(snapshot(a.temp.path()), before_a);
+    assert_eq!(snapshot(b.temp.path()), before_b);
+}
+
+#[test]
+fn identity_encoding_is_reversible_case_safe_and_prefix_distinct() {
+    let fixture = Fixture::new();
+    let build = |id: &str, version: &str| {
+        SourceRef::hub_cache(
+            &fixture.installation,
+            producer_id(),
+            ArtifactType::Command,
+            ArtifactId::new(id, limits()).unwrap(),
+            None,
+            ConcreteVersion::new(version, limits()).unwrap(),
+            limits(),
+        )
+        .unwrap()
+    };
+    let a = build("org/Item", &format!("{}/release/é", "a".repeat(130)));
+    let b = build("org/item", &format!("{}/release/é", "a".repeat(130)));
+    assert_ne!(a.directory(), b.directory());
+    assert_ne!(
+        a.directory()
+            .as_path()
+            .to_str()
+            .unwrap()
+            .to_ascii_lowercase(),
+        b.directory()
+            .as_path()
+            .to_str()
+            .unwrap()
+            .to_ascii_lowercase()
+    );
+    fn decode(path: &Path, prefix: &str) -> String {
+        let mut bytes = Vec::new();
+        for component in path
+            .iter()
+            .filter_map(|part| part.to_str())
+            .filter_map(|part| part.strip_prefix(prefix))
+        {
+            assert!(component.len() <= 128);
+            for i in (0..component.len()).step_by(2) {
+                bytes.push(u8::from_str_radix(&component[i..i + 2], 16).unwrap());
+            }
+        }
+        String::from_utf8(bytes).unwrap()
+    }
+    assert_eq!(decode(a.directory().as_path(), "i-"), a.id().as_str());
+    assert_eq!(decode(a.directory().as_path(), "v-"), a.version().as_str());
+    let short = build("org/item", &"a".repeat(64));
+    let long = build("org/item", &"a".repeat(128));
+    assert!(
+        !long
+            .directory()
+            .as_path()
+            .starts_with(short.directory().as_path())
+    );
+    assert_ne!(
+        build("org/item", "a/b").directory(),
+        build("org/item", "a-b").directory()
+    );
+    assert_ne!(
+        build("org/item", "a/b").directory(),
+        build("org/item", "a%2Fb").directory()
+    );
+}
+
+#[test]
+fn source_builders_revalidate_id_and_version_under_the_current_budget() {
+    let fixture = Fixture::new();
+    let small = ProjectionLimits::new(4, 128, 8192, 128).unwrap();
+    let large_id = ArtifactId::new("group/long", limits()).unwrap();
+    let small_id = ArtifactId::new("id", limits()).unwrap();
+    let large_version = ConcreteVersion::new("feature/long", limits()).unwrap();
+    let version = ConcreteVersion::new("main", limits()).unwrap();
+    for (id, remote, version) in [
+        (large_id.clone(), Some(small_id.clone()), version.clone()),
+        (small_id.clone(), Some(large_id.clone()), version.clone()),
+        (
+            small_id.clone(),
+            Some(small_id.clone()),
+            large_version.clone(),
+        ),
+    ] {
+        assert_eq!(
+            SourceRef::hub_cache(
+                &fixture.installation,
+                producer_id(),
+                ArtifactType::Skill,
+                id,
+                remote,
+                version,
+                small
+            )
+            .unwrap_err()
+            .stage(),
+            ProjectionStage::Validate
+        );
+    }
+    assert!(
+        SourceRef::resources(
+            &fixture.producer,
+            producer_id(),
+            ArtifactType::Skill,
+            large_id.clone(),
+            version.clone(),
+            small
+        )
+        .is_err()
+    );
+    assert!(
+        SourceRef::local_link(
+            NativePath::new(fixture.temp.path().join("entry")).unwrap(),
+            producer_id(),
+            ArtifactType::Skill,
+            large_id,
+            version,
+            small
+        )
+        .is_err()
+    );
+    assert!(
+        SourceRef::resources(
+            &fixture.producer,
+            producer_id(),
+            ArtifactType::Skill,
+            small_id,
+            large_version,
+            small
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn names_include_final_extension_and_do_not_sanitize_or_silently_fallback() {
+    let fixture = Fixture::new();
+    fixture.parents();
+    let source = fixture.source(ArtifactType::Command, "qualified/base");
+    let planner = fixture.planner(ArtifactMode::Link);
+    for invalid in [
+        "",
+        ".",
+        "..",
+        "a/b",
+        "a\\b",
+        "a:b",
+        "a?b",
+        "a*",
+        "a|b",
+        "a<b",
+        "a>b",
+        "a\"b",
+        " a",
+        "a ",
+        "a.",
+        "a\0b",
+        "CON",
+        "nul.txt",
+        "COM1",
+        "lpt9.name",
+        "COM¹.txt",
+        "lpt²",
+        "LPT³",
+    ] {
+        let error = planner
+            .plan(ProjectionRequest {
+                alias: Some(invalid),
+                ..request(&source, NativeBinding::Claude)
+            })
+            .unwrap_err();
+        assert_eq!(error.stage(), ProjectionStage::Validate, "{invalid:?}");
+    }
+    for valid in ["ação normal", ".local", "com0", "LPT10", "a..b"] {
+        let plan = physical(
+            planner
+                .plan(ProjectionRequest {
+                    alias: Some(valid),
+                    ..request(&source, NativeBinding::Claude)
+                })
+                .unwrap(),
+        );
+        assert_eq!(plan.name(), valid);
+        assert_eq!(plan.key().id(), "qualified/base");
+    }
+    let max = "x".repeat(252);
+    assert_eq!(
+        physical(
+            planner
+                .plan(ProjectionRequest {
+                    alias: Some(&max),
+                    ..request(&source, NativeBinding::Claude)
+                })
+                .unwrap()
+        )
+        .destination()
+        .as_path()
+        .file_name()
+        .unwrap()
+        .len(),
+        255
+    );
+    let overflow = "x".repeat(253);
+    assert_eq!(
+        planner
+            .plan(ProjectionRequest {
+                alias: Some(&overflow),
+                ..request(&source, NativeBinding::Claude)
+            })
+            .unwrap_err()
+            .stage(),
+        ProjectionStage::Validate
+    );
+    let agent = fixture.source(ArtifactType::Agent, "team/agent");
+    let max = "x".repeat(250);
+    assert!(
+        planner
+            .plan(ProjectionRequest {
+                alias: Some(&max),
+                ..request(&agent, NativeBinding::Codex)
+            })
+            .is_ok()
+    );
+    let overflow = "x".repeat(251);
+    assert_eq!(
+        planner
+            .plan(ProjectionRequest {
+                alias: Some(&overflow),
+                ..request(&agent, NativeBinding::Codex)
+            })
+            .unwrap_err()
+            .stage(),
+        ProjectionStage::Validate
+    );
+    let entry = physical(
+        planner
+            .plan(ProjectionRequest {
+                entry_name: Some("entry"),
+                ..request(&source, NativeBinding::Claude)
+            })
+            .unwrap(),
+    );
+    assert_eq!(entry.name(), "entry");
+    let base = physical(
+        planner
+            .plan(ProjectionRequest {
+                entry_name: Some(""),
+                ..request(&source, NativeBinding::Claude)
+            })
+            .unwrap(),
+    );
+    assert_eq!(base.name(), "base");
+    let alias = physical(
+        planner
+            .plan(ProjectionRequest {
+                alias: Some("alias"),
+                entry_name: Some("entry"),
+                ..request(&source, NativeBinding::Claude)
+            })
+            .unwrap(),
+    );
+    assert_eq!(alias.name(), "alias");
+    for _ in 0..3 {
+        let repeated = physical(
+            planner
+                .plan(request(&source, NativeBinding::Claude))
+                .unwrap(),
+        );
+        assert_eq!(repeated.key(), base.key());
+        assert_eq!(repeated.destination(), base.destination());
+        assert_eq!(repeated.mode(), base.mode());
+    }
+}
+
+#[test]
+fn preflight_rejects_alias_type_case_and_duplicate_key_collisions_before_source_io() {
+    let fixture = Fixture::new();
+    let absent = fixture.temp.path().join("not-hydrated");
+    let command = fixture.source_at(&absent, ArtifactType::Command, "org/shared");
+    let workflow = fixture.source_at(&absent, ArtifactType::Workflow, "other/shared");
+    let planner = fixture.planner(ArtifactMode::Link);
+    let before = snapshot(fixture.temp.path());
+    for requests in [
+        vec![
+            request(&command, NativeBinding::Claude),
+            request(&workflow, NativeBinding::Claude),
+        ],
+        vec![
+            ProjectionRequest {
+                alias: Some("SHARED"),
+                ..request(&command, NativeBinding::Claude)
+            },
+            request(&workflow, NativeBinding::Claude),
+        ],
+        vec![
+            ProjectionRequest {
+                alias: Some("a"),
+                ..request(&command, NativeBinding::Claude)
+            },
+            ProjectionRequest {
+                alias: Some("b"),
+                ..request(&command, NativeBinding::Claude)
+            },
+        ],
+    ] {
+        let error = planner.preflight(&requests).unwrap_err();
+        assert_eq!(error.stage(), ProjectionStage::Collision);
+    }
+    assert_eq!(snapshot(fixture.temp.path()), before);
+}
+
+#[test]
+fn fallback_is_regular_ordered_bounded_and_canonical_errors_never_fallback() {
+    let fixture = Fixture::new();
+    fixture.parents();
+    let source = fixture.source(ArtifactType::Workflow, "team/flow");
+    let root = source.directory().as_path();
+    fs::write(root.join("00-first.md"), "first").unwrap();
+    let planner = fixture.planner(ArtifactMode::Copy(CopyPolicy::RejectEntryLinks));
+    assert!(
+        physical(
+            planner
+                .plan(request(&source, NativeBinding::Claude))
+                .unwrap()
+        )
+        .selected()
+        .ends_with("COMMAND.md")
+    );
+    fs::remove_file(root.join("COMMAND.md")).unwrap();
+    fs::create_dir(root.join("00-dir")).unwrap();
+    fs::write(root.join("z-last.md"), "last").unwrap();
+    let before = snapshot(fixture.temp.path());
+    assert!(
+        physical(
+            planner
+                .plan(request(&source, NativeBinding::Claude))
+                .unwrap()
+        )
+        .selected()
+        .ends_with("00-first.md")
+    );
+    assert_eq!(snapshot(fixture.temp.path()), before);
+    let bounded = ProjectionPlanner::new(
+        NativePath::new(fixture.project.root().to_owned()).unwrap(),
+        ProjectionLimits::new(4096, 1, 8192, 128).unwrap(),
+        ArtifactMode::Link,
+    );
+    assert_eq!(
+        bounded
+            .plan(request(&source, NativeBinding::Claude))
+            .unwrap_err()
+            .stage(),
+        ProjectionStage::Enumerate
+    );
+    let bounded = ProjectionPlanner::new(
+        NativePath::new(fixture.project.root().to_owned()).unwrap(),
+        ProjectionLimits::new(4096, 128, 1, 128).unwrap(),
+        ArtifactMode::Link,
+    );
+    assert_eq!(
+        bounded
+            .plan(request(&source, NativeBinding::Claude))
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::FileTooLarge
+    );
+    fs::create_dir(root.join("COMMAND.md")).unwrap();
+    assert_eq!(
+        planner
+            .plan(request(&source, NativeBinding::Claude))
+            .unwrap_err()
+            .stage(),
+        ProjectionStage::Select
+    );
+    fs::remove_dir(root.join("COMMAND.md")).unwrap();
+    fs::remove_file(root.join("00-first.md")).unwrap();
+    fs::remove_file(root.join("z-last.md")).unwrap();
+    assert_eq!(
+        planner
+            .plan(request(&source, NativeBinding::Claude))
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn pure_removal_targets_survive_producer_source_deletion() {
+    let fixture = Fixture::new();
+    fixture.parents();
+    let source = fixture.source(ArtifactType::Command, "producer/command");
+    let planner = fixture.planner(ArtifactMode::Link);
+    let published_binding = physical(
+        planner
+            .plan(request(&source, NativeBinding::Claude))
+            .unwrap(),
+    );
+    fs::remove_dir_all(source.directory().as_path()).unwrap();
+    let before = snapshot(fixture.temp.path());
+    let targets = planner
+        .preflight(&[request(&source, NativeBinding::Claude)])
+        .unwrap();
+    assert_eq!(targets[0].key(), published_binding.key());
+    assert_eq!(targets[0].name(), published_binding.name());
+    assert_eq!(
+        targets[0].destination().unwrap(),
+        published_binding.destination()
+    );
+    assert_eq!(targets[0].kind(), Some(NodeKind::File));
+    assert_eq!(snapshot(fixture.temp.path()), before);
+    assert_eq!(
+        planner
+            .plan(request(&source, NativeBinding::Claude))
+            .unwrap_err()
+            .stage(),
+        ProjectionStage::Source
+    );
+    // Targets remain data; removal/Forget still require the consumer's persisted membership/proofs.
+}
+
+#[cfg(unix)]
+#[test]
+fn fallback_non_unicode_names_are_rejected() {
+    use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+    let fixture = Fixture::new();
+    fixture.parents();
+    let source = fixture.source(ArtifactType::Command, "org/command");
+    let root = source.directory().as_path();
+    fs::remove_file(root.join("COMMAND.md")).unwrap();
+    let first = OsString::from_vec(vec![b'a', 0x80]);
+    let last = OsString::from_vec(vec![b'a', 0xff]);
+    if let Err(error) = fs::write(root.join(&last), "last") {
+        // APFS can reject non-Unicode names before the planner can observe them.
+        assert_eq!(error.raw_os_error(), Some(libc::EILSEQ));
+        assert!(fs::read_dir(root).unwrap().next().is_none());
+        return;
+    }
+    fs::write(root.join(&first), "first").unwrap();
+    let planner = fixture.planner(ArtifactMode::Link);
+    assert!(
+        planner
+            .plan(request(&source, NativeBinding::Claude))
+            .is_err()
+    );
+    assert_eq!(fs::read(root.join(first)).unwrap(), b"first");
+    assert_eq!(fs::read(root.join(last)).unwrap(), b"last");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn real_permission_error_does_not_become_canonical_absence() {
+    use std::{
+        os::unix::{fs::PermissionsExt, process::CommandExt},
+        process::Command,
+    };
+    const CHILD: &str = "GRAPHIT_PROJECTION_PERMISSION_CHILD";
+    if let Some(root) = std::env::var_os(CHILD) {
+        let directory = PathBuf::from(root);
+        let fixture = Fixture::new();
+        let source = fixture.source_at(&directory, ArtifactType::Command, "org/command");
+        let error = fixture
+            .planner(ArtifactMode::Link)
+            .plan(request(&source, NativeBinding::Claude))
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+        assert!(matches!(
+            error.stage(),
+            ProjectionStage::Source | ProjectionStage::Select
+        ));
+        return;
+    }
+    let fixture = Fixture::new();
+    let root = fixture.temp.path().join("denied");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("COMMAND.md"), "canonical").unwrap();
+    fs::write(root.join("fallback.md"), "fallback").unwrap();
+    fs::set_permissions(fixture.temp.path(), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o000)).unwrap();
+    let executable = std::env::current_exe().unwrap();
+    let mut command = match fs::read_dir(&root) {
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Command::new(executable),
+        Ok(_) => {
+            // A privileged runner can bypass mode bits. Run the same test as an
+            // unprivileged UID, with an executable reachable outside its checkout.
+            let child = fixture.temp.path().join("projection-permission-child");
+            fs::copy(executable, &child).unwrap();
+            fs::set_permissions(&child, fs::Permissions::from_mode(0o755)).unwrap();
+            let mut command = Command::new(child);
+            command.uid(65534).gid(65534);
+            command
+        }
+        Err(error) => panic!("could not inspect permission fixture: {error}"),
+    };
+    let result = command
+        .args([
+            "projection_tests::real_permission_error_does_not_become_canonical_absence",
+            "--exact",
+            "--nocapture",
+        ])
+        .env(CHILD, &root)
+        .output();
+    fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
+    let result = result.expect("permission helper must start");
+    assert!(
+        result.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr)
+    );
+}

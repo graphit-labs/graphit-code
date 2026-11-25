@@ -1,0 +1,3 @@
+language: x
+merge: !!bool true
+exclusive: !!bool false

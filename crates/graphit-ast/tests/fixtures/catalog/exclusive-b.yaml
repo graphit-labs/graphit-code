@@ -1,0 +1,3 @@
+language: exclusive_b
+extensions: [.shared]
+exclusive: true

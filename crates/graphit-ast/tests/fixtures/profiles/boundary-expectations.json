@@ -1,0 +1,71 @@
+{
+  "task": "tsk-e4a9",
+  "decoder_executed": false,
+  "fixtures": [
+    {
+      "path": "minimal.yaml",
+      "bytes": 12,
+      "sha256": "05170ff9aec7c945ee629fd1c410e7802fcb62e590823f0afd350a4208e00dff"
+    },
+    {
+      "path": "all-fields.yaml",
+      "bytes": 1597,
+      "sha256": "a1a4703c0c3be23df47dd0a8864fe369120fe6f6dd29e3f148160176c8795b4f"
+    },
+    {
+      "path": "implicit-null.yaml",
+      "bytes": 21,
+      "sha256": "78cc4e3c98ac8aca91ce7939e136d0d6f1cdc5479d14815c30917848322b7ad4"
+    },
+    {
+      "path": "mixed-case-text.yaml",
+      "bytes": 44,
+      "sha256": "3171ba0baca003363bdbd4fe73e71ab8c5cbd11f5a193b0c637fb515016a2c7e"
+    },
+    {
+      "path": "mixed-case-null-denied.yaml",
+      "bytes": 26,
+      "sha256": "7c98b6232209156b80bb21813e8e8813b808cb5c78419139767bc018b6cb2aa5"
+    },
+    {
+      "path": "quoted-null-denied.yaml",
+      "bytes": 32,
+      "sha256": "9cc2d29c94ac87d34d3b31800bf439edb208b06dc66d72b96d4eb61a3e64cdfc"
+    }
+  ],
+  "expected": {
+    "minimal": {
+      "input_bytes": 12,
+      "wire_nodes": 2,
+      "depth": 2,
+      "text_bytes": 9,
+      "max_scalar_bytes": 8,
+      "collection_entries": 1
+    },
+    "implicit_null": {
+      "exports_scalar_start": 19,
+      "exports_scalar_end": 19,
+      "kind": "Null",
+      "location": "ScalarExact",
+      "not_eof": true
+    },
+    "mixed_case_text": {
+      "key": "nUlL",
+      "value": "NuLl",
+      "kind": "String",
+      "preserve_exact": true
+    },
+    "mixed_case_null_denied": {
+      "code": "InvalidField",
+      "path": "exports"
+    },
+    "quoted_null_denied": {
+      "code": "InvalidField",
+      "path": "exports"
+    },
+    "all_fields": {
+      "schema_decode_only": true,
+      "native_query_compile_executed": false
+    }
+  }
+}

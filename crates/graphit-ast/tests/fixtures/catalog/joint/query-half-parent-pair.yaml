@@ -1,0 +1,2 @@
+language: x
+queries: [{data_key: a, pattern: "(a)", graph_label: X, parent_label: Parent}]

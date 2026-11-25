@@ -1,0 +1,9 @@
+language: x
+extensions: [.x]
+exclusive: true
+queries:
+  - {data_key: a, pattern: a1, graph_label: A}
+  - {data_key: a, pattern: a2, graph_label: A}
+  - {data_key: b, pattern: b, graph_label: B}
+embedded:
+  - {pattern: base, text_capture: text}

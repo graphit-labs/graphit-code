@@ -1,0 +1,2 @@
+language: x
+context_types: {<<: {a: b}}

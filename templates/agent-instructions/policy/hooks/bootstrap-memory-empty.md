@@ -1,0 +1,1 @@
+The hook read the authoritative memory table; it contains no mandatory memories.

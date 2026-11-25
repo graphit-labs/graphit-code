@@ -1,0 +1,115 @@
+{
+  "source_commit": "e12fe4bc77ffb1fadb914139358c855a77875667",
+  "files": [
+    {
+      "path": ".agents/agents/graphit-scout.md",
+      "bytes": 11994,
+      "sha256": "a3d3cdcbf37853bf6311032e8cd4d6e094e6a7fe54f285f4d0375f263c396b27"
+    },
+    {
+      "path": ".agents/agents/graphit-scribe.md",
+      "bytes": 8753,
+      "sha256": "9303d9b5cf80432101709ab10ce31d3f1d12030302734a232c17cecd3ccb445b"
+    },
+    {
+      "path": ".agents/agents/graphit-tracker.md",
+      "bytes": 9461,
+      "sha256": "e3bee9f3ba2752ec64f87d19fdd257af6be5c6a01ebe6ddb185177511a733808"
+    },
+    {
+      "path": ".agents/skills/graphit-ast/SKILL.md",
+      "bytes": 13271,
+      "sha256": "eaeb995b3d20af81cea7824efb24a92fc55d008608f19f0e14baf013c6cd01f5"
+    },
+    {
+      "path": ".agents/skills/graphit-ast/references/impact-assessment.md",
+      "bytes": 8401,
+      "sha256": "a7411f02f6edb442edafe07bcecdb355b3fa15774a20d505fb400d8d46520ed3"
+    },
+    {
+      "path": ".agents/skills/graphit-hub/SKILL.md",
+      "bytes": 5753,
+      "sha256": "d7db95febcf4e42ed49729fa7a8ae079867c2d8df1fc967d9abf7413bbef7d0c"
+    },
+    {
+      "path": ".agents/skills/graphit-hub/references/discovery-cases.md",
+      "bytes": 12812,
+      "sha256": "bcfa0bdc86aba5ddccf7de6e06105f290791786774574b83d599af8328f41b7a"
+    },
+    {
+      "path": ".agents/skills/graphit-knowledge/SKILL.md",
+      "bytes": 8441,
+      "sha256": "1b3b947542f55b3c7e68a076fe5d133858834e905b4700a097a82802bbb955a5"
+    },
+    {
+      "path": ".agents/skills/graphit-knowledge/references/documentation-design.md",
+      "bytes": 10455,
+      "sha256": "e4e6779e284fc46c095bdc0965a36356b74d8dbdbe3fe1953c2991e815e9dbf7"
+    },
+    {
+      "path": ".agents/skills/graphit-knowledge/references/worked-domain.md",
+      "bytes": 25427,
+      "sha256": "f9cb73ab13712371367557a00dfe32cd4effb2047d301ed939358a3b48d224f1"
+    },
+    {
+      "path": ".agents/skills/graphit-memory/SKILL.md",
+      "bytes": 7093,
+      "sha256": "e5c55c535b5a6b1825043b2e3311c3ac9ff1318920abd19692cd12b1611d65f6"
+    },
+    {
+      "path": ".agents/skills/graphit-memory/references/durable-context.md",
+      "bytes": 11696,
+      "sha256": "c42a041980ce5ae307a5e047356713952fe41b484eeb140ae88a1535d5d0959a"
+    },
+    {
+      "path": ".agents/skills/graphit-task/SKILL.md",
+      "bytes": 14574,
+      "sha256": "cdac8772d2a9b9567c30c0e47165688ef1cef12821cdcfd22eafdccd9f0c1339"
+    },
+    {
+      "path": ".agents/skills/graphit-task/references/execution.md",
+      "bytes": 16495,
+      "sha256": "06b9636ccc0463b4ac58e9855b40903bb692eb045a3921fcb7da9785e8e3ca5e"
+    },
+    {
+      "path": ".agents/skills/graphit-task/references/planning.md",
+      "bytes": 13697,
+      "sha256": "0dfcff0e32405d7d8d2cea18aa4bf35de02851dc19ae29a2b44923ec7f4ab511"
+    },
+    {
+      "path": ".agents/skills/graphit-task/references/session.md",
+      "bytes": 22713,
+      "sha256": "adc77d92682924b01231acaf8f7f00368eca8039663be63437fccdce1dc41752"
+    },
+    {
+      "path": ".agents/skills/graphit-task/references/worked-feature.md",
+      "bytes": 31623,
+      "sha256": "c4cf54081aaf18b427d13f9a01030f2c8dc5aa011248a6df6d39504039725d53"
+    },
+    {
+      "path": ".agents/skills/graphit-task/references/worked-system.md",
+      "bytes": 31422,
+      "sha256": "53f11f71c6d6d8b19e824da8440fb41f1706d99d86119a0397e5bb4a49aa0007"
+    },
+    {
+      "path": ".kiro/agents/graphit-scout.md",
+      "bytes": 11997,
+      "sha256": "c12918a4fd31f2517585ee6755f9b58c01686f7c9092c09e92c0b4a812e03104"
+    },
+    {
+      "path": ".kiro/agents/graphit-scribe.md",
+      "bytes": 8768,
+      "sha256": "34a92cfdd623b8cc7caea4f66b8007cda705b99876f2a38fd02de401928d81bc"
+    },
+    {
+      "path": ".kiro/agents/graphit-tracker.md",
+      "bytes": 9476,
+      "sha256": "de5084d7ff4e06d7030b020c28204a8666685f5b6bd4c64918fcdc8594cc2098"
+    },
+    {
+      "path": ".kiro/hooks/graphit-memory.json",
+      "bytes": 4624,
+      "sha256": "fd5e07a6f0f0651e4d76ba3b8c8bb32b9f8a7b44624f2f2138a822645f9baea8"
+    }
+  ]
+}

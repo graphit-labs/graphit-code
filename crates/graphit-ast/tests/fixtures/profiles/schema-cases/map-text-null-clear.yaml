@@ -1,0 +1,2 @@
+language: x
+context_types: {gone: null, keep: value}

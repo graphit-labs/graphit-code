@@ -1,0 +1,109 @@
+language: go
+grammar: tree-sitter-go
+extensions: [".go"]
+
+target_rules:
+  CALLS: { labels: [Function, Method] }
+  READS_FIELD: { labels: [Field] }
+  WRITES_FIELD: { labels: [Field] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(function_declaration name: (identifier) @name)'
+  - data_key: methods
+    graph_label: Method
+    pattern: '(method_declaration name: (field_identifier) @name)'
+  - data_key: structs
+    graph_label: Struct
+    pattern: '(type_declaration (type_spec name: (type_identifier) @name type: (struct_type)))'
+  - data_key: interfaces
+    graph_label: Interface
+    pattern: '(type_declaration (type_spec name: (type_identifier) @name type: (interface_type)))'
+  - data_key: types
+    graph_label: Type
+    pattern: '(type_declaration (type_spec name: (type_identifier) @name))'
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_spec name: (identifier) @name)'
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(var_spec name: (identifier) @name)'
+
+  - data_key: constants
+    graph_label: Constant
+    pattern: '(const_spec name: (identifier) @name value: (expression_list [(int_literal) (float_literal) (true) (false) (nil) (rune_literal) (interpreted_string_literal) (raw_string_literal)] @value))'
+    value_capture: value
+    value_label: Value
+  - data_key: variables
+    graph_label: Variable
+    pattern: '(var_spec name: (identifier) @name value: (expression_list [(int_literal) (float_literal) (true) (false) (nil) (rune_literal) (interpreted_string_literal) (raw_string_literal)] @value))'
+    value_capture: value
+    value_label: Value
+  - data_key: imports
+    graph_label: Import
+    pattern: '(import_spec path: (interpreted_string_literal) @name)'
+  - data_key: parameters
+    graph_label: Parameter
+    pattern: '(parameter_declaration name: (identifier) @name)'
+  - data_key: fields
+    graph_label: Field
+    pattern: '(field_declaration name: (field_identifier) @name)'
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (identifier) @name)'
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(call_expression function: (selector_expression field: (field_identifier) @name))'
+  - data_key: field_reads
+    type: relation
+    relation_type: READS_FIELD
+    pattern: '(selector_expression field: (field_identifier) @name)'
+  - data_key: field_writes
+    type: relation
+    relation_type: WRITES_FIELD
+    pattern: '(assignment_statement left: (expression_list (selector_expression field: (field_identifier) @name)))'
+
+exports:
+  strategy: capitalized_name
+
+self_keywords: []
+
+context_types:
+  type_spec: Struct
+  function_declaration: Function
+  method_declaration: Method
+
+anon_func_types: []
+
+declaration_types:
+  - function_declaration
+  - method_declaration
+  - type_declaration
+  - var_declaration
+  - const_declaration
+
+comment_types:
+  - comment
+
+complexity:
+  node_types:
+    - if_statement
+    - for_statement
+    - expression_case
+    - communication_case
+  operators: ["&&", "||"]
+
+embed_labels:
+  - Function
+  - Method
+  - Struct
+  - Interface
+  - Type
+  - Constant
+  - Variable
+  - Field
+  - Comment

@@ -1,0 +1,72 @@
+language: clojure
+grammar: tree-sitter-clojure
+extensions: [".clj", ".cljs", ".cljc", ".edn"]
+
+target_rules:
+  CALLS: { labels: [Function, Macro] }
+queries:
+
+  - data_key: functions
+    graph_label: Function
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#match? @_def "^defn-?$"))'
+  - data_key: macros
+    graph_label: Macro
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "defmacro"))'
+  - data_key: variables
+    graph_label: Var
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "def"))'
+  - data_key: multimethods
+    graph_label: MultiMethod
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "defmulti"))'
+  - data_key: protocols
+    graph_label: Protocol
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "defprotocol"))'
+  - data_key: records
+    graph_label: Record
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "defrecord"))'
+  - data_key: namespaces
+    graph_label: Namespace
+    pattern: '(list_lit (sym_lit) @_def (sym_lit) @name (#eq? @_def "ns"))'
+
+  - data_key: calls
+    type: relation
+    relation_type: CALLS
+    pattern: '(list_lit (sym_lit) @name)'
+
+  - data_key: imports
+    type: relation
+    relation_type: IMPORTS
+    pattern: '(list_lit (sym_lit) @_req (sym_lit) @name (#match? @_req "^(require|use|import)$"))'
+
+exports:
+  strategy: none
+
+self_keywords: []
+
+context_types: {}
+
+anon_func_types:
+  - anon_fn_lit
+
+declaration_types:
+  - list_lit
+
+comment_types:
+  - comment
+
+complexity:
+  head_calls:
+    node_type: list_lit
+    names: [if, if-not, if-let, if-some, when, when-not, when-let, when-some, condp, and, or, loop]
+    pair_names: [cond]
+    subject_pair_names: ["case"]
+
+embed_labels:
+  - Namespace
+  - Protocol
+  - Record
+  - Function
+  - Macro
+  - MultiMethod
+  - Var
+  - Comment

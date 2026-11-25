@@ -1,0 +1,274 @@
+import { describe, test, expect, vi, beforeEach } from 'vitest'
+import { useAppStore } from './appStore'
+import { hubApi } from '@/api/hub'
+
+vi.mock('@/api/hub', () => ({
+  hubApi: {
+    getGlobalProjects: vi.fn(),
+    getProjectCatalog: vi.fn(),
+  },
+}))
+
+describe('appStore', () => {
+  beforeEach(() => {
+    const store = useAppStore.getState()
+    store.setTypeFilter('all')
+    store.setProjectFilter('all')
+    store.setSearch('')
+    store.setActiveAgent('')
+    store.setActiveContextId(null)
+    useAppStore.setState({
+      projects: [], activeProjectDir: '', activeProjectId: '', projectName: '',
+      projectTargets: [], projectCatalog: [], activeProjectKey: '', activeProjectOrigin: '',
+      projectVersions: {}, activeProjectVersion: '',
+      projectsLoaded: false, projectsError: '', workspaceProjectsError: '', hubProjectsError: '', supportedAgents: [],
+    })
+    vi.mocked(hubApi.getProjectCatalog).mockResolvedValue({ workspace_projects: [], hub_projects: [] })
+
+    while (useAppStore.getState().activeRequests > 0) {
+      useAppStore.getState().decrementLoading()
+    }
+  })
+
+  test('basic setters and filters', () => {
+    const store = useAppStore.getState()
+
+    store.setTypeFilter('skill')
+    expect(useAppStore.getState().typeFilter).toBe('skill')
+
+    store.setProjectFilter('my-proj')
+    expect(useAppStore.getState().projectFilter).toBe('my-proj')
+
+    store.setSearch('hello')
+    expect(useAppStore.getState().search).toBe('hello')
+
+    store.setActiveAgent('cursor')
+    expect(useAppStore.getState().activeAgent).toBe('cursor')
+
+    store.setActiveProjectId('proj-123')
+    expect(useAppStore.getState().activeProjectId).toBe('proj-123')
+
+    store.setActiveContextId('ctx-abc')
+    expect(useAppStore.getState().activeContextId).toBe('ctx-abc')
+
+    store.setProjectName('My Project')
+    expect(useAppStore.getState().projectName).toBe('My Project')
+  })
+
+  test('loading request counters and document classes', () => {
+    const store = useAppStore.getState()
+    expect(store.isGlobalLoading).toBe(false)
+    expect(store.activeRequests).toBe(0)
+    expect(document.body.classList.contains('is-global-loading')).toBe(false)
+
+    store.incrementLoading()
+    expect(useAppStore.getState().isGlobalLoading).toBe(true)
+    expect(useAppStore.getState().activeRequests).toBe(1)
+    expect(document.body.classList.contains('is-global-loading')).toBe(true)
+
+    store.incrementLoading()
+    expect(useAppStore.getState().activeRequests).toBe(2)
+    expect(document.body.classList.contains('is-global-loading')).toBe(true)
+
+    store.decrementLoading()
+    expect(useAppStore.getState().isGlobalLoading).toBe(true)
+    expect(useAppStore.getState().activeRequests).toBe(1)
+    expect(document.body.classList.contains('is-global-loading')).toBe(true)
+
+    store.decrementLoading()
+    expect(useAppStore.getState().isGlobalLoading).toBe(false)
+    expect(useAppStore.getState().activeRequests).toBe(0)
+    expect(document.body.classList.contains('is-global-loading')).toBe(false)
+
+    store.decrementLoading()
+    expect(useAppStore.getState().activeRequests).toBe(0)
+  })
+
+  test('loadProjects success - initial load without active project', async () => {
+    const mockProjects = [
+      { id: '1', name: 'Project One', dir: '/dir/one' },
+      { id: '2', name: 'Project Two', dir: '/dir/two' },
+    ]
+
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
+      projects: mockProjects,
+      current_project_dir: '/dir/two',
+      current_agent: 'cursor',
+      supported_agents: ['cursor', 'antigravity'],
+    })
+
+    const store = useAppStore.getState()
+    await store.loadProjects()
+
+    const updated = useAppStore.getState()
+    expect(updated.projectsLoaded).toBe(true)
+    expect(updated.projects).toEqual(mockProjects)
+    expect(updated.activeProjectDir).toBe('/dir/two')
+    expect(updated.activeProjectId).toBe('2')
+    expect(updated.projectName).toBe('Project Two')
+    expect(updated.activeAgent).toBe('cursor')
+    expect(updated.supportedAgents).toEqual(['cursor', 'antigravity'])
+  })
+
+  test('loadProjects success - with active project matching and non-matching fallback', async () => {
+    const mockProjects = [
+      { id: '1', name: 'Project One', dir: '/dir/one' },
+      { id: '2', name: 'Project Two', dir: '/dir/two' },
+    ]
+
+    useAppStore.setState({ activeProjectDir: '/dir/one' })
+
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
+      projects: mockProjects,
+      current_project_dir: '/dir/two',
+      current_agent: '',
+      supported_agents: [],
+    })
+
+    await useAppStore.getState().loadProjects()
+    expect(useAppStore.getState().activeProjectDir).toBe('/dir/one')
+    expect(useAppStore.getState().activeProjectId).toBe('1')
+    expect(useAppStore.getState().projectName).toBe('Project One')
+    expect(useAppStore.getState().activeAgent).toBe('claude')
+
+    useAppStore.setState({ activeProjectDir: '/dir/not-exist' })
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
+      projects: mockProjects,
+      current_project_dir: '/dir/one',
+      current_agent: 'antigravity',
+      supported_agents: ['antigravity'],
+    })
+
+    await useAppStore.getState().loadProjects()
+    expect(useAppStore.getState().activeProjectDir).toBe('/dir/one')
+    expect(useAppStore.getState().activeProjectId).toBe('1')
+    expect(useAppStore.getState().projectName).toBe('Project One')
+  })
+
+  test('loadProjects clears an unavailable selection instead of treating the global dir as a project', async () => {
+    useAppStore.setState({
+      activeProjectDir: '/home/graphit/.graphit',
+      activeProjectId: 'stale-project',
+      projectName: '.graphit',
+    })
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
+      projects: [],
+      current_project_dir: '',
+      current_agent: 'codex',
+      supported_agents: ['codex'],
+    })
+
+    await useAppStore.getState().loadProjects()
+
+    const state = useAppStore.getState()
+    expect(state.activeProjectDir).toBe('')
+    expect(state.activeProjectId).toBe('')
+    expect(state.projectName).toBe('')
+  })
+
+  test('loadProjects ignores a current project directory that is absent from the catalogue', async () => {
+    useAppStore.setState({ activeProjectDir: '/missing', activeProjectId: 'stale', projectName: 'Missing' })
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
+      projects: [{ id: '1', name: 'Project One', dir: '/dir/one' }],
+      current_project_dir: '/also-missing',
+      current_agent: 'codex',
+      supported_agents: ['codex'],
+    })
+
+    await useAppStore.getState().loadProjects()
+
+    const state = useAppStore.getState()
+    expect(state.activeProjectDir).toBe('')
+    expect(state.activeProjectId).toBe('')
+    expect(state.projectName).toBe('')
+  })
+
+  test('loadProjects failure', async () => {
+    vi.mocked(hubApi.getGlobalProjects).mockRejectedValueOnce(new Error('Network error'))
+
+    const store = useAppStore.getState()
+    await store.loadProjects()
+
+    expect(useAppStore.getState().projectsLoaded).toBe(true)
+  })
+
+  test('switchProject action', () => {
+    const mockProjects = [
+      { id: '1', name: 'Project One', dir: '/dir/one' },
+      { id: '2', name: 'Project Two', dir: '/dir/two' },
+    ]
+    useAppStore.setState({ projects: mockProjects })
+
+    const store = useAppStore.getState()
+
+    store.switchProject('/dir/one')
+    let state = useAppStore.getState()
+    expect(state.activeProjectDir).toBe('/dir/one')
+    expect(state.projectName).toBe('Project One')
+    expect(state.activeProjectId).toBe('1')
+
+    store.switchProject('/dir/three')
+    state = useAppStore.getState()
+    expect(state.activeProjectDir).toBe('/dir/three')
+    expect(state.projectName).toBe('three')
+    expect(state.activeProjectId).toBe('')
+  })
+
+  test('restores a project version after the checkout moves to another machine', async () => {
+    const id = 'project1'
+    const dir = '/old/work/project'
+    useAppStore.setState({ projects: [{ id, name: 'Project', dir }] })
+    useAppStore.getState().switchProject(dir)
+    useAppStore.getState().setProjectVersion('feature/ação')
+    const persisted = localStorage.getItem('graphit-app-state')!
+    expect(JSON.parse(persisted).state.projectVersions).toEqual({ 'workspace:project1': 'feature/ação' })
+    expect(persisted).not.toContain(dir)
+    useAppStore.setState({ activeProjectKey: '', activeProjectDir: '', activeProjectOrigin: '', activeProjectId: '', projectVersions: {} })
+    localStorage.setItem('graphit-app-state', persisted)
+    await useAppStore.persist.rehydrate()
+    const moved = String.raw`D:\\workspace\\project`
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
+      projects: [{ id, name: 'Project', dir: moved }, { id, name: 'Project', dir: '/another/checkout' }],
+      current_project_dir: moved, current_agent: 'codex', supported_agents: ['codex'],
+    })
+    await useAppStore.getState().loadProjects()
+    expect(useAppStore.getState()).toMatchObject({ activeProjectId: id, activeProjectDir: moved, activeProjectVersion: 'feature/ação' })
+  })
+
+  test('keeps a Hub target selected without fabricating a workspace directory', async () => {
+    const remote = { id: '01ARZ3NDEKTSV4RRFFQ69G5FAV', name: 'Remote project', revision: 4, status: 'active' }
+    useAppStore.setState({
+      activeProjectKey: `hub:${remote.id}`, activeProjectId: remote.id,
+      activeProjectOrigin: 'hub', activeProjectDir: '', projectName: remote.name,
+    })
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({
+      projects: [{ id: remote.id, name: remote.name, dir: '/workspace/remote' }],
+      current_project_dir: '/workspace/remote', current_agent: 'codex', supported_agents: ['codex'],
+    })
+    vi.mocked(hubApi.getProjectCatalog).mockResolvedValueOnce({
+      workspace_projects: [], hub_projects: [remote],
+    })
+
+    await useAppStore.getState().loadProjects()
+    const state = useAppStore.getState()
+    expect(state.activeProjectKey).toBe(`hub:${remote.id}`)
+    expect(state.activeProjectOrigin).toBe('hub')
+    expect(state.activeProjectDir).toBe('')
+    expect(state.projectCatalog).toHaveLength(1)
+    expect(state.projectCatalog[0].workspace?.dir).toBe('/workspace/remote')
+    expect(state.projectCatalog[0].hub?.revision).toBe(4)
+  })
+
+  test('retains a stale Hub selection during a partial Hub failure', async () => {
+    const id = '01ARZ3NDEKTSV4RRFFQ69G5FAV'
+    useAppStore.setState({ activeProjectKey: `hub:${id}`, activeProjectId: id, activeProjectOrigin: 'hub', projectName: 'Remote', activeProjectDir: '' })
+    vi.mocked(hubApi.getGlobalProjects).mockResolvedValueOnce({ projects: [], current_project_dir: '', current_agent: 'codex', supported_agents: ['codex'] })
+    vi.mocked(hubApi.getProjectCatalog).mockResolvedValueOnce({ workspace_projects: [], hub_projects: [], hub_error: 'offline' })
+
+    await useAppStore.getState().loadProjects()
+    const state = useAppStore.getState()
+    expect(state.activeProjectOrigin).toBe('hub')
+    expect(state.activeProjectDir).toBe('')
+    expect(state.projectTargets[0].availability).toBe('stale')
+  })
+})

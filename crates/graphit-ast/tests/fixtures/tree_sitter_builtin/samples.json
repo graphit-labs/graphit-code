@@ -1,0 +1,207 @@
+[
+  {
+    "grammar": "tree-sitter-bash",
+    "profile": "bash",
+    "source": "greet() { echo \"Olá\"; }\n"
+  },
+  {
+    "grammar": "tree-sitter-c",
+    "profile": "c",
+    "source": "struct Item { int value; };\nint greet(void) { return 1; }\n"
+  },
+  {
+    "grammar": "tree-sitter-c_sharp",
+    "profile": "csharp",
+    "source": "namespace Example { public class Item { public int Value; public int Greet() { return 1; } } }\n"
+  },
+  {
+    "grammar": "tree-sitter-clojure",
+    "profile": "clojure",
+    "source": "(ns example)\n(defn greet [x] (+ x 1))\n"
+  },
+  {
+    "grammar": "tree-sitter-cpp",
+    "profile": "cpp",
+    "source": "class Item { public: int value; int greet() { return 1; } };\n"
+  },
+  {
+    "grammar": "tree-sitter-css",
+    "profile": "css",
+    "source": ".item { color: red; }\n"
+  },
+  {
+    "grammar": "tree-sitter-dart",
+    "profile": "dart",
+    "source": "class Item { int value = 1; int greet() { return value; } }\n"
+  },
+  {
+    "grammar": "tree-sitter-dockerfile",
+    "profile": "dockerfile",
+    "source": "FROM alpine:3.20\nENV GREETING=hello\nRUN echo \"$GREETING\"\n"
+  },
+  {
+    "grammar": "tree-sitter-elixir",
+    "profile": "elixir",
+    "source": "defmodule Example do\n  def greet(x), do: x + 1\nend\n"
+  },
+  {
+    "grammar": "tree-sitter-go",
+    "profile": "go",
+    "source": "package example\ntype Item struct { Value int }\nfunc Greet() int { return 1 }\n"
+  },
+  {
+    "grammar": "tree-sitter-graphql",
+    "profile": "graphql",
+    "source": "type Item { value: Int! }\n"
+  },
+  {
+    "grammar": "tree-sitter-groovy",
+    "profile": "groovy",
+    "source": "class Item { int value = 1; int greet() { return value } }\n"
+  },
+  {
+    "grammar": "tree-sitter-haskell",
+    "profile": "haskell",
+    "source": "module Example where\ngreet x = x + 1\n"
+  },
+  {
+    "grammar": "tree-sitter-hcl",
+    "profile": "hcl",
+    "source": "resource \"example_item\" \"demo\" {\n  value = \"hello\"\n}\n"
+  },
+  {
+    "grammar": "tree-sitter-html",
+    "profile": "html",
+    "source": "<div class=\"item\">Olá</div>\n"
+  },
+  {
+    "grammar": "tree-sitter-java",
+    "profile": "java",
+    "source": "package example; public class Item { int value = 1; public int greet() { return value; } }\n"
+  },
+  {
+    "grammar": "tree-sitter-javascript",
+    "profile": "javascript",
+    "source": "export class Item { value = 1; greet() { return this.value; } }\n"
+  },
+  {
+    "grammar": "tree-sitter-json",
+    "profile": "json",
+    "source": "{\"value\": \"Olá\", \"count\": 1}\n"
+  },
+  {
+    "grammar": "tree-sitter-julia",
+    "profile": "julia",
+    "source": "module Example\ngreet(x) = x + 1\nfunction outer(x)\n    f = y -> inside(x + y)\n    return f(1)\nend\nend\n"
+  },
+  {
+    "grammar": "tree-sitter-kotlin",
+    "profile": "kotlin",
+    "source": "package example\n\nclass Item {\n    val value = 1\n    fun greet(): Int {\n        return value\n    }\n}\n"
+  },
+  {
+    "grammar": "tree-sitter-lua",
+    "profile": "lua",
+    "source": "local function outer(x)\n    local f = function(y) return inside(x + y) end\n    return f(1)\nend\n"
+  },
+  {
+    "grammar": "tree-sitter-markdown",
+    "profile": null,
+    "source": "# Olá\n\nA paragraph.\n"
+  },
+  {
+    "grammar": "tree-sitter-objc",
+    "profile": "objc",
+    "source": "@interface Item\n- (int)greet;\n@end\n@implementation Item\n- (int)greet { return 1; }\n@end\nint outer(int x) {\n    int (^f)(int) = ^(int y) { return inside(x + y); };\n    return f(1);\n}\n"
+  },
+  {
+    "grammar": "tree-sitter-php",
+    "profile": "php",
+    "source": "<?php class Item { public function greet() { return 1; } }\n"
+  },
+  {
+    "grammar": "tree-sitter-plpgsql",
+    "profile": "plpgsql",
+    "source": "DECLARE value integer := 1;\nBEGIN\n IF value > 0 THEN value := value + 1; END IF;\nEND;\n"
+  },
+  {
+    "grammar": "tree-sitter-proto",
+    "profile": "protobuf",
+    "source": "syntax = \"proto3\";\npackage example;\nmessage Item { int32 value = 1; }\n"
+  },
+  {
+    "grammar": "tree-sitter-python",
+    "profile": "python",
+    "source": "class Item:\n    def greet(self):\n        return \"Olá\"\n"
+  },
+  {
+    "grammar": "tree-sitter-r",
+    "profile": "r",
+    "source": "greet <- function(x) { x + 1 }\n"
+  },
+  {
+    "grammar": "tree-sitter-ruby",
+    "profile": "ruby",
+    "source": "class Item\n  def greet\n    1\n  end\nend\n"
+  },
+  {
+    "grammar": "tree-sitter-rust",
+    "profile": "rust",
+    "source": "pub struct Item { pub value: i32 }\r\npub fn greet_β() -> i32 { 1 }\r\n"
+  },
+  {
+    "grammar": "tree-sitter-scala",
+    "profile": "scala",
+    "source": "class Item { val value = 1; def greet(): Int = value }\n"
+  },
+  {
+    "grammar": "tree-sitter-sql",
+    "profile": "sql",
+    "source": "CREATE TABLE item (value INT);\nSELECT value FROM item;\n"
+  },
+  {
+    "grammar": "tree-sitter-svelte",
+    "profile": "svelte",
+    "source": "<script>let value = 1;</script>\n<div>{value}</div>\n"
+  },
+  {
+    "grammar": "tree-sitter-swift",
+    "profile": "swift",
+    "source": "class Item { var value: Int = 1; func greet() -> Int { return value } }\n"
+  },
+  {
+    "grammar": "tree-sitter-toml",
+    "profile": "toml",
+    "source": "[item]\nvalue = \"Olá\"\n"
+  },
+  {
+    "grammar": "tree-sitter-tsx",
+    "profile": "tsx",
+    "source": "export function Greet() { return <div>Olá</div>; }\n"
+  },
+  {
+    "grammar": "tree-sitter-typescript",
+    "profile": "typescript",
+    "source": "export class Item { value: number = 1; greet(): number { return this.value; } }\n"
+  },
+  {
+    "grammar": "tree-sitter-vue",
+    "profile": "vue",
+    "source": "<template><div>{{ value }}</div></template>\n<script>export default { data() { return { value: 1 }; } };</script>\n"
+  },
+  {
+    "grammar": "tree-sitter-xml",
+    "profile": "xml",
+    "source": "<?xml version=\"1.0\"?><item><value>Olá</value></item>\n"
+  },
+  {
+    "grammar": "tree-sitter-yaml",
+    "profile": "yaml",
+    "source": "item:\n  value: Olá\n"
+  },
+  {
+    "grammar": "tree-sitter-zig",
+    "profile": "zig",
+    "source": "const Item = struct { value: i32 };\nfn greet() i32 { return 1; }\n"
+  }
+]

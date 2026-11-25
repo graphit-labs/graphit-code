@@ -1,0 +1,8 @@
+
+# Hub Discovery
+Before resolving an ecosystem project/system, Hub artifact, or {{ brand_display }} configuration, read `{{ skill_name_hub }}` if its instructions are not in the current context; then use its {{ brand_display }} MCP tools.
+{% if mandate_audience | default("") == "delegate" -%}
+Use `{{ mcp_tool_hub_list }}`, `{{ mcp_tool_hub_show }}` and `{{ mcp_tool_hub_content }}` to inspect the admitted installed catalog. Retain the exact artifact type, producer, ID and version. Report unavailable project discovery to the coordinator. Public technologies need no Hub lookup.
+{% else -%}
+When Native Root advertises `{{ mcp_tool_projects_list }}`, resolve a named ecosystem system locally first. A match supplies authorized `checkouts[].dir` for enabled module reads; selection grants no access. Read the target skill and retain project identity/relative paths in shared records. No scoped local match permits remote discovery with `{{ mcp_tool_hub_projects }}` only when that tool is announced. Role connections use their Hub skill's admitted installed-metadata readers; local-project inventory and unannounced remote discovery belong to the coordinator, never a CLI or another identity as a bypass. For artifacts, use advertised `{{ mcp_tool_hub_search }}`/`{{ mcp_tool_hub_show }}` with the actual transport's schema; announce/install an obvious requested fit and ask only for material ambiguity. Distinguish failed discovery from an empty result. Published artifacts imply no checkout; `id@version` never replaces a local path. Public technologies need no Hub lookup; honor explicit Hub requests. Runnable installation does not authorize execution. Configuration uses `{{ mcp_tool_config_get }}` only when advertised.
+{% endif -%}
